@@ -1,0 +1,14 @@
+docs/superpowers/specs/2026-08-04-computer-use-fleet-manager-design.md
+  h_53e4e9d7cad4a4 1-513
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "e5a65a68a3e8922bd18782b6395acd2ad11c2461",
+  "prompts": {},
+  "humans": {
+    "h_53e4e9d7cad4a4": {
+      "author": "Pranav Kannepalli <kitts@kitts-itx.localdomain>"
+    }
+  }
+}
