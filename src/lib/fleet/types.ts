@@ -1,0 +1,116 @@
+export type VmStatus =
+  | "stopped"
+  | "starting"
+  | "idle"
+  | "assigned"
+  | "running"
+  | "needs_human"
+  | "resetting"
+  | "unhealthy";
+
+export type RunStatus = "queued" | "running" | "succeeded" | "failed" | "paused" | "canceled";
+
+export type NodeKind =
+  | "start"
+  | "agent_planner"
+  | "computer_use_task"
+  | "cli_agent_task"
+  | "shell_task"
+  | "human_takeover"
+  | "condition"
+  | "retry_wait"
+  | "artifact"
+  | "end";
+
+export type TriggerKind = "manual" | "schedule" | "webhook";
+
+export type AgentProvider = "claude-code" | "codex" | "local" | "api";
+
+export type WorkflowNode = {
+  id: string;
+  type: NodeKind;
+  name: string;
+  position: { x: number; y: number };
+  config: {
+    prompt?: string;
+    timeoutMs?: number;
+    requiredLabels?: string[];
+    provider?: AgentProvider;
+  };
+};
+
+export type WorkflowEdge = {
+  id: string;
+  from: string;
+  to: string;
+  condition: "success" | "failure" | "always";
+};
+
+export type Workflow = {
+  id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  triggerKinds: TriggerKind[];
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+};
+
+export type XrdpConnection = {
+  host: string;
+  port: number;
+  username: string;
+  credentialSource: string;
+};
+
+export type FleetVm = {
+  id: string;
+  name: string;
+  status: VmStatus;
+  labels: string[];
+  cpu: number;
+  memoryGb: number;
+  diskGb: number;
+  xrdp: XrdpConnection;
+  assignedRunId?: string;
+  lastHealthAt: string;
+};
+
+export type Secret = {
+  id: string;
+  name: string;
+  scope: "global" | "workflow" | "vm" | "run";
+  value: string;
+};
+
+export type WorkflowParam = {
+  id: string;
+  name: string;
+  scope: "global" | "workflow" | "trigger" | "run";
+  value: string | number | boolean | null;
+};
+
+export type RunEvent = {
+  id: string;
+  level: "info" | "warn" | "error";
+  timestamp: string;
+  message: string;
+};
+
+export type WorkflowRun = {
+  id: string;
+  workflowId: string;
+  workflowName: string;
+  status: RunStatus;
+  vmId?: string;
+  startedAt: string;
+  finishedAt?: string;
+  events: RunEvent[];
+};
+
+export type FleetState = {
+  workflows: Workflow[];
+  vms: FleetVm[];
+  params: WorkflowParam[];
+  secrets: Secret[];
+};
