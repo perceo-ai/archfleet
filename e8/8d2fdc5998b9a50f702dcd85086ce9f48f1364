@@ -1,0 +1,39 @@
+src/lib/fleet/computer-use.ts
+  s_fd31e2b543baf5::t_dddca6a2112dbc 42
+virt/ui-tars/docker-compose.yml
+  s_fd31e2b543baf5::t_20f42921ffcc10 1-37
+virt/provision.sh
+  s_fd31e2b543baf5::t_b060c0704d3ce4 100
+  s_fd31e2b543baf5::t_78c9696a58e5eb 99
+virt/ui-tars/check.sh
+  s_fd31e2b543baf5::t_a7e1ecf586a882 1-17
+src/lib/fleet/computer-use.test.ts
+  s_fd31e2b543baf5::t_6b08d72694de2c 42
+virt/agent-runner/backends.py
+  s_fd31e2b543baf5::t_cc27e6ba24d444 4-11,31,35,37-62,77,79,82-84
+virt/agent-runner/test_backends.py
+  s_fd31e2b543baf5::t_43cee7f477f5c3 1-57
+virt/agent-runner/requirements.txt
+  s_fd31e2b543baf5::t_b060c0704d3ce4 10
+  s_fd31e2b543baf5::t_7cf2b21f3ba979 1
+virt/build-golden.sh
+  s_fd31e2b543baf5::t_22bde3593d1129 95-96
+virt/ui-tars/serve-local.sh
+  s_fd31e2b543baf5::t_3cfbf35cddfb23 1-35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "e88d2fdc5998b9a50f702dcd85086ce9f48f1364",
+  "prompts": {},
+  "sessions": {
+    "s_fd31e2b543baf5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebcada33-3d4e-46f7-96e9-ac45fa0c7077",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Pranav Kannepalli <pranav.kannepalli@gmail.com>"
+    }
+  }
+}
