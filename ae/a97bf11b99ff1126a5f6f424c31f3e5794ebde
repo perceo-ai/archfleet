@@ -1,0 +1,59 @@
+src/lib/fleet/vm-daemon/daemon.ts
+  s_fd31e2b543baf5::t_266c93aaf45915 1-113
+src/lib/fleet/types.ts
+  s_fd31e2b543baf5::t_c2090ada7c313b 77-80
+virt/agent-runner/test_agent_runner.py
+  s_fd31e2b543baf5::t_3a9e62bc0c74ad 1-127
+virt/agent-runner/agent_runner.py
+  s_fd31e2b543baf5::t_1a4ab79287266f 1-150
+src/lib/fleet/computer-use.test.ts
+  s_fd31e2b543baf5::t_a7b1da585633e2 1-115
+virt/build-golden.sh
+  s_fd31e2b543baf5::t_556b01f4828732 1-154
+src/lib/fleet/vm-daemon/virsh.test.ts
+  s_fd31e2b543baf5::t_6351ef3782ff75 1-73
+src/lib/fleet/vm-daemon/virsh.smoke.test.ts
+  s_fd31e2b543baf5::t_ee00033f9b15be 1-28
+virt/agent-runner/cli.py
+  s_fd31e2b543baf5::t_37559ec7218676 1-116
+src/lib/fleet/orchestrator.test.ts
+  s_fd31e2b543baf5::t_092842cbb2b54b 1-163
+virt/agent-runner/requirements.txt
+  s_fd31e2b543baf5::t_003346f72880a6 1-10
+.gitignore
+  s_fd31e2b543baf5::t_219d0ae8f7fe64 44-45
+  s_fd31e2b543baf5::t_0fd5222ad76182 42-43
+virt/provision.sh
+  s_fd31e2b543baf5::t_fb14bcbccec482 1-116
+src/lib/fleet/vm-daemon/virsh.ts
+  s_fd31e2b543baf5::t_4b73d23ccdc4f1 1-104
+src/lib/fleet/vm-daemon/daemon.test.ts
+  s_fd31e2b543baf5::t_c51b19f8f0004b 1-119
+src/lib/fleet/orchestrator.ts
+  s_fd31e2b543baf5::t_6ae7f96d936424 1-176
+src/lib/fleet/vm-daemon/exec-runner.ts
+  s_fd31e2b543baf5::t_7528bd648fb79f 1-16
+virt/agent-runner/backends.py
+  s_fd31e2b543baf5::t_43be970e4f1c2c 72-79,82,85
+  s_fd31e2b543baf5::t_94b8ce24478851 1-71,80-81,83-84
+src/lib/fleet/computer-use.ts
+  s_fd31e2b543baf5::t_532a8926c3ad0b 1-139
+src/lib/fleet/ssh-exec.ts
+  s_fd31e2b543baf5::t_7227e04bebfdf4 1-17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "aea97bf11b99ff1126a5f6f424c31f3e5794ebde",
+  "prompts": {},
+  "sessions": {
+    "s_fd31e2b543baf5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebcada33-3d4e-46f7-96e9-ac45fa0c7077",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Pranav Kannepalli <pranav.kannepalli@gmail.com>"
+    }
+  }
+}
