@@ -155,7 +155,7 @@ cat > "${DOMAIN_XML}" <<XML
   <memory unit='MiB'>${RAM_MB}</memory>
   <vcpu>${VCPUS}</vcpu>
   <os>
-    <type arch='x86_64' machine='q35'>hvm</type>
+    <type arch='x86_64' machine='pc'>hvm</type>
     <boot dev='hd'/>
   </os>
   <features><acpi/><apic/></features>
