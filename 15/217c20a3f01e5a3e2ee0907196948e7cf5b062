@@ -1,0 +1,31 @@
+src/lib/fleet/orchestrator.ts
+  s_fd31e2b543baf5::t_3609df1853866f 105-108,111-132,134,137,143-149,152-153,155-213,217-223,232
+  s_fd31e2b543baf5::t_6daaf417f9908e 11-12
+  s_fd31e2b543baf5::t_a0b877c64ab335 34-35
+  s_fd31e2b543baf5::t_bee363827cb0f5 154
+src/lib/fleet/server-runtime.test.ts
+  s_fd31e2b543baf5::t_568b897756e574 9,11-30,33
+src/lib/fleet/orchestrator.test.ts
+  s_fd31e2b543baf5::t_eae1096470d979 81-135
+src/lib/fleet/server-runtime.ts
+  s_fd31e2b543baf5::t_222304d6eacb5d 13
+  s_fd31e2b543baf5::t_e69cae7d6d60eb 77
+src/lib/fleet/ssh-exec.ts
+  s_fd31e2b543baf5::t_5cd29370820dd9 3-21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "15217c20a3f01e5a3e2ee0907196948e7cf5b062",
+  "prompts": {},
+  "sessions": {
+    "s_fd31e2b543baf5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebcada33-3d4e-46f7-96e9-ac45fa0c7077",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Pranav Kannepalli <pranav.kannepalli@gmail.com>"
+    }
+  }
+}
