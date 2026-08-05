@@ -1,0 +1,27 @@
+src/app/api/workflows/route.ts
+  s_fd31e2b543baf5::t_d284359578f7df 3
+  s_fd31e2b543baf5::t_a32eb19d8ac715 17-19
+src/lib/fleet/workflow-validation.test.ts
+  s_fd31e2b543baf5::t_77af0d095aba17 1-55
+src/mcp/tools.ts
+  s_fd31e2b543baf5::t_2de6b310b6b033 39,43-44,46
+  s_fd31e2b543baf5::t_9f0658c206dfe1 9
+src/lib/fleet/workflow-validation.ts
+  s_fd31e2b543baf5::t_9614c68ca0bc07 1-53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "5a7eb05947926926241dcffef2de53666b0d80f3",
+  "prompts": {},
+  "sessions": {
+    "s_fd31e2b543baf5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebcada33-3d4e-46f7-96e9-ac45fa0c7077",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Pranav Kannepalli <pranav.kannepalli@gmail.com>"
+    }
+  }
+}
