@@ -1,0 +1,68 @@
+src/lib/fleet/triggers/triggers-runtime.ts
+  s_fd31e2b543baf5::t_fade911bac3359 1-43
+src/lib/fleet/db/node-sqlite.d.ts
+  s_fd31e2b543baf5::t_c865e90d4e708e 1-15
+src/lib/fleet/db/runs-repo.test.ts
+  s_fd31e2b543baf5::t_d11de4f1787f14 1-62
+src/lib/fleet/db/db.ts
+  s_fd31e2b543baf5::t_1edb0fa3817b56 1-33
+src/lib/fleet/db/schema.ts
+  s_fd31e2b543baf5::t_c23abf0ad02546 1-115
+src/lib/fleet/db/runs-repo.ts
+  s_fd31e2b543baf5::t_8e48bae192ad4a 1-133
+src/lib/fleet/orchestrator.ts
+  s_fd31e2b543baf5::t_38cb0d4ac16ba8 13
+  s_fd31e2b543baf5::t_242f91b1162601 122
+  s_fd31e2b543baf5::t_adf7e3471a90af 155-165
+  s_fd31e2b543baf5::t_02cf36ea1c57a9 192
+src/lib/fleet/server-runtime.ts
+  s_fd31e2b543baf5::t_8523929cb80730 15-16
+  s_fd31e2b543baf5::t_a3bc999a2b1db9 17-18
+  s_fd31e2b543baf5::t_ae926adf057242 38-43,47,49-50,57,61-62
+  s_fd31e2b543baf5::t_9b7fd8e0b89cb9 64-72
+  s_fd31e2b543baf5::t_20b91e001eea30 63
+src/lib/fleet/triggers/triggers.test.ts
+  s_fd31e2b543baf5::t_88eb2b06f0e252 1-102
+src/lib/fleet/server-runtime.test.ts
+  s_fd31e2b543baf5::t_8bc5612409be23 4-5,8,12,14,17-19
+.gitignore
+  s_fd31e2b543baf5::t_ac64da91f92c91 46-49
+src/lib/fleet/types.ts
+  s_fd31e2b543baf5::t_b4c625f59cf3fd 86-98
+  s_fd31e2b543baf5::t_f72ff4a95d6836 120-129,136,140
+src/app/api/triggers/tick/route.ts
+  s_fd31e2b543baf5::t_2b475c9ddcc4b5 1-14
+src/lib/fleet/triggers/triggers-repo.ts
+  s_fd31e2b543baf5::t_d27d9a918a4b74 1-117
+src/app/api/webhooks/[token]/route.ts
+  s_fd31e2b543baf5::t_0060decdee1f1b 1-14
+src/app/api/triggers/route.ts
+  s_fd31e2b543baf5::t_9fcef7be1977b7 1-36
+src/lib/fleet/db/db.test.ts
+  s_fd31e2b543baf5::t_f52a5f0c6c783b 1-29
+src/lib/fleet/triggers/cron.ts
+  s_fd31e2b543baf5::t_8cf0fc835128ef 1-86
+src/app/api/runs/route.ts
+  s_fd31e2b543baf5::t_03525446abb46a 3-4,17-20
+  s_fd31e2b543baf5::t_1ffb4f172f87bf 21
+src/lib/fleet/triggers/cron.test.ts
+  s_fd31e2b543baf5::t_ac6b679ca1a456 1-46
+src/app/api/runs/[id]/route.ts
+  s_fd31e2b543baf5::t_f02ba6797f61e7 1-13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "77a24bd90576d9590270e603133d285687c2a843",
+  "prompts": {},
+  "sessions": {
+    "s_fd31e2b543baf5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebcada33-3d4e-46f7-96e9-ac45fa0c7077",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Pranav Kannepalli <pranav.kannepalli@gmail.com>"
+    }
+  }
+}
