@@ -51,6 +51,22 @@ describe("runs repo", () => {
     db.close();
   });
 
+  it("retry re-queues a failed/paused run; cancel stops it", async () => {
+    const { retryRun, cancelRun } = await import("./runs-repo");
+    const db = openDb(":memory:");
+    saveRun(db, run("r1", { status: "paused", finishedAt: "2026-08-05T00:00:00Z" }));
+    expect(retryRun(db, "r1")).toBe(true);
+    expect(getRun(db, "r1")?.status).toBe("queued");
+    // cancel a queued run
+    expect(cancelRun(db, "r1")).toBe(true);
+    expect(getRun(db, "r1")?.status).toBe("canceled");
+    // retry a canceled run works; retrying a succeeded run does not
+    expect(retryRun(db, "r1")).toBe(true);
+    saveRun(db, run("r2", { status: "succeeded" }));
+    expect(retryRun(db, "r2")).toBe(false);
+    db.close();
+  });
+
   it("upserts on repeated save (status transition)", () => {
     const db = openDb(":memory:");
     saveRun(db, run("r1", { status: "queued", events: [], artifacts: [] }));

@@ -4,7 +4,7 @@
 
 import { z } from "zod";
 import type { Db } from "../lib/fleet/db/db";
-import { listRuns, getRun } from "../lib/fleet/db/runs-repo";
+import { listRuns, getRun, retryRun, cancelRun } from "../lib/fleet/db/runs-repo";
 import { listWorkflows, getWorkflow, saveWorkflow } from "../lib/fleet/db/workflows-repo";
 import { listVms } from "../lib/fleet/db/vms-repo";
 import { listSecretMeta, saveSecret } from "../lib/fleet/db/secrets-repo";
@@ -66,6 +66,18 @@ export const FLEET_TOOLS: FleetTool[] = [
     description: "List recent runs (newest first).",
     shape: { limit: z.number().optional() },
     run: (db, a) => listRuns(db, (a.limit as number) ?? 50),
+  },
+  {
+    name: "retry_run",
+    description: "Re-queue a failed / paused (human-takeover) / canceled run for another attempt.",
+    shape: { id: z.string() },
+    run: (db, a) => ({ ok: retryRun(db, a.id as string) }),
+  },
+  {
+    name: "cancel_run",
+    description: "Cancel a queued / running / paused run.",
+    shape: { id: z.string() },
+    run: (db, a) => ({ ok: cancelRun(db, a.id as string) }),
   },
   {
     name: "list_triggers",

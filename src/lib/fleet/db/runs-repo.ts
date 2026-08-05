@@ -139,6 +139,26 @@ export function deferRun(db: Db, id: string, nextAttemptIso: string): void {
   db.prepare("UPDATE cuf_runs SET next_attempt_at=? WHERE id=?").run(nextAttemptIso, id);
 }
 
+/** Re-queue a terminal/paused run for another attempt (human takeover: retry/resume). */
+export function retryRun(db: Db, id: string): boolean {
+  const res = db
+    .prepare(
+      "UPDATE cuf_runs SET status='queued', finished_at=NULL, next_attempt_at=NULL WHERE id=? AND status IN ('failed','paused','canceled')",
+    )
+    .run(id);
+  return res.changes === 1;
+}
+
+/** Cancel a queued/running/paused run. */
+export function cancelRun(db: Db, id: string, nowIso = new Date().toISOString()): boolean {
+  const res = db
+    .prepare(
+      "UPDATE cuf_runs SET status='canceled', finished_at=? WHERE id=? AND status IN ('queued','running','paused')",
+    )
+    .run(nowIso, id);
+  return res.changes === 1;
+}
+
 /** Overwrite just a run's status (+ optional finishedAt). */
 export function setRunStatus(db: Db, id: string, status: RunStatus, finishedAt?: string): void {
   db.prepare("UPDATE cuf_runs SET status=?, finished_at=COALESCE(?, finished_at) WHERE id=?").run(
