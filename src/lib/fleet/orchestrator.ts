@@ -27,6 +27,8 @@ export type OrchestratorDeps = {
   now: () => string;
   /** Extra env passed to the guest runner (e.g. planner base URL). */
   env?: Record<string, string>;
+  /** SSH private key for the guest transport (key-based auth). */
+  sshIdentityFile?: string;
 };
 
 export type RunWorkflowInput = {
@@ -127,11 +129,12 @@ export async function runWorkflow(
     for (const node of taskNodes) {
       emit("info", `Running node "${node.name}" on ${vm.name}.`);
       let report: GuestReport;
-      const guestConn = vm.ssh ?? {
+      const baseConn = vm.ssh ?? {
         host: acquired.xrdp.host,
         port: 22,
         username: acquired.xrdp.username,
       };
+      const guestConn = { ...baseConn, identityFile: deps.sshIdentityFile };
       try {
         report = await runComputerUseTask(
           guestConn,

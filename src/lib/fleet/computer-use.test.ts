@@ -42,6 +42,13 @@ describe("buildGuestRunCommand", () => {
     expect(remote).toContain("/opt/agent/agent-runner/cli.py");
   });
 
+  it("adds -i identity file when provided", () => {
+    const cmd = buildGuestRunCommand({ ...conn, identityFile: "/keys/cuf_id" }, { instruction: "x" });
+    expect(cmd.args).toContain("-i");
+    expect(cmd.args).toContain("/keys/cuf_id");
+    expect(cmd.args).toContain("IdentitiesOnly=yes");
+  });
+
   it("injects env as a per-process prefix, quoted, not into args", () => {
     const cmd = buildGuestRunCommand(conn, { instruction: "x" }, { OPENROUTER_API_KEY: "sk-abc" });
     const remote = cmd.args[cmd.args.length - 1];

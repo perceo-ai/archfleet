@@ -32,6 +32,8 @@ export type GuestConnection = {
   host: string;
   port: number;
   username: string;
+  /** SSH private key for auth (key-based; BatchMode). */
+  identityFile?: string;
   /** Python interpreter in the guest venv. */
   pythonPath?: string;
   /** Path to the guest runner CLI. */
@@ -85,6 +87,7 @@ export function buildGuestRunCommand(
     "UserKnownHostsFile=/dev/null",
     "-o",
     "BatchMode=yes",
+    ...(conn.identityFile ? ["-i", conn.identityFile, "-o", "IdentitiesOnly=yes"] : []),
     `${conn.username}@${conn.host}`,
     "--",
     remote,

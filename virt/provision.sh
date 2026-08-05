@@ -103,7 +103,9 @@ python3 -m venv "${VENV_DIR}"
   requests httpx pyyaml
 # Agent S is heavier (may pull large ML deps); keep it non-fatal so the golden
 # image still provisions if it fails — it can be retried into the venv later.
-"${VENV_DIR}/bin/pip" install "gui-agents==${GUI_AGENTS_VERSION:-0.3.2}" \
+# --ignore-requires-python: gui-agents pins <=3.12 which excludes 3.12.3 (the noble
+# python), but it runs fine there.
+"${VENV_DIR}/bin/pip" install --ignore-requires-python "gui-agents==${GUI_AGENTS_VERSION:-0.3.2}" \
   || log "WARN: gui-agents install failed — install it into ${VENV_DIR} later"
 chown -R "${AGENT_USER}:${AGENT_USER}" "$(dirname "${VENV_DIR}")"
 

@@ -78,9 +78,15 @@ stage_disk() {
   qemu-img resize "${GOLDEN_IMG}" "${DISK_SIZE}" || die "qemu-img resize failed"
 }
 
+SSH_KEY="${SSH_KEY:-${STATE_DIR}/cuf_id}"
+
 stage_prep() {
   [ -f "${GOLDEN_IMG}" ] || die "golden disk missing — run the 'disk' stage first"
   log "offline prep (agent user + sudo, ssh keys/auth, netplan, copy runner)"
+
+  # Controller keypair for the app's key-based SSH transport (set CUF_SSH_KEY to it).
+  mkdir -p "${STATE_DIR}"
+  [ -f "${SSH_KEY}" ] || ssh-keygen -q -t ed25519 -N "" -C cuf-controller -f "${SSH_KEY}"
 
   local netplan firstuser
   netplan="$(mktemp)"
@@ -106,6 +112,7 @@ YAML
     --run-command "chmod 600 /etc/netplan/99-cuf.yaml" \
     --run-command "mkdir -p /etc/ssh/sshd_config.d && printf 'PasswordAuthentication yes\nKbdInteractiveAuthentication yes\n' > /etc/ssh/sshd_config.d/10-cuf.conf" \
     --run-command "ssh-keygen -A" \
+    --ssh-inject "${AGENT_USER}:file:${SSH_KEY}.pub" \
     --run-command "systemctl disable --now ssh.socket 2>/dev/null || true; systemctl enable ssh || true" \
     --copy-in "${SCRIPT_DIR}/provision.sh:/opt" \
     --mkdir "/opt/agent" \
@@ -253,5 +260,5 @@ Golden VM ready: ${VM_NAME}
   warm reset  : ${VIRSH} snapshot-revert ${VM_NAME} golden-warm
   XRDP (human): 127.0.0.1:${HOST_RDP_PORT}  user=${AGENT_USER}
   SSH (control): ssh -p ${HOST_SSH_PORT} ${AGENT_USER}@127.0.0.1
-  bind to fleet: export CUF_GOLDEN_DOMAIN=${VM_NAME}
+  bind to fleet: export CUF_GOLDEN_DOMAIN=${VM_NAME} CUF_SSH_KEY=${SSH_KEY}
 EOF

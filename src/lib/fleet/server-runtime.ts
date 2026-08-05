@@ -33,9 +33,11 @@ function guestEnv(env: Record<string, string | undefined> = process.env): Record
     "CUF_GROUNDING_BASE_URL",
     "CUF_GROUNDING_API_KEY",
   ];
-  return Object.fromEntries(
+  const forwarded = Object.fromEntries(
     keys.filter((k) => env[k] != null).map((k) => [k, env[k] as string]),
   );
+  // pyautogui must talk to the guest's autologin X session.
+  return { DISPLAY: env.CUF_GUEST_DISPLAY ?? ":0", ...forwarded };
 }
 
 export type ExecuteOptions = {
@@ -64,7 +66,13 @@ function buildRunDeps(state: FleetState, now: () => string): OrchestratorDeps {
   const client = createVirshClient(execVirshRunner(), uri);
   // Real domain-bound VMs (from env) first, then mock seed VMs for display.
   const daemon = createVmDaemon(client, [...realVmsFromEnv(), ...state.vms]);
-  return { daemon, exec: spawnExecRunner, now, env: guestEnv() };
+  return {
+    daemon,
+    exec: spawnExecRunner,
+    now,
+    env: guestEnv(),
+    sshIdentityFile: process.env.CUF_SSH_KEY,
+  };
 }
 
 /** Run a workflow synchronously to completion + persist. (Direct/testing path.) */
