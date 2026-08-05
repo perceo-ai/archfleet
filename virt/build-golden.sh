@@ -1,101 +1,90 @@
 #!/usr/bin/env bash
 #
-# build-golden.sh — controller-side. Builds the golden warm-snapshot VM the fleet
-# reverts to on every run.
+# build-golden.sh — staged, resumable builder for the golden warm-snapshot VM.
 #
-# Pipeline:
-#   1. Fetch Ubuntu cloud image (qcow2).
-#   2. Copy + grow it into a golden disk.
-#   3. Inject provision.sh OFFLINE with virt-customize (deterministic, no boot).
-#   4. Define + boot the domain under qemu:///session with host port-forwards.
-#   5. Wait until SSH answers and /opt/agent/PROVISIONED exists.
-#   6. Take a WARM snapshot (running domain -> captures RAM) named "golden-warm".
-#      Per-run reset = `virsh snapshot-revert <domain> golden-warm` (~1-3s).
+# Stages (run in order; each stamps virt/.state/<stage>.done on success):
+#   disk       fetch base cloud image + create the golden qcow2
+#   prep       OFFLINE virt-customize: agent user + sudo, ssh keys/auth, netplan,
+#              copy provision.sh + agent-runner in  (network-free)
+#   boot       define + start the domain (virsh XML, user-net hostfwd)
+#   provision  run provision.sh over SSH as root — LIVE output, re-runnable
+#   snapshot   warm memory snapshot 'golden-warm' (per-run reset target)
+#   validate   guest agent-runner --selftest over SSH
 #
-# Prereqs (install once): libvirt qemu virt-install libguestfs (virt-customize),
-# and either qemu:///session usable by your user. See host-virt-capability memory.
+# Reruns skip already-stamped stages, so fixing provision.sh + rerunning only
+# repeats `provision` onward against the still-booted VM — no full rebuild.
 #
 # Usage:
-#   AGENT_PASSWORD='...' ./virt/build-golden.sh
-#
-# Config via env (all optional, sane defaults below).
+#   AGENT_PASSWORD='...' ./virt/build-golden.sh                 # run all, resume
+#   AGENT_PASSWORD='...' ./virt/build-golden.sh --from provision# rerun from a stage
+#   AGENT_PASSWORD='...' ./virt/build-golden.sh --only provision# run one stage
+#   ./virt/build-golden.sh --clean                              # wipe state + VM + disk
 
-set -euo pipefail
+set -uo pipefail
 
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-UBUNTU_RELEASE="${UBUNTU_RELEASE:-noble}"                 # 24.04 LTS
-OS_VARIANT="${OS_VARIANT:-ubuntu24.04}"                   # libosinfo variant for virt-install
+UBUNTU_RELEASE="${UBUNTU_RELEASE:-noble}"
 CLOUD_IMG_URL="${CLOUD_IMG_URL:-https://cloud-images.ubuntu.com/${UBUNTU_RELEASE}/current/${UBUNTU_RELEASE}-server-cloudimg-amd64.img}"
-
 VM_NAME="${VM_NAME:-cuf-golden}"
-DISK_SIZE="${DISK_SIZE:-25G}"                             # grown from the ~3.5G base
+DISK_SIZE="${DISK_SIZE:-25G}"
 RAM_MB="${RAM_MB:-4096}"
 VCPUS="${VCPUS:-2}"
-
-HOST_SSH_PORT="${HOST_SSH_PORT:-10022}"                   # host -> guest:22
-HOST_RDP_PORT="${HOST_RDP_PORT:-13389}"                   # host -> guest:3389
-
+HOST_SSH_PORT="${HOST_SSH_PORT:-10022}"
+HOST_RDP_PORT="${HOST_RDP_PORT:-13389}"
 AGENT_USER="${AGENT_USER:-agent}"
 AGENT_PASSWORD="${AGENT_PASSWORD:-changeme}"
-
+GUI_AGENTS_VERSION="${GUI_AGENTS_VERSION:-0.3.2}"
 LIBVIRT_URI="${LIBVIRT_URI:-qemu:///session}"
+PROVISION_WAIT_S="${PROVISION_WAIT_S:-2400}"
 VIRSH="virsh -c ${LIBVIRT_URI}"
 
-# Paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CACHE_DIR="${CACHE_DIR:-${SCRIPT_DIR}/.cache}"
 IMAGES_DIR="${IMAGES_DIR:-${SCRIPT_DIR}/images}"
+STATE_DIR="${STATE_DIR:-${SCRIPT_DIR}/.state}"
 BASE_IMG="${CACHE_DIR}/${UBUNTU_RELEASE}-base.img"
 GOLDEN_IMG="${IMAGES_DIR}/${VM_NAME}.qcow2"
 
-log() { echo "[build-golden] $*"; }
-die() { echo "[build-golden] ERROR: $*" >&2; exit 1; }
+SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=6 -p ${HOST_SSH_PORT}"
+SSH="sshpass -p ${AGENT_PASSWORD} ssh ${SSH_OPTS} ${AGENT_USER}@127.0.0.1"
+
+log()  { echo "[build-golden] $*"; }
+die()  { echo "[build-golden] ERROR: $*" >&2; exit 1; }
+stamp(){ mkdir -p "${STATE_DIR}"; touch "${STATE_DIR}/$1.done"; }
+done_() { [ -f "${STATE_DIR}/$1.done" ]; }
+
+ALL_STAGES=(disk prep boot provision snapshot validate)
 
 # ---------------------------------------------------------------------------
-# 0. Prereq checks
+# Stage implementations
 # ---------------------------------------------------------------------------
-for bin in virsh virt-install virt-customize qemu-img wget ssh; do
-  command -v "$bin" >/dev/null 2>&1 || die "missing required tool: $bin"
-done
-$VIRSH version >/dev/null 2>&1 || die "cannot reach libvirt at ${LIBVIRT_URI}"
-[ "${AGENT_PASSWORD}" = "changeme" ] && log "WARNING: using default AGENT_PASSWORD — override for anything real."
+stage_disk() {
+  for bin in virsh virt-customize qemu-img wget ssh sshpass; do
+    command -v "$bin" >/dev/null 2>&1 || die "missing tool: $bin (run ./virt/preflight.sh)"
+  done
+  mkdir -p "${CACHE_DIR}" "${IMAGES_DIR}"
+  if [ ! -f "${BASE_IMG}" ]; then
+    log "downloading Ubuntu ${UBUNTU_RELEASE} cloud image"
+    wget -q --show-progress -O "${BASE_IMG}.part" "${CLOUD_IMG_URL}" || die "download failed"
+    mv "${BASE_IMG}.part" "${BASE_IMG}"
+  else
+    log "base image cached"
+  fi
+  log "creating golden disk (${DISK_SIZE})"
+  rm -f "${GOLDEN_IMG}"
+  qemu-img convert -O qcow2 "${BASE_IMG}" "${GOLDEN_IMG}" || die "qemu-img convert failed"
+  qemu-img resize "${GOLDEN_IMG}" "${DISK_SIZE}" || die "qemu-img resize failed"
+}
 
-mkdir -p "${CACHE_DIR}" "${IMAGES_DIR}"
+stage_prep() {
+  [ -f "${GOLDEN_IMG}" ] || die "golden disk missing — run the 'disk' stage first"
+  log "offline prep (agent user + sudo, ssh keys/auth, netplan, copy runner)"
 
-# ---------------------------------------------------------------------------
-# 1. Fetch base cloud image (cached)
-# ---------------------------------------------------------------------------
-if [ ! -f "${BASE_IMG}" ]; then
-  log "downloading Ubuntu ${UBUNTU_RELEASE} cloud image"
-  wget --show-progress -O "${BASE_IMG}.part" "${CLOUD_IMG_URL}"
-  mv "${BASE_IMG}.part" "${BASE_IMG}"
-else
-  log "base image cached: ${BASE_IMG}"
-fi
-
-# ---------------------------------------------------------------------------
-# 2. Copy + grow into the golden disk (fresh each build)
-# ---------------------------------------------------------------------------
-log "creating golden disk ${GOLDEN_IMG} (${DISK_SIZE})"
-rm -f "${GOLDEN_IMG}"
-qemu-img convert -O qcow2 "${BASE_IMG}" "${GOLDEN_IMG}"
-qemu-img resize "${GOLDEN_IMG}" "${DISK_SIZE}"
-
-# ---------------------------------------------------------------------------
-# 3. Offline provisioning with virt-customize (deterministic, no boot needed)
-# ---------------------------------------------------------------------------
-# virt-customize's offline appliance has no reliable DNS, so we do NOT run the
-# network-heavy provision here. Offline we only prep things that need no network
-# (disk grow, static netplan, ssh password auth, copy files) and register a
-# first-boot service. provision.sh then runs on first boot, where qemu user-mode
-# networking gives working DHCP + DNS for apt/pip.
-log "offline prep + registering first-boot provisioning"
-
-# Static netplan so the guest always gets DHCP (slirp) regardless of cloud-init.
-NETPLAN_FILE="$(mktemp)"
-cat > "${NETPLAN_FILE}" <<'YAML'
+  local netplan firstuser
+  netplan="$(mktemp)"
+  cat > "${netplan}" <<'YAML'
 network:
   version: 2
   renderer: networkd
@@ -106,64 +95,49 @@ network:
       dhcp4: true
 YAML
 
-# First-boot wrapper: bake env, run provision.sh, log to /var/log/cuf-provision.log.
-FIRSTBOOT_FILE="$(mktemp)"
-cat > "${FIRSTBOOT_FILE}" <<EOF
-#!/bin/bash
-export AGENT_USER='${AGENT_USER}' AGENT_PASSWORD='${AGENT_PASSWORD}' GUI_AGENTS_VERSION='${GUI_AGENTS_VERSION:-0.3.2}'
-bash /opt/provision.sh > /var/log/cuf-provision.log 2>&1
-EOF
+  virt-customize -a "${GOLDEN_IMG}" \
+    --run-command "growpart /dev/sda 1 || true" \
+    --run-command "resize2fs /dev/sda1 || true" \
+    --run-command "touch /etc/cloud/cloud-init.disabled" \
+    --run-command "id ${AGENT_USER} >/dev/null 2>&1 || useradd -m -s /bin/bash ${AGENT_USER}" \
+    --password "${AGENT_USER}:password:${AGENT_PASSWORD}" \
+    --run-command "usermod -aG sudo ${AGENT_USER}; echo '${AGENT_USER} ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/90-cuf; chmod 440 /etc/sudoers.d/90-cuf" \
+    --upload "${netplan}:/etc/netplan/99-cuf.yaml" \
+    --run-command "chmod 600 /etc/netplan/99-cuf.yaml" \
+    --run-command "mkdir -p /etc/ssh/sshd_config.d && printf 'PasswordAuthentication yes\nKbdInteractiveAuthentication yes\n' > /etc/ssh/sshd_config.d/10-cuf.conf" \
+    --run-command "ssh-keygen -A" \
+    --run-command "systemctl disable --now ssh.socket 2>/dev/null || true; systemctl enable ssh || true" \
+    --copy-in "${SCRIPT_DIR}/provision.sh:/opt" \
+    --mkdir "/opt/agent" \
+    --copy-in "${SCRIPT_DIR}/agent-runner:/opt/agent" \
+    --run-command "rm -rf /opt/agent/agent-runner/__pycache__" \
+    --run-command "systemctl set-default graphical.target" \
+    || { rm -f "${netplan}"; die "virt-customize prep failed"; }
+  rm -f "${netplan}"
+}
 
-virt-customize -a "${GOLDEN_IMG}" \
-  --root-password "password:${AGENT_PASSWORD}" \
-  --run-command "growpart /dev/sda 1 || true" \
-  --run-command "resize2fs /dev/sda1 || true" \
-  --run-command "touch /etc/cloud/cloud-init.disabled" \
-  --upload "${NETPLAN_FILE}:/etc/netplan/99-cuf.yaml" \
-  --run-command "chmod 600 /etc/netplan/99-cuf.yaml" \
-  --run-command "mkdir -p /etc/ssh/sshd_config.d && printf 'PasswordAuthentication yes\nKbdInteractiveAuthentication yes\n' > /etc/ssh/sshd_config.d/10-cuf.conf" \
-  --run-command "ssh-keygen -A" \
-  --run-command "systemctl disable --now ssh.socket 2>/dev/null || true; systemctl enable ssh || true" \
-  --copy-in "${SCRIPT_DIR}/provision.sh:/opt" \
-  --mkdir "/opt/agent" \
-  --copy-in "${SCRIPT_DIR}/agent-runner:/opt/agent" \
-  --run-command "rm -rf /opt/agent/agent-runner/__pycache__" \
-  --run-command "systemctl set-default graphical.target" \
-  --firstboot "${FIRSTBOOT_FILE}" \
-  || die "virt-customize offline prep failed"
+domain_running() { $VIRSH domstate "${VM_NAME}" 2>/dev/null | grep -q running; }
 
-rm -f "${NETPLAN_FILE}" "${FIRSTBOOT_FILE}"
-
-# ---------------------------------------------------------------------------
-# 4. Define + boot the domain with user-mode net + host port-forwards.
-#    qemu:///session -> user (slirp) networking; hostfwd exposes 22/3389 on host.
-# ---------------------------------------------------------------------------
-if $VIRSH dominfo "${VM_NAME}" >/dev/null 2>&1; then
-  log "existing domain ${VM_NAME} found — destroying + undefining"
-  $VIRSH destroy "${VM_NAME}" >/dev/null 2>&1 || true
-  $VIRSH undefine "${VM_NAME}" --nvram >/dev/null 2>&1 || true
-fi
-
-# Define via `virsh define` + generated XML (no virt-install / PyGObject dep).
-# Networking is entirely qemu user-mode (slirp) via <qemu:commandline>, with host
-# port-forwards for SSH (control) and RDP (human takeover).
-log "defining + starting domain ${VM_NAME}"
-QEMU_BIN="$(command -v qemu-system-x86_64)"
-DOMAIN_XML="$(mktemp)"
-cat > "${DOMAIN_XML}" <<XML
+stage_boot() {
+  if domain_running; then log "domain already running"; return 0; fi
+  if $VIRSH dominfo "${VM_NAME}" >/dev/null 2>&1; then
+    $VIRSH destroy "${VM_NAME}" >/dev/null 2>&1 || true
+    $VIRSH undefine "${VM_NAME}" --nvram >/dev/null 2>&1 || true
+  fi
+  local qemu_bin xml
+  qemu_bin="$(command -v qemu-system-x86_64)"
+  xml="$(mktemp)"
+  cat > "${xml}" <<XML
 <domain type='kvm' xmlns:qemu='http://libvirt.org/schemas/domain/qemu/1.0'>
   <name>${VM_NAME}</name>
   <memory unit='MiB'>${RAM_MB}</memory>
   <vcpu>${VCPUS}</vcpu>
-  <os>
-    <type arch='x86_64' machine='pc'>hvm</type>
-    <boot dev='hd'/>
-  </os>
+  <os><type arch='x86_64' machine='pc'>hvm</type><boot dev='hd'/></os>
   <features><acpi/><apic/></features>
   <cpu mode='host-passthrough'/>
   <clock offset='utc'/>
   <devices>
-    <emulator>${QEMU_BIN}</emulator>
+    <emulator>${qemu_bin}</emulator>
     <disk type='file' device='disk'>
       <driver name='qemu' type='qcow2'/>
       <source file='${GOLDEN_IMG}'/>
@@ -182,44 +156,98 @@ cat > "${DOMAIN_XML}" <<XML
   </qemu:commandline>
 </domain>
 XML
+  $VIRSH define "${xml}" || { rm -f "${xml}"; die "virsh define failed"; }
+  $VIRSH start "${VM_NAME}" || { rm -f "${xml}"; die "virsh start failed"; }
+  rm -f "${xml}"
 
-$VIRSH define "${DOMAIN_XML}" || die "virsh define failed"
-$VIRSH start "${VM_NAME}" || die "virsh start failed"
-rm -f "${DOMAIN_XML}"
+  log "waiting for guest SSH (host port ${HOST_SSH_PORT})"
+  local deadline=$(( $(date +%s) + 180 ))
+  until $SSH true 2>/dev/null; do
+    [ "$(date +%s)" -gt "${deadline}" ] && die "guest SSH never came up — check VNC/console"
+    sleep 5
+  done
+  log "guest reachable over SSH"
+}
+
+stage_provision() {
+  domain_running || die "domain not running — run the 'boot' stage first"
+  log "provisioning over SSH (live output; re-runnable)"
+  # Stream provision.sh output straight to this log. Runs as root via sudo.
+  $SSH "sudo AGENT_USER='${AGENT_USER}' AGENT_PASSWORD='${AGENT_PASSWORD}' GUI_AGENTS_VERSION='${GUI_AGENTS_VERSION}' bash /opt/provision.sh 2>&1" \
+    || die "provision.sh failed (see output above) — fix + rerun: build-golden.sh --from provision"
+  $SSH 'test -f /opt/agent/PROVISIONED' 2>/dev/null || die "provision finished but marker missing"
+  log "provisioning complete"
+}
+
+stage_snapshot() {
+  domain_running || die "domain not running"
+  log "creating warm snapshot 'golden-warm' (includes RAM)"
+  $VIRSH snapshot-delete "${VM_NAME}" golden-warm >/dev/null 2>&1 || true
+  $VIRSH snapshot-create-as "${VM_NAME}" --name golden-warm \
+    --description "Booted, provisioned, agent venv ready" --live \
+    || die "snapshot-create failed"
+}
+
+stage_validate() {
+  log "validating guest agent-runner --selftest"
+  local report
+  report="$($SSH '/opt/agent/venv/bin/python /opt/agent/agent-runner/cli.py --selftest' 2>/dev/null)"
+  log "selftest report: ${report}"
+  echo "${report}" | grep -q '"status": "succeeded"' || die "selftest did not succeed"
+}
+
+stage_clean() {
+  log "cleaning state + VM + disk"
+  $VIRSH destroy "${VM_NAME}" >/dev/null 2>&1 || true
+  $VIRSH undefine "${VM_NAME}" --nvram >/dev/null 2>&1 || true
+  rm -rf "${STATE_DIR}" "${GOLDEN_IMG}"
+}
 
 # ---------------------------------------------------------------------------
-# 5. Wait for provisioning marker over the forwarded SSH port.
+# Runner
 # ---------------------------------------------------------------------------
-# First boot runs provision.sh (desktop + xrdp + pip), which is slow — wait up to
-# PROVISION_WAIT_S. Follow /var/log/cuf-provision.log inside the guest to debug.
-PROVISION_WAIT_S="${PROVISION_WAIT_S:-1800}"
-log "waiting up to ${PROVISION_WAIT_S}s for first-boot provisioning (ssh port ${HOST_SSH_PORT})"
-SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -p ${HOST_SSH_PORT}"
-deadline=$(( $(date +%s) + PROVISION_WAIT_S ))
-until sshpass -p "${AGENT_PASSWORD}" ssh ${SSH_OPTS} "${AGENT_USER}@127.0.0.1" \
-        'test -f /opt/agent/PROVISIONED' >/dev/null 2>&1; do
-  if [ "$(date +%s)" -gt "${deadline}" ]; then
-    die "timed out waiting for provisioning — check /var/log/cuf-provision.log in the guest (ssh -p ${HOST_SSH_PORT} root@127.0.0.1)"
-  fi
-  sleep 10
+FROM=""; ONLY=""; FORCE=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --from) FROM="$2"; shift 2;;
+    --only) ONLY="$2"; shift 2;;
+    --force) FORCE=1; shift;;
+    --clean) stage_clean; exit 0;;
+    *) die "unknown arg: $1";;
+  esac
 done
-log "guest is up and provisioned"
 
-# ---------------------------------------------------------------------------
-# 6. Warm snapshot (running domain -> includes RAM). Reset target for every run.
-# ---------------------------------------------------------------------------
-log "creating warm snapshot 'golden-warm' (includes RAM)"
-$VIRSH snapshot-create-as "${VM_NAME}" \
-  --name "golden-warm" \
-  --description "Booted + auto-logged-in desktop, agent venv ready" \
-  --live || die "snapshot-create failed"
+[ "${AGENT_PASSWORD}" = "changeme" ] && log "WARNING: default AGENT_PASSWORD — override for anything real."
+
+run_stage() {
+  local s="$1"
+  if [ -n "${ONLY}" ] && [ "${ONLY}" != "${s}" ]; then return 0; fi
+  # provision/snapshot/validate are cheap to redo and depend on live state, so
+  # never skip them on stamp alone unless we're resuming past them.
+  if [ "${FORCE}" -eq 0 ] && [ -z "${ONLY}" ] && done_ "${s}"; then
+    log "stage ${s}: already done (skip)"; return 0
+  fi
+  log "stage ${s}: running"
+  "stage_${s}" && stamp "${s}"
+}
+
+# Honour --from by clearing stamps from that stage onward.
+if [ -n "${FROM}" ]; then
+  seen=0
+  for s in "${ALL_STAGES[@]}"; do
+    [ "${s}" = "${FROM}" ] && seen=1
+    [ "${seen}" -eq 1 ] && rm -f "${STATE_DIR}/${s}.done"
+  done
+fi
+
+for s in "${ALL_STAGES[@]}"; do run_stage "${s}"; done
 
 log "DONE."
 cat <<EOF
 
 Golden VM ready: ${VM_NAME}
-  disk        : ${GOLDEN_IMG}
-  warm reset  : virsh -c ${LIBVIRT_URI} snapshot-revert ${VM_NAME} golden-warm
+  warm reset  : ${VIRSH} snapshot-revert ${VM_NAME} golden-warm
   XRDP (human): 127.0.0.1:${HOST_RDP_PORT}  user=${AGENT_USER}
   SSH (control): ssh -p ${HOST_SSH_PORT} ${AGENT_USER}@127.0.0.1
+  bind to fleet: export CUF_GOLDEN_DOMAIN=${VM_NAME}
 EOF

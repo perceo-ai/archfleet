@@ -47,3 +47,4 @@ data/
 *.db
 *.db-wal
 *.db-shm
+virt/.state/
