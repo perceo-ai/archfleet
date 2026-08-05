@@ -90,7 +90,19 @@ export function FleetManager() {
       <div className="grid min-h-0 grid-cols-[320px_minmax(0,1fr)_360px]">
         <FleetSidebar vms={state.vms} />
         <div className="grid min-h-0 grid-rows-[1fr_auto]">
-          <WorkflowCanvas workflow={workflow} />
+          <WorkflowCanvas
+            workflow={workflow}
+            onSave={async (wf) => {
+              const res = await fetch("/api/workflows", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify(wf),
+              });
+              if (res.ok) return { ok: true };
+              const body = (await res.json().catch(() => ({}))) as { errors?: string[] };
+              return { ok: false, errors: body.errors };
+            }}
+          />
           <SecretsParamsPanel params={state.params} secrets={state.secrets} />
         </div>
         <RunPanel
