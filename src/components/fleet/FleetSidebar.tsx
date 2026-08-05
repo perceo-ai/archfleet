@@ -1,4 +1,6 @@
-import { Monitor, Network, Server } from "lucide-react";
+"use client";
+
+import { Copy, Monitor, Network, Server } from "lucide-react";
 import type { FleetVm } from "@/lib/fleet/types";
 
 type FleetSidebarProps = {
@@ -56,9 +58,24 @@ export function FleetSidebar({ vms }: FleetSidebarProps) {
             </div>
 
             <div className="mt-3 border-t border-zinc-200 pt-3">
-              <div className="flex items-center gap-2 text-xs font-semibold text-zinc-800">
-                <Network className="h-3.5 w-3.5" aria-hidden="true" />
-                XRDP
+              <div className="flex items-center justify-between text-xs font-semibold text-zinc-800">
+                <span className="flex items-center gap-2">
+                  <Network className="h-3.5 w-3.5" aria-hidden="true" />
+                  XRDP
+                </span>
+                <button
+                  type="button"
+                  title="Copy connection"
+                  onClick={() =>
+                    navigator.clipboard?.writeText(
+                      `${vm.xrdp.host}:${vm.xrdp.port} user=${vm.xrdp.username}`,
+                    )
+                  }
+                  className="inline-flex items-center gap-1 rounded border border-zinc-200 px-1.5 py-0.5 text-[10px] font-normal text-zinc-500 hover:bg-white"
+                >
+                  <Copy className="h-3 w-3" aria-hidden="true" />
+                  Copy
+                </button>
               </div>
               <dl className="mt-2 grid grid-cols-[56px_1fr] gap-y-1 text-xs">
                 <dt className="text-zinc-500">Host</dt>
