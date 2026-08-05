@@ -177,7 +177,7 @@ cat > "${DOMAIN_XML}" <<XML
     <qemu:arg value='-netdev'/>
     <qemu:arg value='user,id=unet,hostfwd=tcp::${HOST_SSH_PORT}-:22,hostfwd=tcp::${HOST_RDP_PORT}-:3389'/>
     <qemu:arg value='-device'/>
-    <qemu:arg value='virtio-net-pci,netdev=unet'/>
+    <qemu:arg value='virtio-net-pci,netdev=unet,addr=0x10'/>
   </qemu:commandline>
 </domain>
 XML
