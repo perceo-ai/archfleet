@@ -36,8 +36,13 @@ function guestEnv(env: Record<string, string | undefined> = process.env): Record
   const forwarded = Object.fromEntries(
     keys.filter((k) => env[k] != null).map((k) => [k, env[k] as string]),
   );
-  // pyautogui must talk to the guest's autologin X session.
-  return { DISPLAY: env.CUF_GUEST_DISPLAY ?? ":0", ...forwarded };
+  // pyautogui must talk to the guest's autologin X session (xhost +local: on the
+  // guest grants access; XAUTHORITY is a fallback if the session uses a cookie).
+  return {
+    DISPLAY: env.CUF_GUEST_DISPLAY ?? ":0",
+    XAUTHORITY: env.CUF_GUEST_XAUTHORITY ?? "/home/agent/.Xauthority",
+    ...forwarded,
+  };
 }
 
 export type ExecuteOptions = {

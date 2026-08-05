@@ -129,6 +129,31 @@ systemctl restart ssh 2>/dev/null || true
 # XRDP listens on 3389; SSH on 22. Host port-forwards are set by build-golden.sh.
 
 # ---------------------------------------------------------------------------
+# 6b. Bring up the desktop so a live X display ':0' exists in the snapshot.
+#     Agent S / pyautogui drive :0; without a running X server there is nothing
+#     to screenshot. An autostart entry runs `xhost +local:` so the controller's
+#     SSH-launched agent (same 'agent' user) can connect to :0 without xauth —
+#     safe because the VM is reachable only from the local controller.
+# ---------------------------------------------------------------------------
+log "bring up desktop + allow local X access"
+mkdir -p "${AGENT_HOME}/.config/autostart"
+cat > "${AGENT_HOME}/.config/autostart/cuf-xhost.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=cuf-xhost
+Exec=sh -c 'xhost +local: || true'
+X-GNOME-Autostart-enabled=true
+EOF
+chown -R "${AGENT_USER}:${AGENT_USER}" "${AGENT_HOME}/.config"
+apt-get install -y --no-install-recommends x11-xserver-utils >/dev/null 2>&1 || true
+
+systemctl start lightdm 2>/dev/null || true
+for _ in $(seq 1 45); do [ -e /tmp/.X11-unix/X0 ] && break; sleep 1; done
+# Belt-and-suspenders: apply xhost directly against the live session too.
+sudo -u "${AGENT_USER}" DISPLAY=:0 xhost +local: 2>/dev/null || true
+[ -e /tmp/.X11-unix/X0 ] && log "X display :0 is up" || log "WARN: :0 not up yet"
+
+# ---------------------------------------------------------------------------
 # 7. Provenance marker (build-golden.sh polls for this to know provisioning done).
 # ---------------------------------------------------------------------------
 mkdir -p /opt/agent
