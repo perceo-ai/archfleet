@@ -26,6 +26,7 @@ set -euo pipefail
 # Config
 # ---------------------------------------------------------------------------
 UBUNTU_RELEASE="${UBUNTU_RELEASE:-noble}"                 # 24.04 LTS
+OS_VARIANT="${OS_VARIANT:-ubuntu24.04}"                   # libosinfo variant for virt-install
 CLOUD_IMG_URL="${CLOUD_IMG_URL:-https://cloud-images.ubuntu.com/${UBUNTU_RELEASE}/current/${UBUNTU_RELEASE}-server-cloudimg-amd64.img}"
 
 VM_NAME="${VM_NAME:-cuf-golden}"
@@ -85,17 +86,51 @@ qemu-img resize "${GOLDEN_IMG}" "${DISK_SIZE}"
 # ---------------------------------------------------------------------------
 # 3. Offline provisioning with virt-customize (deterministic, no boot needed)
 # ---------------------------------------------------------------------------
-log "running provision.sh offline into the image (this takes a while)"
+# virt-customize's offline appliance has no reliable DNS, so we do NOT run the
+# network-heavy provision here. Offline we only prep things that need no network
+# (disk grow, static netplan, ssh password auth, copy files) and register a
+# first-boot service. provision.sh then runs on first boot, where qemu user-mode
+# networking gives working DHCP + DNS for apt/pip.
+log "offline prep + registering first-boot provisioning"
+
+# Static netplan so the guest always gets DHCP (slirp) regardless of cloud-init.
+NETPLAN_FILE="$(mktemp)"
+cat > "${NETPLAN_FILE}" <<'YAML'
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    cufnet:
+      match:
+        name: "e*"
+      dhcp4: true
+YAML
+
+# First-boot wrapper: bake env, run provision.sh, log to /var/log/cuf-provision.log.
+FIRSTBOOT_FILE="$(mktemp)"
+cat > "${FIRSTBOOT_FILE}" <<EOF
+#!/bin/bash
+export AGENT_USER='${AGENT_USER}' AGENT_PASSWORD='${AGENT_PASSWORD}' GUI_AGENTS_VERSION='${GUI_AGENTS_VERSION:-0.3.2}'
+bash /opt/provision.sh > /var/log/cuf-provision.log 2>&1
+EOF
+
 virt-customize -a "${GOLDEN_IMG}" \
   --root-password "password:${AGENT_PASSWORD}" \
   --run-command "growpart /dev/sda 1 || true" \
   --run-command "resize2fs /dev/sda1 || true" \
-  --copy-in "${SCRIPT_DIR}/provision.sh:/tmp" \
-  --run-command "AGENT_USER='${AGENT_USER}' AGENT_PASSWORD='${AGENT_PASSWORD}' bash /tmp/provision.sh" \
+  --run-command "touch /etc/cloud/cloud-init.disabled" \
+  --upload "${NETPLAN_FILE}:/etc/netplan/99-cuf.yaml" \
+  --run-command "chmod 600 /etc/netplan/99-cuf.yaml" \
+  --run-command "mkdir -p /etc/ssh/sshd_config.d && printf 'PasswordAuthentication yes\nKbdInteractiveAuthentication yes\n' > /etc/ssh/sshd_config.d/10-cuf.conf" \
+  --run-command "systemctl enable ssh || systemctl enable ssh.socket || true" \
+  --copy-in "${SCRIPT_DIR}/provision.sh:/opt" \
   --copy-in "${SCRIPT_DIR}/agent-runner:/opt/agent" \
-  --run-command "rm -rf /opt/agent/agent-runner/__pycache__ && chown -R ${AGENT_USER}:${AGENT_USER} /opt/agent/agent-runner" \
+  --run-command "rm -rf /opt/agent/agent-runner/__pycache__" \
   --run-command "systemctl set-default graphical.target" \
-  --run-command "rm -f /tmp/provision.sh"
+  --firstboot "${FIRSTBOOT_FILE}" \
+  || die "virt-customize offline prep failed"
+
+rm -f "${NETPLAN_FILE}" "${FIRSTBOOT_FILE}"
 
 # ---------------------------------------------------------------------------
 # 4. Define + boot the domain with user-mode net + host port-forwards.
@@ -116,7 +151,7 @@ virt-install \
   --cpu host-passthrough \
   --import \
   --disk "path=${GOLDEN_IMG},format=qcow2,bus=virtio" \
-  --os-variant "ubuntu${UBUNTU_RELEASE}" \
+  --os-variant "${OS_VARIANT}" \
   --graphics vnc,listen=127.0.0.1 \
   --network none \
   --qemu-commandline="-netdev user,id=unet,hostfwd=tcp::${HOST_SSH_PORT}-:22,hostfwd=tcp::${HOST_RDP_PORT}-:3389 -device virtio-net-pci,netdev=unet" \
@@ -126,13 +161,18 @@ virt-install \
 # ---------------------------------------------------------------------------
 # 5. Wait for provisioning marker over the forwarded SSH port.
 # ---------------------------------------------------------------------------
-log "waiting for guest SSH on host port ${HOST_SSH_PORT} + provisioning marker"
+# First boot runs provision.sh (desktop + xrdp + pip), which is slow — wait up to
+# PROVISION_WAIT_S. Follow /var/log/cuf-provision.log inside the guest to debug.
+PROVISION_WAIT_S="${PROVISION_WAIT_S:-1800}"
+log "waiting up to ${PROVISION_WAIT_S}s for first-boot provisioning (ssh port ${HOST_SSH_PORT})"
 SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -p ${HOST_SSH_PORT}"
-deadline=$(( $(date +%s) + 600 ))
+deadline=$(( $(date +%s) + PROVISION_WAIT_S ))
 until sshpass -p "${AGENT_PASSWORD}" ssh ${SSH_OPTS} "${AGENT_USER}@127.0.0.1" \
         'test -f /opt/agent/PROVISIONED' >/dev/null 2>&1; do
-  [ "$(date +%s)" -gt "${deadline}" ] && die "timed out waiting for guest provisioning"
-  sleep 5
+  if [ "$(date +%s)" -gt "${deadline}" ]; then
+    die "timed out waiting for provisioning — check /var/log/cuf-provision.log in the guest (ssh -p ${HOST_SSH_PORT} root@127.0.0.1)"
+  fi
+  sleep 10
 done
 log "guest is up and provisioned"
 

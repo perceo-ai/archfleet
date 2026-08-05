@@ -93,18 +93,27 @@ log "create python venv at ${VENV_DIR}"
 mkdir -p "$(dirname "${VENV_DIR}")"
 python3 -m venv "${VENV_DIR}"
 "${VENV_DIR}/bin/pip" install --upgrade pip wheel
+# Base runner deps are required.
 "${VENV_DIR}/bin/pip" install \
   pyautogui pillow mss pynput \
   "openai>=1.0"          `# OpenRouter is OpenAI-API-compatible: planner client` \
-  requests httpx pyyaml \
-  "gui-agents==${GUI_AGENTS_VERSION:-0.3.2}"   `# Agent S / AgentS3 (pinned; fork overlay applied separately)`
+  requests httpx pyyaml
+# Agent S is heavier (may pull large ML deps); keep it non-fatal so the golden
+# image still provisions if it fails — it can be retried into the venv later.
+"${VENV_DIR}/bin/pip" install "gui-agents==${GUI_AGENTS_VERSION:-0.3.2}" \
+  || log "WARN: gui-agents install failed — install it into ${VENV_DIR} later"
 chown -R "${AGENT_USER}:${AGENT_USER}" "$(dirname "${VENV_DIR}")"
 
 # ---------------------------------------------------------------------------
 # 6. Enable services.
 # ---------------------------------------------------------------------------
-log "enable xrdp + ssh"
-systemctl enable xrdp ssh || true
+log "enable xrdp + ssh (with password auth for controller SSH)"
+# Controller drives the guest over SSH with a password; cloud images ship with
+# PasswordAuthentication disabled, so turn it on explicitly.
+mkdir -p /etc/ssh/sshd_config.d
+printf 'PasswordAuthentication yes\nKbdInteractiveAuthentication yes\n' > /etc/ssh/sshd_config.d/10-cuf.conf
+systemctl enable xrdp ssh || systemctl enable xrdp ssh.socket || true
+systemctl restart ssh 2>/dev/null || true
 # XRDP listens on 3389; SSH on 22. Host port-forwards are set by build-golden.sh.
 
 # ---------------------------------------------------------------------------
