@@ -1,0 +1,21 @@
+src/lib/fleet/cli-agent-runner.test.ts
+  s_fd31e2b543baf5::t_ec090032334cef 1-66
+src/lib/fleet/cli-agent-runner.ts
+  s_fd31e2b543baf5::t_7edb6594300f55 1-70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "fdc16ab2b0638c0325f061716ad77e96de53e91f",
+  "prompts": {},
+  "sessions": {
+    "s_fd31e2b543baf5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebcada33-3d4e-46f7-96e9-ac45fa0c7077",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Pranav Kannepalli <pranav.kannepalli@gmail.com>"
+    }
+  }
+}
