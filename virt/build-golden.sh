@@ -92,6 +92,8 @@ virt-customize -a "${GOLDEN_IMG}" \
   --run-command "resize2fs /dev/sda1 || true" \
   --copy-in "${SCRIPT_DIR}/provision.sh:/tmp" \
   --run-command "AGENT_USER='${AGENT_USER}' AGENT_PASSWORD='${AGENT_PASSWORD}' bash /tmp/provision.sh" \
+  --copy-in "${SCRIPT_DIR}/agent-runner:/opt/agent" \
+  --run-command "rm -rf /opt/agent/agent-runner/__pycache__ && chown -R ${AGENT_USER}:${AGENT_USER} /opt/agent/agent-runner" \
   --run-command "systemctl set-default graphical.target" \
   --run-command "rm -f /tmp/provision.sh"
 

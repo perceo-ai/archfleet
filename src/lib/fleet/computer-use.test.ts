@@ -39,7 +39,7 @@ describe("buildGuestRunCommand", () => {
     expect(cmd.args).toContain("agent@127.0.0.1");
     const remote = cmd.args[cmd.args.length - 1];
     expect(remote).toContain("/opt/agent/venv/bin/python");
-    expect(remote).toContain("/opt/agent/cli.py");
+    expect(remote).toContain("/opt/agent/agent-runner/cli.py");
   });
 
   it("injects env as a per-process prefix, quoted, not into args", () => {

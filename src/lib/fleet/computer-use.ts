@@ -39,7 +39,7 @@ export type GuestConnection = {
 };
 
 const DEFAULT_PYTHON = "/opt/agent/venv/bin/python";
-const DEFAULT_RUNNER = "/opt/agent/cli.py";
+const DEFAULT_RUNNER = "/opt/agent/agent-runner/cli.py";
 
 /** Task JSON in the shape the guest cli.py expects (snake_case). */
 export function serializeTask(task: ComputerUseTask): string {

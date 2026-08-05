@@ -1,5 +1,4 @@
-# Base deps for the guest computer-use runner. The vendored/forked Agent S
-# (gui_agents) and its own requirements are installed separately into the venv.
+# Deps for the guest computer-use runner.
 pyautogui>=0.9.54
 pillow>=10.0
 mss>=9.0
@@ -8,3 +7,4 @@ openai>=1.0        # OpenRouter planner client (OpenAI-API compatible)
 requests>=2.31
 httpx>=0.27
 pyyaml>=6.0
+gui-agents==0.3.2  # Agent S / AgentS3 — pinned. Fork overlay (if any) applied on top.

@@ -96,7 +96,8 @@ python3 -m venv "${VENV_DIR}"
 "${VENV_DIR}/bin/pip" install \
   pyautogui pillow mss pynput \
   "openai>=1.0"          `# OpenRouter is OpenAI-API-compatible: planner client` \
-  requests httpx pyyaml
+  requests httpx pyyaml \
+  "gui-agents==${GUI_AGENTS_VERSION:-0.3.2}"   `# Agent S / AgentS3 (pinned; fork overlay applied separately)`
 chown -R "${AGENT_USER}:${AGENT_USER}" "$(dirname "${VENV_DIR}")"
 
 # ---------------------------------------------------------------------------
