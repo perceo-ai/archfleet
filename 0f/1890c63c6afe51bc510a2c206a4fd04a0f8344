@@ -1,0 +1,25 @@
+src/components/fleet/RunPanel.tsx
+  s_fd31e2b543baf5::t_853e8aea6851ca 117-138
+  s_fd31e2b543baf5::t_4dec2e9670c2d0 6-13,19,22
+  s_fd31e2b543baf5::t_bc4945fc4d86c1 116
+src/components/fleet/FleetManager.tsx
+  s_fd31e2b543baf5::t_aa2456e4a69834 29-30
+  s_fd31e2b543baf5::t_728d3946e1e795 77-83
+  s_fd31e2b543baf5::t_f14bec43da3687 3,6,17-28,31-32,39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "0f1890c63c6afe51bc510a2c206a4fd04a0f8344",
+  "prompts": {},
+  "sessions": {
+    "s_fd31e2b543baf5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebcada33-3d4e-46f7-96e9-ac45fa0c7077",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Pranav Kannepalli <pranav.kannepalli@gmail.com>"
+    }
+  }
+}
