@@ -30,14 +30,16 @@ log() { echo "[provision] $*"; }
 # ---------------------------------------------------------------------------
 log "apt update + install desktop/remote/automation stack"
 apt-get update -y
+# NOTE: no browser here — on Ubuntu 24.04 `firefox`/`chromium` are snaps whose
+# first-boot install hangs indefinitely and blocks provisioning. Install a browser
+# into the running VM later (snap works once seeded, or use a Mozilla .deb repo).
 apt-get install -y --no-install-recommends \
   xfce4 xfce4-goodies dbus-x11 x11-xserver-utils \
   xrdp \
   openssh-server \
   python3 python3-venv python3-pip python3-dev python3-tk \
   scrot gnome-screenshot xdotool wmctrl x11-utils \
-  fonts-liberation ca-certificates curl wget git unzip \
-  firefox-esr || apt-get install -y --no-install-recommends firefox
+  fonts-liberation ca-certificates curl wget git unzip
 
 # ---------------------------------------------------------------------------
 # 2. Agent user with a desktop + remote login.
@@ -112,7 +114,11 @@ log "enable xrdp + ssh (with password auth for controller SSH)"
 # PasswordAuthentication disabled, so turn it on explicitly.
 mkdir -p /etc/ssh/sshd_config.d
 printf 'PasswordAuthentication yes\nKbdInteractiveAuthentication yes\n' > /etc/ssh/sshd_config.d/10-cuf.conf
-systemctl enable xrdp ssh || systemctl enable xrdp ssh.socket || true
+# Ubuntu 24.04 socket-activates ssh; force a plain always-listening service so the
+# controller can connect reliably (socket activation caused kex resets).
+systemctl disable --now ssh.socket 2>/dev/null || true
+systemctl enable ssh 2>/dev/null || true
+systemctl enable xrdp 2>/dev/null || true
 systemctl restart ssh 2>/dev/null || true
 # XRDP listens on 3389; SSH on 22. Host port-forwards are set by build-golden.sh.
 
