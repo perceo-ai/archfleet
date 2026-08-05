@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { Db } from "../lib/fleet/db/db";
 import { listRuns, getRun, retryRun, cancelRun } from "../lib/fleet/db/runs-repo";
 import { listWorkflows, getWorkflow, saveWorkflow } from "../lib/fleet/db/workflows-repo";
+import { validateWorkflow } from "../lib/fleet/workflow-validation";
 import { listVms } from "../lib/fleet/db/vms-repo";
 import { listSecretMeta, saveSecret } from "../lib/fleet/db/secrets-repo";
 import { createTrigger, listTriggers } from "../lib/fleet/triggers/triggers-repo";
@@ -35,12 +36,14 @@ export const FLEET_TOOLS: FleetTool[] = [
   },
   {
     name: "upsert_workflow",
-    description: "Create or update a workflow graph (nodes + edges).",
+    description: "Create or update a workflow graph (nodes + edges). Validated before saving.",
     shape: { workflow: z.record(z.string(), z.unknown()) },
     run: (db, a) => {
       const wf = a.workflow as Workflow;
+      const errors = validateWorkflow(wf);
+      if (errors.length) return { ok: false, errors };
       saveWorkflow(db, wf);
-      return { id: wf.id };
+      return { ok: true, id: wf.id };
     },
   },
   {
