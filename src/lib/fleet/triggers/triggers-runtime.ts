@@ -7,7 +7,10 @@ import type { Trigger, WorkflowRun } from "../types";
 import { dueScheduleTriggers, findByWebhookToken, updateNextRun } from "./triggers-repo";
 import { nextRun } from "./cron";
 
-export type TriggerExecute = (trigger: Trigger) => Promise<WorkflowRun>;
+export type TriggerExecute = (
+  trigger: Trigger,
+  payload?: Record<string, unknown>,
+) => Promise<WorkflowRun>;
 
 export type FiredTrigger = { triggerId: string; runId: string; status: string };
 
@@ -36,8 +39,9 @@ export async function runWebhook(
   db: Db,
   token: string,
   execute: TriggerExecute,
+  payload?: Record<string, unknown>,
 ): Promise<WorkflowRun | null> {
   const trigger = findByWebhookToken(db, token);
   if (!trigger) return null;
-  return execute(trigger);
+  return execute(trigger, payload);
 }

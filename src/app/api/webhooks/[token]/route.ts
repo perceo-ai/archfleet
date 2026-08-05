@@ -6,9 +6,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // POST /api/webhooks/:token — fire the webhook trigger matching this token.
-export async function POST(_req: Request, { params }: { params: Promise<{ token: string }> }) {
+export async function POST(req: Request, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
-  const run = await runWebhook(getDb(), token, makeTriggerExecute());
+  const payload = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+  const run = await runWebhook(getDb(), token, makeTriggerExecute(), payload);
   if (!run) return Response.json({ error: "invalid or disabled webhook token" }, { status: 404 });
   return Response.json(run);
 }

@@ -53,6 +53,8 @@ export type ExecuteOptions = {
   now?: () => string;
   db?: Db;
   triggerId?: string;
+  /** Run-level params (e.g. a webhook payload) — override workflow/global params. */
+  params?: Record<string, string | number | boolean | null>;
 };
 
 /** Prefer encrypted secrets from the db (production); fall back to seed secrets
@@ -158,7 +160,23 @@ export function enqueueManualRun(
     ],
   };
   saveRun(db, run);
+  if (opts.params && Object.keys(opts.params).length) {
+    db.prepare("UPDATE cuf_runs SET params_json=? WHERE id=?").run(JSON.stringify(opts.params), run.id);
+  }
   return run;
+}
+
+/** Merge run-level params (from params_json) over the workflow/global seed params. */
+function resolveParams(db: Db, state: FleetState, runId: string): FleetState["params"] {
+  const row = db.prepare("SELECT params_json FROM cuf_runs WHERE id=?").get(runId) as
+    | { params_json: string }
+    | undefined;
+  const runParams = row ? (JSON.parse(row.params_json || "{}") as Record<string, unknown>) : {};
+  const byName = new Map(state.params.map((p) => [p.name, p]));
+  for (const [name, value] of Object.entries(runParams)) {
+    byName.set(name, { id: `param_${name}`, name, scope: "run", value: value as FleetState["params"][number]["value"] });
+  }
+  return [...byName.values()];
 }
 
 /** Execute a persisted run by id (claimed by the worker). */
@@ -171,7 +189,7 @@ export async function executeRunById(db: Db, runId: string, now = () => new Date
     state.workflows.find((w) => w.id === existing.workflowId) ??
     state.workflows[0];
   const run = await runWorkflow(
-    { workflow, secrets: resolveSecrets(db, state), params: state.params, runId },
+    { workflow, secrets: resolveSecrets(db, state), params: resolveParams(db, state, runId), runId },
     buildRunDeps(state, now),
   );
   saveRun(db, existing.triggerId ? { ...run, triggerId: existing.triggerId } : run);
@@ -199,6 +217,10 @@ export async function processPendingRuns(db: Db = getDb(), max = 5): Promise<num
 /** Trigger executor: enqueue a run (worker processes it). Keeps triggers fast +
  * hostable. */
 export function makeTriggerExecute(db?: Db): TriggerExecute {
-  return async (trigger) =>
-    enqueueManualRun(trigger.workflowId, { db, triggerId: trigger.id });
+  return async (trigger, payload) =>
+    enqueueManualRun(trigger.workflowId, {
+      db,
+      triggerId: trigger.id,
+      params: payload as ExecuteOptions["params"],
+    });
 }

@@ -49,6 +49,15 @@ describe("async run queue", () => {
     db.close();
   });
 
+  it("enqueue persists run-level params (e.g. webhook payload)", () => {
+    const db = openDb(":memory:");
+    ensureSeeded(db);
+    const run = enqueueManualRun(undefined, { db, params: { url: "https://x", n: 5 } });
+    const row = db.prepare("SELECT params_json FROM cuf_runs WHERE id=?").get(run.id) as { params_json: string };
+    expect(JSON.parse(row.params_json)).toEqual({ url: "https://x", n: 5 });
+    db.close();
+  });
+
   it("processPendingRuns claims + executes queued runs (no VM -> stays queued/failed, terminal)", async () => {
     const db = openDb(":memory:");
     ensureSeeded(db);
