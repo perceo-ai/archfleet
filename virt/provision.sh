@@ -114,6 +114,9 @@ log "enable xrdp + ssh (with password auth for controller SSH)"
 # PasswordAuthentication disabled, so turn it on explicitly.
 mkdir -p /etc/ssh/sshd_config.d
 printf 'PasswordAuthentication yes\nKbdInteractiveAuthentication yes\n' > /etc/ssh/sshd_config.d/10-cuf.conf
+# We disable cloud-init (which normally generates SSH host keys on first boot), so
+# generate them here or sshd refuses to start and every connection is reset.
+ssh-keygen -A 2>/dev/null || true
 # Ubuntu 24.04 socket-activates ssh; force a plain always-listening service so the
 # controller can connect reliably (socket activation caused kex resets).
 systemctl disable --now ssh.socket 2>/dev/null || true

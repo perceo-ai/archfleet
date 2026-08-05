@@ -122,7 +122,8 @@ virt-customize -a "${GOLDEN_IMG}" \
   --upload "${NETPLAN_FILE}:/etc/netplan/99-cuf.yaml" \
   --run-command "chmod 600 /etc/netplan/99-cuf.yaml" \
   --run-command "mkdir -p /etc/ssh/sshd_config.d && printf 'PasswordAuthentication yes\nKbdInteractiveAuthentication yes\n' > /etc/ssh/sshd_config.d/10-cuf.conf" \
-  --run-command "systemctl enable ssh || systemctl enable ssh.socket || true" \
+  --run-command "ssh-keygen -A" \
+  --run-command "systemctl disable --now ssh.socket 2>/dev/null || true; systemctl enable ssh || true" \
   --copy-in "${SCRIPT_DIR}/provision.sh:/opt" \
   --mkdir "/opt/agent" \
   --copy-in "${SCRIPT_DIR}/agent-runner:/opt/agent" \
