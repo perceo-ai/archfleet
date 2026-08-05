@@ -32,6 +32,7 @@ function testVm(): FleetVm {
     memoryGb: 4,
     diskGb: 25,
     xrdp: { host: "127.0.0.1", port: 13389, username: "agent", credentialSource: "secret:vm_pw" },
+    ssh: { host: "127.0.0.1", port: 10022, username: "agent" },
     lastHealthAt: "2026-08-04T16:00:00.000Z",
     domain: "dom-vm1",
     warmSnapshot: "golden-warm",
@@ -101,6 +102,22 @@ describe("runWorkflow", () => {
     // acquire revert + release revert
     expect(client.reverts).toHaveLength(2);
     expect(run.events.some((e) => e.message.includes("Released"))).toBe(true);
+  });
+
+  it("drives the guest over the SSH port, not the XRDP port", async () => {
+    const client = fakeClient({ "dom-vm1": "running" });
+    const daemon = createVmDaemon(client, [testVm()]);
+    let seenArgs: string[] = [];
+    const capturingExec: ExecRunner = async (_e, args) => {
+      seenArgs = args;
+      return { code: 0, stdout: '{"status":"succeeded","reason":"d","steps":1,"artifacts":[]}', stderr: "" };
+    };
+    await runWorkflow(
+      { workflow: workflow(), secrets, params, runId: "run_1" },
+      { daemon, exec: capturingExec, now: now() },
+    );
+    expect(seenArgs).toContain("10022"); // ssh port
+    expect(seenArgs).not.toContain("13389"); // not the RDP port
   });
 
   it("redacts secrets that leak into a report reason", async () => {

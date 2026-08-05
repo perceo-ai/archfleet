@@ -7,9 +7,10 @@ type RunPanelProps = {
   latestRun?: WorkflowRun;
   secrets: Secret[];
   onRun: () => void;
+  running?: boolean;
 };
 
-export function RunPanel({ latestRun, secrets, onRun }: RunPanelProps) {
+export function RunPanel({ latestRun, secrets, onRun, running = false }: RunPanelProps) {
   const claude = buildAgentCommand({
     provider: "claude-code",
     prompt: "Run workflow node",
@@ -33,10 +34,11 @@ export function RunPanel({ latestRun, secrets, onRun }: RunPanelProps) {
         <button
           type="button"
           onClick={onRun}
-          className="inline-flex h-8 items-center gap-1.5 rounded bg-emerald-600 px-3 text-xs font-semibold text-white hover:bg-emerald-700"
+          disabled={running}
+          className="inline-flex h-8 items-center gap-1.5 rounded bg-emerald-600 px-3 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
         >
           <Play className="h-3.5 w-3.5" aria-hidden="true" />
-          Run
+          {running ? "Running…" : "Run"}
         </button>
       </div>
 

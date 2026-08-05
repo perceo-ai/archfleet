@@ -7,23 +7,22 @@ import { RunPanel } from "./RunPanel";
 import { SecretsParamsPanel } from "./SecretsParamsPanel";
 import { WorkflowCanvas } from "./WorkflowCanvas";
 import { seedFleetState } from "@/lib/fleet/seed";
-import { createManualRun } from "@/lib/fleet/runtime";
 import type { WorkflowRun } from "@/lib/fleet/types";
 
 export function FleetManager() {
   const state = useMemo(() => seedFleetState(), []);
   const workflow = state.workflows[0];
   const [latestRun, setLatestRun] = useState<WorkflowRun>();
+  const [running, setRunning] = useState(false);
 
-  function runWorkflow() {
-    setLatestRun(
-      createManualRun({
-        workflow,
-        vms: state.vms,
-        params: state.params,
-        secrets: state.secrets,
-      }),
-    );
+  async function runWorkflow() {
+    setRunning(true);
+    try {
+      const res = await fetch("/api/runs", { method: "POST" });
+      setLatestRun((await res.json()) as WorkflowRun);
+    } finally {
+      setRunning(false);
+    }
   }
 
   const idleVms = state.vms.filter((vm) => vm.status === "idle").length;
@@ -58,7 +57,7 @@ export function FleetManager() {
           <WorkflowCanvas workflow={workflow} />
           <SecretsParamsPanel params={state.params} secrets={state.secrets} />
         </div>
-        <RunPanel latestRun={latestRun} secrets={state.secrets} onRun={runWorkflow} />
+        <RunPanel latestRun={latestRun} secrets={state.secrets} onRun={runWorkflow} running={running} />
       </div>
     </main>
   );

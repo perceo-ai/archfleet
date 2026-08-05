@@ -72,6 +72,9 @@ export type FleetVm = {
   memoryGb: number;
   diskGb: number;
   xrdp: XrdpConnection;
+  /** SSH endpoint the controller uses to drive the guest runner (distinct from
+   * the XRDP port, which is for human takeover). Absent for pure-mock VMs. */
+  ssh?: { host: string; port: number; username: string };
   assignedRunId?: string;
   lastHealthAt: string;
   /** libvirt domain name this VM maps to. Absent for pure-mock seed VMs. */
