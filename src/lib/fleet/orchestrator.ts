@@ -8,6 +8,8 @@
 
 import { redactSecrets } from "./redaction";
 import { runComputerUseTask, type ExecRunner, type GuestReport } from "./computer-use";
+import { runCliAgent, type AgentExec, type AgentRunResult } from "./cli-agent-runner";
+import type { AgentProvider } from "./types";
 import type { VmDaemon } from "./vm-daemon/daemon";
 import type {
   RunArtifact,
@@ -29,6 +31,8 @@ export type OrchestratorDeps = {
   env?: Record<string, string>;
   /** SSH private key for the guest transport (key-based auth). */
   sshIdentityFile?: string;
+  /** Executor for CLI-agent nodes (claude/codex). Controller-side, no VM. */
+  agentExec?: AgentExec;
 };
 
 export type RunWorkflowInput = {
@@ -98,88 +102,125 @@ export async function runWorkflow(
   };
 
   const plan = planExecution(workflow);
-  const taskNodes = plan.filter((n) => n.type === "computer_use_task");
+  const taskNodes = plan.filter(
+    (n) => n.type === "computer_use_task" || n.type === "cli_agent_task",
+  );
+  const needsVm = taskNodes.some((n) => n.type === "computer_use_task");
   const startedAt = deps.now();
 
-  // Acquire a VM matching the labels required by the first task node.
-  const requiredLabels = taskNodes[0]?.config.requiredLabels ?? [];
-  const acquired = await deps.daemon.acquire({ requiredLabels, runId });
-  if (!acquired.ok) {
-    emit("warn", `Queued ${workflow.name}: ${acquired.reason}.`);
-    return {
-      id: runId,
-      workflowId: workflow.id,
-      workflowName: workflow.name,
-      status: acquired.reason === "no_matching_vm" ? "queued" : "failed",
-      startedAt,
-      events,
-    };
+  // Acquire a VM only when a computer-use node needs one. CLI-agent-only
+  // workflows run entirely on the controller.
+  let acquired: Awaited<ReturnType<typeof deps.daemon.acquire>> | undefined;
+  if (needsVm) {
+    const requiredLabels =
+      taskNodes.find((n) => n.type === "computer_use_task")?.config.requiredLabels ?? [];
+    acquired = await deps.daemon.acquire({ requiredLabels, runId });
+    if (!acquired.ok) {
+      emit("warn", `Queued ${workflow.name}: ${acquired.reason}.`);
+      return {
+        id: runId,
+        workflowId: workflow.id,
+        workflowName: workflow.name,
+        status: acquired.reason === "no_matching_vm" ? "queued" : "failed",
+        startedAt,
+        events,
+      };
+    }
+    emit(
+      "info",
+      `Assigned ${workflow.name} to ${acquired.vm.name} (XRDP ${acquired.xrdp.host}:${acquired.xrdp.port}).`,
+    );
   }
-
-  const vm = acquired.vm;
-  emit("info", `Assigned ${workflow.name} to ${vm.name} (XRDP ${acquired.xrdp.host}:${acquired.xrdp.port}).`);
+  const vm = acquired?.ok ? acquired.vm : undefined;
 
   const env = { ...secretEnv(secrets), ...(deps.env ?? {}) };
+  const secretMap = Object.fromEntries(secrets.map((s) => [s.name, s.value]));
   const paramMap = Object.fromEntries(params.map((p) => [p.name, p.value]));
   const artifacts: RunArtifact[] = [];
   let pastWork = "";
   let finalStatus: RunStatus = "succeeded";
 
+  const collectArtifacts = (nodeId: string, paths: string[]) => {
+    for (const path of paths) {
+      emit("info", `Artifact: ${path}.`);
+      artifacts.push({ id: `art_${runId}_${artifacts.length}`, runId, nodeId, type: "file", path, createdAt: deps.now() });
+    }
+  };
+
   try {
     for (const node of taskNodes) {
-      emit("info", `Running node "${node.name}" on ${vm.name}.`);
-      let report: GuestReport;
-      const baseConn = vm.ssh ?? {
-        host: acquired.xrdp.host,
-        port: 22,
-        username: acquired.xrdp.username,
-      };
-      const guestConn = { ...baseConn, identityFile: deps.sshIdentityFile };
-      try {
-        report = await runComputerUseTask(
-          guestConn,
-          {
-            instruction: node.config.prompt ?? node.name,
-            pastWork,
-            params: paramMap,
-            limits: node.config.timeoutMs ? { timeoutS: node.config.timeoutMs / 1000 } : undefined,
-          },
-          deps.exec,
-          env,
-        );
-      } catch (e) {
-        emit("error", `Node "${node.name}" transport error: ${String(e)}`);
-        finalStatus = "failed";
-        break;
+      if (node.type === "computer_use_task") {
+        emit("info", `Running node "${node.name}" on ${vm!.name}.`);
+        const baseConn = vm!.ssh ?? { host: vm!.xrdp.host, port: 22, username: vm!.xrdp.username };
+        const guestConn = { ...baseConn, identityFile: deps.sshIdentityFile };
+        let report: GuestReport;
+        try {
+          report = await runComputerUseTask(
+            guestConn,
+            {
+              instruction: node.config.prompt ?? node.name,
+              pastWork,
+              params: paramMap,
+              limits: node.config.timeoutMs ? { timeoutS: node.config.timeoutMs / 1000 } : undefined,
+            },
+            deps.exec,
+            env,
+          );
+        } catch (e) {
+          emit("error", `Node "${node.name}" transport error: ${String(e)}`);
+          finalStatus = "failed";
+          break;
+        }
+        const level = report.status === "succeeded" ? "info" : "warn";
+        emit(level, `Node "${node.name}" ${report.status} (${report.reason}) after ${report.steps} steps.`);
+        collectArtifacts(node.id, report.artifacts);
+        if (report.status !== "succeeded") {
+          finalStatus = reportToStatus(report.status);
+          break;
+        }
+        pastWork += `\n${node.name}: ${report.reason}`;
+      } else {
+        // cli_agent_task — controller-side CLI agent (claude / codex).
+        emit("info", `Running CLI-agent node "${node.name}".`);
+        if (!deps.agentExec) {
+          emit("error", `Node "${node.name}": no CLI-agent executor configured.`);
+          finalStatus = "failed";
+          break;
+        }
+        let result: AgentRunResult;
+        try {
+          result = await runCliAgent(
+            {
+              provider: (node.config.provider as AgentProvider) ?? "claude-code",
+              prompt: pastWork ? `${node.config.prompt ?? node.name}\n\nContext:\n${pastWork}` : node.config.prompt ?? node.name,
+              secrets: secretMap,
+              allowApiFallback: false,
+            },
+            deps.agentExec,
+            secrets,
+          );
+        } catch (e) {
+          emit("error", `Node "${node.name}" agent error: ${String(e)}`);
+          finalStatus = "failed";
+          break;
+        }
+        emit(result.status === "succeeded" ? "info" : "warn", `Node "${node.name}" ${result.status}.`);
+        collectArtifacts(node.id, result.artifacts);
+        if (result.status !== "succeeded") {
+          finalStatus = "failed";
+          break;
+        }
+        pastWork += `\n${node.name}: ${typeof result.structuredOutput === "string" ? result.structuredOutput : "done"}`;
       }
-
-      const level = report.status === "succeeded" ? "info" : "warn";
-      emit(level, `Node "${node.name}" ${report.status} (${report.reason}) after ${report.steps} steps.`);
-      for (const artifact of report.artifacts) {
-        emit("info", `Artifact: ${artifact}.`);
-        artifacts.push({
-          id: `art_${runId}_${artifacts.length}`,
-          runId,
-          nodeId: node.id,
-          type: "file",
-          path: artifact,
-          createdAt: deps.now(),
-        });
-      }
-
-      if (report.status !== "succeeded") {
-        finalStatus = reportToStatus(report.status);
-        break; // paused (needs_human) or failed halts the happy path
-      }
-      pastWork += `\n${node.name}: ${report.reason}`;
     }
   } finally {
-    // Hold the VM for inspection when a human is needed; otherwise release it.
-    if (finalStatus !== "paused") {
-      await deps.daemon.release(vm);
-      emit("info", `Released ${vm.name}.`);
-    } else {
-      emit("warn", `${vm.name} held for human takeover over XRDP ${acquired.xrdp.host}:${vm.xrdp.port}.`);
+    if (vm) {
+      if (finalStatus !== "paused") {
+        await deps.daemon.release(vm);
+        emit("info", `Released ${vm.name}.`);
+      } else {
+        emit("warn", `${vm.name} held for human takeover over XRDP ${vm.xrdp.host}:${vm.xrdp.port}.`);
+      }
     }
   }
 
@@ -188,7 +229,7 @@ export async function runWorkflow(
     workflowId: workflow.id,
     workflowName: workflow.name,
     status: finalStatus,
-    vmId: vm.id,
+    vmId: vm?.id,
     startedAt,
     finishedAt: deps.now(),
     events,

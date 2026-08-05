@@ -78,6 +78,61 @@ function execReturning(report: object): ExecRunner {
   return async () => ({ code: 0, stdout: JSON.stringify(report), stderr: "" }) as ExecResult;
 }
 
+function cliWorkflow(): Workflow {
+  return {
+    id: "wf_cli",
+    name: "CLI Only",
+    description: "",
+    enabled: true,
+    triggerKinds: ["manual"],
+    nodes: [
+      { id: "start", type: "start", name: "Start", position: { x: 0, y: 0 }, config: {} },
+      {
+        id: "c1",
+        type: "cli_agent_task",
+        name: "Summarize",
+        position: { x: 1, y: 0 },
+        config: { prompt: "summarize the repo", provider: "claude-code" },
+      },
+      { id: "end", type: "end", name: "End", position: { x: 2, y: 0 }, config: {} },
+    ],
+    edges: [
+      { id: "e1", from: "start", to: "c1", condition: "always" },
+      { id: "e2", from: "c1", to: "end", condition: "success" },
+    ],
+  };
+}
+
+describe("cli_agent workflows (no VM)", () => {
+  it("runs a CLI-agent node on the controller without acquiring a VM", async () => {
+    const client = fakeClient({ "dom-vm1": "running" });
+    const daemon = createVmDaemon(client, [testVm()]);
+    const agentExec = vi.fn(async () => ({
+      code: 0,
+      stdout: '{"type":"result","result":"summary done"}',
+      stderr: "",
+    }));
+    const run = await runWorkflow(
+      { workflow: cliWorkflow(), secrets, params, runId: "run_cli" },
+      { daemon, exec: async () => ({ code: 0, stdout: "", stderr: "" }), agentExec, now: now() },
+    );
+    expect(run.status).toBe("succeeded");
+    expect(run.vmId).toBeUndefined(); // no VM used
+    expect(client.reverts).toHaveLength(0); // never touched the fleet
+    expect(agentExec).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails a CLI-agent node when no executor is configured", async () => {
+    const client = fakeClient({ "dom-vm1": "running" });
+    const daemon = createVmDaemon(client, [testVm()]);
+    const run = await runWorkflow(
+      { workflow: cliWorkflow(), secrets, params, runId: "run_cli" },
+      { daemon, exec: async () => ({ code: 0, stdout: "", stderr: "" }), now: now() },
+    );
+    expect(run.status).toBe("failed");
+  });
+});
+
 describe("planExecution", () => {
   it("walks success/always edges from start", () => {
     const order = planExecution(workflow()).map((n) => n.id);

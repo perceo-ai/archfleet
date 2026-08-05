@@ -10,7 +10,7 @@ import { createVmDaemon } from "./vm-daemon/daemon";
 import { createVirshClient } from "./vm-daemon/virsh";
 import { execVirshRunner } from "./vm-daemon/exec-runner";
 import { realVmsFromEnv } from "./vm-daemon/fleet-config";
-import { spawnExecRunner } from "./ssh-exec";
+import { spawnExecRunner, spawnAgentExec } from "./ssh-exec";
 import { runWorkflow, type OrchestratorDeps } from "./orchestrator";
 import { getDb, type Db } from "./db/db";
 import { saveRun, getRun, claimQueuedRun, deferRun } from "./db/runs-repo";
@@ -74,6 +74,7 @@ function buildRunDeps(state: FleetState, now: () => string): OrchestratorDeps {
   return {
     daemon,
     exec: spawnExecRunner,
+    agentExec: spawnAgentExec,
     now,
     env: guestEnv(),
     sshIdentityFile: process.env.CUF_SSH_KEY,
