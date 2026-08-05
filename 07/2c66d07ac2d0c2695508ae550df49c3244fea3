@@ -1,0 +1,26 @@
+src/app/api/runs/[id]/action/route.ts
+  s_fd31e2b543baf5::t_33ace75c1b7090 1-21
+src/lib/fleet/db/runs-repo.ts
+  s_fd31e2b543baf5::t_7bab69695dcabc 142-161
+src/lib/fleet/db/runs-repo.test.ts
+  s_fd31e2b543baf5::t_26ad8059f723a3 54-69
+src/mcp/tools.ts
+  s_fd31e2b543baf5::t_09f12db8402737 7
+  s_fd31e2b543baf5::t_68c3e66087a0d2 70-81
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "072c66d07ac2d0c2695508ae550df49c3244fea3",
+  "prompts": {},
+  "sessions": {
+    "s_fd31e2b543baf5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebcada33-3d4e-46f7-96e9-ac45fa0c7077",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Pranav Kannepalli <pranav.kannepalli@gmail.com>"
+    }
+  }
+}
