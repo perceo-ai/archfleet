@@ -185,8 +185,10 @@ stage_snapshot() {
   domain_running || die "domain not running"
   log "creating warm snapshot 'golden-warm' (includes RAM)"
   $VIRSH snapshot-delete "${VM_NAME}" golden-warm >/dev/null 2>&1 || true
+  # Internal system snapshot (no --live: the guest pauses briefly while RAM is
+  # saved into the qcow2 — that memory state is what makes revert a warm reset).
   $VIRSH snapshot-create-as "${VM_NAME}" --name golden-warm \
-    --description "Booted, provisioned, agent venv ready" --live \
+    --description "Booted, provisioned, agent venv ready" \
     || die "snapshot-create failed"
 }
 
