@@ -119,7 +119,8 @@ YAML
 domain_running() { $VIRSH domstate "${VM_NAME}" 2>/dev/null | grep -q running; }
 
 stage_boot() {
-  if domain_running; then log "domain already running"; return 0; fi
+  # Always recreate from the CURRENT disk — never reuse a possibly-stale running
+  # domain (that caused old images to be booted instead of the freshly prepped one).
   if $VIRSH dominfo "${VM_NAME}" >/dev/null 2>&1; then
     $VIRSH destroy "${VM_NAME}" >/dev/null 2>&1 || true
     $VIRSH undefine "${VM_NAME}" --nvram >/dev/null 2>&1 || true
