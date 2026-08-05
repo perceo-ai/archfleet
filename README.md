@@ -63,5 +63,20 @@ Grounding (UI-TARS) runs locally or in a container — see `virt/ui-tars/`.
 | `OPENROUTER_API_KEY` | planner model (user-chosen via OpenRouter) |
 | `CUF_GROUNDING_BASE_URL` | UI-TARS grounding endpoint |
 
-Schedule triggers fire when something POSTs `/api/triggers/tick` (system cron, a
-loop, or a platform cron).
+## Hosting (long-running tasks)
+
+Computer-use runs take minutes, so runs are **async + durable**:
+- `POST /api/runs` **enqueues** and returns `202` immediately with a queued run.
+- A worker drains the queue: the always-on server does it via the `instrumentation`
+  loop; serverless/multi-instance hosts POST `/api/runs/process` on a cron
+  (`maxDuration=300`). Claims are atomic (`claimQueuedRun`), so multiple workers
+  are safe; no-VM runs back off (`next_attempt_at`) and retry.
+- Poll `GET /api/runs/:id` for status + events + artifacts.
+- Schedule triggers fire when something POSTs `/api/triggers/tick` (the loop does
+  this too; or a platform cron).
+
+## MCP server
+
+`npm run mcp` starts a stdio MCP server exposing every fleet op as tools
+(`list_workflows`, `run_workflow`, `get_run`, `create_trigger`, `create_secret`,
+`list_vms`, …). Register it with any MCP client — see `mcp.json.example`.

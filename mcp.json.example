@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "archfleet": {
+      "command": "npx",
+      "args": ["tsx", "src/mcp/server.ts"],
+      "env": {
+        "CUF_DB_PATH": "./data/fleet.db",
+        "CUF_SECRET_KEY": "change-me",
+        "CUF_GOLDEN_DOMAIN": "cuf-golden",
+        "CUF_SSH_KEY": "./virt/.state/cuf_id",
+        "OPENROUTER_API_KEY": "",
+        "CUF_GROUNDING_BASE_URL": "http://127.0.0.1:8080/v1"
+      }
+    }
+  }
+}
