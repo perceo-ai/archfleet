@@ -53,6 +53,10 @@ export CUF_GOLDEN_DOMAIN=cuf-golden              # bind the VM into the fleet
 
 Grounding (UI-TARS) runs locally or in a container — see `virt/ui-tars/`.
 
+**Model-free demo:** set `CUF_AGENT_BACKEND=mock` to run the full pipeline
+(app → VM → guest → screenshot → report → artifact) to a green success without any
+model — proves the whole stack end to end.
+
 ## Key env
 
 | var | purpose |
