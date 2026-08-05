@@ -103,7 +103,7 @@ export function FleetManager() {
               return { ok: false, errors: body.errors };
             }}
           />
-          <SecretsParamsPanel params={state.params} secrets={state.secrets} />
+          <SecretsParamsPanel params={state.params} secrets={state.secrets} workflowId={workflow.id} />
         </div>
         <RunPanel
           latestRun={latestRun}
