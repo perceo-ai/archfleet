@@ -1,0 +1,28 @@
+src/lib/fleet/triggers/triggers-runtime.ts
+  s_fd31e2b543baf5::t_53dee5323b396f 42,46
+  s_fd31e2b543baf5::t_8e7a22aed510ac 10-13
+src/app/api/webhooks/[token]/route.ts
+  s_fd31e2b543baf5::t_0fcfc92cb133e7 9,11-12
+src/lib/fleet/server-runtime.ts
+  s_fd31e2b543baf5::t_be4c16577de8fa 163-165,169-181,192
+  s_fd31e2b543baf5::t_969d510ece2721 56-57
+  s_fd31e2b543baf5::t_4c7504406a3fa1 220-225
+src/lib/fleet/server-runtime.test.ts
+  s_fd31e2b543baf5::t_69d7d234340869 52-60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "349f4be8decd2b5ec589589bf6d80dd346951c04",
+  "prompts": {},
+  "sessions": {
+    "s_fd31e2b543baf5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebcada33-3d4e-46f7-96e9-ac45fa0c7077",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Pranav Kannepalli <pranav.kannepalli@gmail.com>"
+    }
+  }
+}
