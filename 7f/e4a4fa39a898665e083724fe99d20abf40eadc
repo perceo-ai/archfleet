@@ -1,0 +1,25 @@
+virt/build-golden.sh
+  s_fd31e2b543baf5::t_b846b27fd4af02 89-116,121-126,128,130-133
+  s_fd31e2b543baf5::t_71fd813868d0b3 164-167,169,172-175
+  s_fd31e2b543baf5::t_2d1081cc9d302c 29
+  s_fd31e2b543baf5::t_c2941f40d24581 154
+virt/provision.sh
+  s_fd31e2b543baf5::t_9af1b8350689d2 96,100-104
+  s_fd31e2b543baf5::t_7bed37ff3a4eb0 110-116
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "7fe4a4fa39a898665e083724fe99d20abf40eadc",
+  "prompts": {},
+  "sessions": {
+    "s_fd31e2b543baf5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebcada33-3d4e-46f7-96e9-ac45fa0c7077",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Pranav Kannepalli <pranav.kannepalli@gmail.com>"
+    }
+  }
+}
