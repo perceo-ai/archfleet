@@ -11,8 +11,16 @@ export async function register() {
 
   // Import lazily so this file stays edge/runtime-safe.
   const { getDb } = await import("@/lib/fleet/db/db");
+  const { ensureSeeded } = await import("@/lib/fleet/db/init-db");
   const { makeTriggerExecute } = await import("@/lib/fleet/server-runtime");
   const { runDueTriggers } = await import("@/lib/fleet/triggers/triggers-runtime");
+
+  // Seed workflows on first boot so the dashboard + triggers have data.
+  try {
+    ensureSeeded(getDb());
+  } catch {
+    // non-fatal — routes still work, just no pre-seeded workflow
+  }
 
   const tick = async () => {
     try {
