@@ -1,0 +1,23 @@
+src/app/api/runs/[id]/artifacts/[name]/route.ts
+  s_fd31e2b543baf5::t_18ade920baa3b0 1-20
+src/lib/fleet/artifact-path.test.ts
+  s_fd31e2b543baf5::t_f650f0528a2a8f 1-26
+src/lib/fleet/artifact-path.ts
+  s_fd31e2b543baf5::t_bde1d75ec2c5c7 1-25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "0f010a6e828dc50adab1a6af69ca7eb0508ba52e",
+  "prompts": {},
+  "sessions": {
+    "s_fd31e2b543baf5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebcada33-3d4e-46f7-96e9-ac45fa0c7077",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Pranav Kannepalli <pranav.kannepalli@gmail.com>"
+    }
+  }
+}
