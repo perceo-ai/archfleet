@@ -1,0 +1,24 @@
+src/lib/fleet/orchestrator.test.ts
+  s_fd31e2b543baf5::t_b652e2f4ed74f9 203-235
+src/lib/fleet/types.ts
+  s_fd31e2b543baf5::t_6ac8c8d3628254 39-40
+src/lib/fleet/orchestrator.ts
+  s_fd31e2b543baf5::t_71cff3639a8f27 175-189
+  s_fd31e2b543baf5::t_2d4e0be2c789ab 161-163,167-169
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "73988847a6d72106b744f26e2e82a66d8b7afa01",
+  "prompts": {},
+  "sessions": {
+    "s_fd31e2b543baf5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebcada33-3d4e-46f7-96e9-ac45fa0c7077",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Pranav Kannepalli <pranav.kannepalli@gmail.com>"
+    }
+  }
+}
