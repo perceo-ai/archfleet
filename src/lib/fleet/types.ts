@@ -74,6 +74,10 @@ export type FleetVm = {
   xrdp: XrdpConnection;
   assignedRunId?: string;
   lastHealthAt: string;
+  /** libvirt domain name this VM maps to. Absent for pure-mock seed VMs. */
+  domain?: string;
+  /** Warm snapshot to revert to for a fast per-run reset. */
+  warmSnapshot?: string;
 };
 
 export type Secret = {
