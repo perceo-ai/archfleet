@@ -63,9 +63,13 @@ model — proves the whole stack end to end.
 |-----|---------|
 | `CUF_DB_PATH` | SQLite file (point at the shared Perceo DB) |
 | `CUF_SECRET_KEY` | master key for secret encryption at rest |
-| `CUF_GOLDEN_DOMAIN` | libvirt domain to bind as a fleet VM |
+| `CUF_GOLDEN_DOMAIN` | libvirt domain to bind as a fleet VM (single-VM shorthand) |
+| `CUF_FLEET_JSON` | `[{domain,labels,sshPort,rdpPort,...}]` — multi-VM fleet |
+| `CUF_SSH_KEY` | controller SSH private key for the guest transport |
 | `OPENROUTER_API_KEY` | planner model (user-chosen via OpenRouter) |
 | `CUF_GROUNDING_BASE_URL` | UI-TARS grounding endpoint |
+| `CUF_AGENT_BACKEND` | `mock` = model-free full-stack demo |
+| `CUF_ALLOW_SHELL` | `1` = enable shell_task nodes (controller commands) |
 
 ## Hosting (long-running tasks)
 
