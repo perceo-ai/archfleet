@@ -11,15 +11,17 @@ import { createVirshClient } from "./vm-daemon/virsh";
 import { execVirshRunner } from "./vm-daemon/exec-runner";
 import { realVmsFromEnv } from "./vm-daemon/fleet-config";
 import { spawnExecRunner } from "./ssh-exec";
-import { runWorkflow } from "./orchestrator";
+import { runWorkflow, type OrchestratorDeps } from "./orchestrator";
 import { getDb, type Db } from "./db/db";
-import { saveRun } from "./db/runs-repo";
+import { saveRun, getRun, claimQueuedRun, deferRun } from "./db/runs-repo";
+import { getWorkflow } from "./db/workflows-repo";
 import { loadSecrets } from "./db/secrets-repo";
 import { seedFleetState } from "./seed";
 import type { TriggerExecute } from "./triggers/triggers-runtime";
 import type { FleetState, Workflow, WorkflowRun } from "./types";
 
 let runCounter = 0;
+const newRunId = (now: () => string) => `run_${runCounter++}_${now()}`;
 
 /** Guest-runner env forwarded from the controller process (planner + grounding). */
 function guestEnv(env: Record<string, string | undefined> = process.env): Record<string, string> {
@@ -56,6 +58,16 @@ function resolveSecrets(db: Db, state: FleetState): FleetState["secrets"] {
   }
 }
 
+/** Assemble the real orchestrator dependencies (libvirt daemon + SSH transport). */
+function buildRunDeps(state: FleetState, now: () => string): OrchestratorDeps {
+  const uri = process.env.CUF_LIBVIRT_URI ?? "qemu:///session";
+  const client = createVirshClient(execVirshRunner(), uri);
+  // Real domain-bound VMs (from env) first, then mock seed VMs for display.
+  const daemon = createVmDaemon(client, [...realVmsFromEnv(), ...state.vms]);
+  return { daemon, exec: spawnExecRunner, now, env: guestEnv() };
+}
+
+/** Run a workflow synchronously to completion + persist. (Direct/testing path.) */
 export async function executeManualRun(
   state: FleetState,
   workflow: Workflow,
@@ -63,26 +75,85 @@ export async function executeManualRun(
 ): Promise<WorkflowRun> {
   const now = opts.now ?? (() => new Date().toISOString());
   const db = opts.db ?? getDb();
-  const uri = process.env.CUF_LIBVIRT_URI ?? "qemu:///session";
-  const client = createVirshClient(execVirshRunner(), uri);
-  // Real domain-bound VMs (from env) first, then mock seed VMs for display.
-  const daemon = createVmDaemon(client, [...realVmsFromEnv(), ...state.vms]);
-  const runId = `run_${runCounter++}_${now()}`;
-
   const run = await runWorkflow(
-    { workflow, secrets: resolveSecrets(db, state), params: state.params, runId },
-    { daemon, exec: spawnExecRunner, now, env: guestEnv() },
+    { workflow, secrets: resolveSecrets(db, state), params: state.params, runId: newRunId(now) },
+    buildRunDeps(state, now),
   );
   saveRun(db, opts.triggerId ? { ...run, triggerId: opts.triggerId } : run);
   return run;
 }
 
-/** Executor for schedule/webhook triggers: resolves the trigger's workflow from
- * seed state and runs it, tagging the run with the trigger id. */
-export function makeTriggerExecute(db?: Db): TriggerExecute {
-  return async (trigger) => {
-    const state = seedFleetState();
-    const workflow = state.workflows.find((w) => w.id === trigger.workflowId) ?? state.workflows[0];
-    return executeManualRun(state, workflow, { db, triggerId: trigger.id });
+// --------------------------------------------------------------------------- //
+// Async / durable queue — POST returns immediately, a worker executes later.
+// Makes the system hostable: long computer-use runs never block a request, and
+// claims are atomic so multiple worker instances are safe.
+// --------------------------------------------------------------------------- //
+
+/** Persist a queued run and return it immediately (no execution). */
+export function enqueueManualRun(
+  workflowId: string | undefined,
+  opts: ExecuteOptions = {},
+): WorkflowRun {
+  const now = opts.now ?? (() => new Date().toISOString());
+  const db = opts.db ?? getDb();
+  const state = seedFleetState();
+  const workflow =
+    (workflowId ? getWorkflow(db, workflowId) : undefined) ??
+    state.workflows.find((w) => w.id === workflowId) ??
+    state.workflows[0];
+  const run: WorkflowRun = {
+    id: newRunId(now),
+    workflowId: workflow.id,
+    workflowName: workflow.name,
+    status: "queued",
+    triggerId: opts.triggerId,
+    startedAt: now(),
+    events: [
+      { id: `evt_enqueue_${now()}`, level: "info", timestamp: now(), message: `Queued ${workflow.name}.` },
+    ],
   };
+  saveRun(db, run);
+  return run;
+}
+
+/** Execute a persisted run by id (claimed by the worker). */
+export async function executeRunById(db: Db, runId: string, now = () => new Date().toISOString()): Promise<void> {
+  const existing = getRun(db, runId);
+  if (!existing) return;
+  const state = seedFleetState();
+  const workflow =
+    getWorkflow(db, existing.workflowId) ??
+    state.workflows.find((w) => w.id === existing.workflowId) ??
+    state.workflows[0];
+  const run = await runWorkflow(
+    { workflow, secrets: resolveSecrets(db, state), params: state.params, runId },
+    buildRunDeps(state, now),
+  );
+  saveRun(db, existing.triggerId ? { ...run, triggerId: existing.triggerId } : run);
+  // No VM available -> stays queued; back off so the worker retries later instead
+  // of spinning on it.
+  if (run.status === "queued") {
+    const backoffMs = Number(process.env.CUF_RUN_BACKOFF_MS ?? "30000");
+    deferRun(db, runId, new Date(Date.now() + backoffMs).toISOString());
+  }
+}
+
+/** Process up to `max` queued runs. Returns how many were executed. Call from a
+ * worker loop (instrumentation) or an external cron (POST /api/runs/process). */
+export async function processPendingRuns(db: Db = getDb(), max = 5): Promise<number> {
+  let processed = 0;
+  for (let i = 0; i < max; i++) {
+    const runId = claimQueuedRun(db);
+    if (!runId) break;
+    await executeRunById(db, runId);
+    processed++;
+  }
+  return processed;
+}
+
+/** Trigger executor: enqueue a run (worker processes it). Keeps triggers fast +
+ * hostable. */
+export function makeTriggerExecute(db?: Db): TriggerExecute {
+  return async (trigger) =>
+    enqueueManualRun(trigger.workflowId, { db, triggerId: trigger.id });
 }

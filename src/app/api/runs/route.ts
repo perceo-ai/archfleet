@@ -1,5 +1,4 @@
-import { seedFleetState } from "@/lib/fleet/seed";
-import { executeManualRun } from "@/lib/fleet/server-runtime";
+import { enqueueManualRun } from "@/lib/fleet/server-runtime";
 import { getDb } from "@/lib/fleet/db/db";
 import { listRuns } from "@/lib/fleet/db/runs-repo";
 
@@ -7,12 +6,17 @@ import { listRuns } from "@/lib/fleet/db/runs-repo";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// POST /api/runs — start a manual run of the seed workflow through the REAL
-// orchestrator. Returns the resulting WorkflowRun (queued when no VM is live).
-export async function POST() {
-  const state = seedFleetState();
-  const run = await executeManualRun(state, state.workflows[0]);
-  return Response.json(run);
+// POST /api/runs — enqueue a run and return immediately (status: queued). A worker
+// (instrumentation loop or POST /api/runs/process) executes it. Body: { workflowId? }.
+export async function POST(req: Request) {
+  let workflowId: string | undefined;
+  try {
+    workflowId = ((await req.json()) as { workflowId?: string }).workflowId;
+  } catch {
+    // no body — default workflow
+  }
+  const run = enqueueManualRun(workflowId);
+  return Response.json(run, { status: 202 });
 }
 
 // GET /api/runs — recent run summaries, newest first.

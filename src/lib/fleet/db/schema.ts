@@ -25,7 +25,9 @@ CREATE TABLE IF NOT EXISTS cuf_runs (
   trigger_id    TEXT,
   params_json   TEXT NOT NULL DEFAULT '{}',
   started_at    TEXT NOT NULL,
-  finished_at   TEXT
+  finished_at   TEXT,
+  attempts      INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at TEXT
 );
 CREATE INDEX IF NOT EXISTS cuf_runs_workflow ON cuf_runs(workflow_id);
 CREATE INDEX IF NOT EXISTS cuf_runs_started ON cuf_runs(started_at);

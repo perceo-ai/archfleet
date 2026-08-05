@@ -116,6 +116,38 @@ export function getRun(db: Db, id: string): WorkflowRun | undefined {
   };
 }
 
+/**
+ * Atomically claim the oldest queued run for processing: flips it queued->running
+ * and returns its id. Returns undefined if none queued or another worker won the
+ * race. Safe across concurrent workers / hosted instances.
+ */
+export function claimQueuedRun(db: Db, nowIso = new Date().toISOString()): string | undefined {
+  const row = db
+    .prepare(
+      "SELECT id FROM cuf_runs WHERE status='queued' AND (next_attempt_at IS NULL OR next_attempt_at <= ?) ORDER BY started_at LIMIT 1",
+    )
+    .get(nowIso) as { id: string } | undefined;
+  if (!row) return undefined;
+  const res = db
+    .prepare("UPDATE cuf_runs SET status='running', attempts=attempts+1 WHERE id=? AND status='queued'")
+    .run(row.id);
+  return res.changes === 1 ? row.id : undefined;
+}
+
+/** Push a run's next eligible attempt into the future (backoff for no-VM retries). */
+export function deferRun(db: Db, id: string, nextAttemptIso: string): void {
+  db.prepare("UPDATE cuf_runs SET next_attempt_at=? WHERE id=?").run(nextAttemptIso, id);
+}
+
+/** Overwrite just a run's status (+ optional finishedAt). */
+export function setRunStatus(db: Db, id: string, status: RunStatus, finishedAt?: string): void {
+  db.prepare("UPDATE cuf_runs SET status=?, finished_at=COALESCE(?, finished_at) WHERE id=?").run(
+    status,
+    finishedAt ?? null,
+    id,
+  );
+}
+
 /** Recent run summaries, newest first. */
 export function listRuns(db: Db, limit = 50): RunSummary[] {
   const rows = db

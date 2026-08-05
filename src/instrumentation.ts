@@ -12,7 +12,7 @@ export async function register() {
   // Import lazily so this file stays edge/runtime-safe.
   const { getDb } = await import("@/lib/fleet/db/db");
   const { ensureSeeded } = await import("@/lib/fleet/db/init-db");
-  const { makeTriggerExecute } = await import("@/lib/fleet/server-runtime");
+  const { makeTriggerExecute, processPendingRuns } = await import("@/lib/fleet/server-runtime");
   const { runDueTriggers } = await import("@/lib/fleet/triggers/triggers-runtime");
 
   // Seed workflows on first boot so the dashboard + triggers have data.
@@ -31,7 +31,23 @@ export async function register() {
     }
   };
 
-  // Node timers keep the loop alive; unref so it never blocks shutdown.
-  const timer = setInterval(tick, intervalMs);
-  if (typeof timer.unref === "function") timer.unref();
+  // Worker loop: drain queued runs. Guarded so a hung run can't overlap itself.
+  const workerMs = Number(process.env.CUF_WORKER_INTERVAL_MS ?? "5000");
+  let working = false;
+  const work = async () => {
+    if (working) return;
+    working = true;
+    try {
+      await processPendingRuns(getDb());
+    } catch {
+      // swallow — next tick retries
+    } finally {
+      working = false;
+    }
+  };
+
+  // Node timers keep the loop alive; unref so they never block shutdown.
+  const t1 = setInterval(tick, intervalMs);
+  const t2 = setInterval(work, workerMs);
+  for (const t of [t1, t2]) if (typeof t.unref === "function") t.unref();
 }
