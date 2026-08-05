@@ -17,9 +17,17 @@ type RunPanelProps = {
   onRun: () => void;
   running?: boolean;
   runs?: RunSummary[];
+  onSelectRun?: (id: string) => void;
 };
 
-export function RunPanel({ latestRun, secrets, onRun, running = false, runs = [] }: RunPanelProps) {
+export function RunPanel({
+  latestRun,
+  secrets,
+  onRun,
+  running = false,
+  runs = [],
+  onSelectRun,
+}: RunPanelProps) {
   const claude = buildAgentCommand({
     provider: "claude-code",
     prompt: "Run workflow node",
@@ -105,6 +113,18 @@ export function RunPanel({ latestRun, secrets, onRun, running = false, runs = []
                   </div>
                 ))}
               </div>
+              {latestRun.artifacts && latestRun.artifacts.length > 0 ? (
+                <div className="rounded border border-zinc-200 p-2 text-xs">
+                  <div className="mb-1 font-medium text-zinc-950">Artifacts</div>
+                  <ul className="space-y-1 font-mono text-[11px] text-zinc-600">
+                    {latestRun.artifacts.map((a) => (
+                      <li key={a.id} className="truncate">
+                        {a.type}: {a.path}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
             </div>
           ) : (
             <div className="rounded border border-dashed border-zinc-300 p-3 text-xs text-zinc-500">
@@ -118,14 +138,17 @@ export function RunPanel({ latestRun, secrets, onRun, running = false, runs = []
           {runs.length > 0 ? (
             <ul className="space-y-1.5 text-xs">
               {runs.slice(0, 6).map((run) => (
-                <li
-                  key={run.id}
-                  className="flex items-center justify-between rounded border border-zinc-200 px-2 py-1.5"
-                >
-                  <span className="truncate text-zinc-700">{run.workflowName}</span>
-                  <span className="ml-2 shrink-0 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600">
-                    {run.status}
-                  </span>
+                <li key={run.id}>
+                  <button
+                    type="button"
+                    onClick={() => onSelectRun?.(run.id)}
+                    className="flex w-full items-center justify-between rounded border border-zinc-200 px-2 py-1.5 text-left hover:bg-zinc-50"
+                  >
+                    <span className="truncate text-zinc-700">{run.workflowName}</span>
+                    <span className="ml-2 shrink-0 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600">
+                      {run.status}
+                    </span>
+                  </button>
                 </li>
               ))}
             </ul>

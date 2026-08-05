@@ -31,11 +31,30 @@ export function FleetManager() {
     void refreshRuns();
   }, [refreshRuns]);
 
+  const loadRun = useCallback(async (id: string) => {
+    try {
+      const res = await fetch(`/api/runs/${id}`);
+      if (res.ok) setLatestRun((await res.json()) as WorkflowRun);
+    } catch {
+      // best-effort
+    }
+  }, []);
+
   async function runWorkflow() {
     setRunning(true);
     try {
       const res = await fetch("/api/runs", { method: "POST" });
-      setLatestRun((await res.json()) as WorkflowRun);
+      const queued = (await res.json()) as WorkflowRun;
+      setLatestRun(queued);
+      // Poll the async run until it reaches a terminal state.
+      for (let i = 0; i < 40; i++) {
+        await new Promise((r) => setTimeout(r, 1500));
+        const r = await fetch(`/api/runs/${queued.id}`);
+        if (!r.ok) break;
+        const run = (await r.json()) as WorkflowRun;
+        setLatestRun(run);
+        if (!["queued", "running"].includes(run.status)) break;
+      }
       void refreshRuns();
     } finally {
       setRunning(false);
@@ -80,6 +99,7 @@ export function FleetManager() {
           onRun={runWorkflow}
           running={running}
           runs={runs}
+          onSelectRun={loadRun}
         />
       </div>
     </main>
