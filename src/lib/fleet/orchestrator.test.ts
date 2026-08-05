@@ -191,6 +191,33 @@ describe("runWorkflow", () => {
     expect(joined).toContain("[REDACTED:portal_password]");
   });
 
+  it("fetches guest artifacts back to the controller when a fetcher is provided", async () => {
+    const client = fakeClient({ "dom-vm1": "running" });
+    const daemon = createVmDaemon(client, [testVm()]);
+    const fetchArtifacts = vi.fn(async (_c, paths: string[], runId: string, nodeId: string) =>
+      paths.map((p, i) => ({
+        id: `art_${i}`,
+        runId,
+        nodeId,
+        type: "file",
+        path: `/local/${runId}/${p.split("/").pop()}`,
+        createdAt: "t",
+      })),
+    );
+    const run = await runWorkflow(
+      { workflow: workflow(), secrets, params, runId: "run_1" },
+      {
+        daemon,
+        exec: execReturning({ status: "succeeded", reason: "done", steps: 1, artifacts: ["/opt/agent/a/shot.png"] }),
+        now: now(),
+        fetchArtifacts,
+      },
+    );
+    expect(run.status).toBe("succeeded");
+    expect(fetchArtifacts).toHaveBeenCalledTimes(1);
+    expect(run.artifacts?.[0].path).toBe("/local/run_1/shot.png"); // local, not guest path
+  });
+
   it("pauses and HOLDS the VM when the guest reports needs_human", async () => {
     const client = fakeClient({ "dom-vm1": "running" });
     const daemon = createVmDaemon(client, [testVm()]);

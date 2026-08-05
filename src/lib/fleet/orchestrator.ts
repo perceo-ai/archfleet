@@ -7,7 +7,7 @@
 // is the real execution engine that replaces it once VMs are live.
 
 import { redactSecrets } from "./redaction";
-import { runComputerUseTask, type ExecRunner, type GuestReport } from "./computer-use";
+import { runComputerUseTask, type ExecRunner, type GuestReport, type GuestConnection } from "./computer-use";
 import { runCliAgent, type AgentExec, type AgentRunResult } from "./cli-agent-runner";
 import type { AgentProvider } from "./types";
 import type { VmDaemon } from "./vm-daemon/daemon";
@@ -33,6 +33,13 @@ export type OrchestratorDeps = {
   sshIdentityFile?: string;
   /** Executor for CLI-agent nodes (claude/codex). Controller-side, no VM. */
   agentExec?: AgentExec;
+  /** Fetch guest artifact files back to the controller. Returns local RunArtifacts. */
+  fetchArtifacts?: (
+    conn: GuestConnection,
+    remotePaths: string[],
+    runId: string,
+    nodeId: string,
+  ) => Promise<RunArtifact[]>;
 };
 
 export type RunWorkflowInput = {
@@ -164,7 +171,7 @@ export async function runWorkflow(
               limits: node.config.timeoutMs ? { timeoutS: node.config.timeoutMs / 1000 } : undefined,
             },
             deps.exec,
-            env,
+            { ...env, CUF_RUN_ID: runId },
           );
         } catch (e) {
           emit("error", `Node "${node.name}" transport error: ${String(e)}`);
@@ -173,7 +180,18 @@ export async function runWorkflow(
         }
         const level = report.status === "succeeded" ? "info" : "warn";
         emit(level, `Node "${node.name}" ${report.status} (${report.reason}) after ${report.steps} steps.`);
-        collectArtifacts(node.id, report.artifacts);
+        if (report.artifacts.length && deps.fetchArtifacts) {
+          try {
+            const fetched = await deps.fetchArtifacts(guestConn, report.artifacts, runId, node.id);
+            artifacts.push(...fetched);
+            for (const f of fetched) emit("info", `Artifact: ${f.path}.`);
+          } catch (e) {
+            emit("warn", `Artifact fetch failed for "${node.name}": ${String(e)}`);
+            collectArtifacts(node.id, report.artifacts); // keep guest-path metadata
+          }
+        } else {
+          collectArtifacts(node.id, report.artifacts);
+        }
         if (report.status !== "succeeded") {
           finalStatus = reportToStatus(report.status);
           break;

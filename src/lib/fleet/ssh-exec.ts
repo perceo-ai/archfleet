@@ -1,6 +1,34 @@
 import { spawn } from "node:child_process";
-import type { ExecResult, ExecRunner } from "./computer-use";
+import type { ExecResult, ExecRunner, GuestConnection } from "./computer-use";
 import type { AgentExec } from "./cli-agent-runner";
+
+/** Copy one file from the guest to a local path via scp. */
+export function scpFetch(
+  conn: GuestConnection,
+  remotePath: string,
+  localPath: string,
+): Promise<{ code: number; stderr: string }> {
+  const args = [
+    "-P",
+    String(conn.port),
+    "-o",
+    "StrictHostKeyChecking=no",
+    "-o",
+    "UserKnownHostsFile=/dev/null",
+    "-o",
+    "BatchMode=yes",
+    ...(conn.identityFile ? ["-i", conn.identityFile, "-o", "IdentitiesOnly=yes"] : []),
+    `${conn.username}@${conn.host}:${remotePath}`,
+    localPath,
+  ];
+  return new Promise((resolve) => {
+    const child = spawn("scp", args, { stdio: ["ignore", "ignore", "pipe"] });
+    let stderr = "";
+    child.stderr.on("data", (d) => (stderr += d.toString()));
+    child.on("error", (e) => resolve({ code: 127, stderr: String(e) }));
+    child.on("close", (code) => resolve({ code: code ?? -1, stderr }));
+  });
+}
 
 /** Real AgentExec: spawns a CLI agent command with its env + stdin. */
 export const spawnAgentExec: AgentExec = (cmd) =>

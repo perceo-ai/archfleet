@@ -38,21 +38,35 @@ def _parse_task(raw: dict) -> tuple[TaskSlice, Limits]:
 
 
 def _run_real(task: TaskSlice, limits: Limits) -> "RunReport":  # noqa: F821
+    import os
     import pyautogui  # lazy: needs a display
     from backends import AgentSBackend
+
+    # Save each step's screenshot so the controller can scp them back as artifacts.
+    run_id = os.environ.get("CUF_RUN_ID", "adhoc")
+    art_dir = f"/opt/agent/artifacts/{run_id}"
+    os.makedirs(art_dir, exist_ok=True)
+    saved: list[str] = []
 
     def screenshot() -> bytes:
         import io
 
+        img = pyautogui.screenshot()
         buf = io.BytesIO()
-        pyautogui.screenshot().save(buf, format="PNG")
+        img.save(buf, format="PNG")
+        path = f"{art_dir}/step_{len(saved)}.png"
+        try:
+            img.save(path)
+            saved.append(path)
+        except Exception:
+            pass
         return buf.getvalue()
 
     def execute(actions):
         for action in actions:
             exec(action, {"pyautogui": pyautogui})  # noqa: S102 — Agent S action code
 
-    return run_task(
+    report = run_task(
         task,
         AgentSBackend(),
         limits=limits,
@@ -60,6 +74,11 @@ def _run_real(task: TaskSlice, limits: Limits) -> "RunReport":  # noqa: F821
         clock=time.time,
         execute=execute,
     )
+    # Surface saved screenshots as artifacts (deduped with any the backend added).
+    for path in saved:
+        if path not in report.artifacts:
+            report.artifacts.append(path)
+    return report
 
 
 def _run_selftest() -> "RunReport":  # noqa: F821

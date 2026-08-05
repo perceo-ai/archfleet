@@ -10,8 +10,12 @@ import { createVmDaemon } from "./vm-daemon/daemon";
 import { createVirshClient } from "./vm-daemon/virsh";
 import { execVirshRunner } from "./vm-daemon/exec-runner";
 import { realVmsFromEnv } from "./vm-daemon/fleet-config";
-import { spawnExecRunner, spawnAgentExec } from "./ssh-exec";
+import { mkdirSync } from "node:fs";
+import { basename } from "node:path";
+import { spawnExecRunner, spawnAgentExec, scpFetch } from "./ssh-exec";
 import { runWorkflow, type OrchestratorDeps } from "./orchestrator";
+import type { GuestConnection } from "./computer-use";
+import type { RunArtifact } from "./types";
 import { getDb, type Db } from "./db/db";
 import { saveRun, getRun, claimQueuedRun, deferRun } from "./db/runs-repo";
 import { getWorkflow } from "./db/workflows-repo";
@@ -78,6 +82,31 @@ function buildRunDeps(state: FleetState, now: () => string): OrchestratorDeps {
     now,
     env: guestEnv(),
     sshIdentityFile: process.env.CUF_SSH_KEY,
+    fetchArtifacts: makeFetchArtifacts(now),
+  };
+}
+
+/** scp guest artifact files into ./data/artifacts/<runId>/ (or CUF_ARTIFACT_DIR). */
+function makeFetchArtifacts(now: () => string): OrchestratorDeps["fetchArtifacts"] {
+  return async (conn: GuestConnection, remotePaths, runId, nodeId) => {
+    const baseDir = process.env.CUF_ARTIFACT_DIR ?? `${process.cwd()}/data/artifacts`;
+    const destDir = `${baseDir}/${runId}`;
+    mkdirSync(destDir, { recursive: true });
+    const out: RunArtifact[] = [];
+    for (const remote of remotePaths) {
+      const local = `${destDir}/${basename(remote)}`;
+      const res = await scpFetch(conn, remote, local);
+      out.push({
+        id: `art_${runId}_${out.length}`,
+        runId,
+        nodeId,
+        type: "file",
+        path: res.code === 0 ? local : remote, // fall back to guest path if scp failed
+        metadata: res.code === 0 ? undefined : { fetchError: res.stderr.trim() },
+        createdAt: now(),
+      });
+    }
+    return out;
   };
 }
 
