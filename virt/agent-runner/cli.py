@@ -44,7 +44,7 @@ def _run_real(task: TaskSlice, limits: Limits) -> "RunReport":  # noqa: F821
 
     # Save each step's screenshot so the controller can scp them back as artifacts.
     run_id = os.environ.get("CUF_RUN_ID", "adhoc")
-    art_dir = f"/opt/agent/artifacts/{run_id}"
+    art_dir = f"/tmp/cuf-artifacts/{run_id}"  # user-writable regardless of /opt perms
     os.makedirs(art_dir, exist_ok=True)
     saved: list[str] = []
 
