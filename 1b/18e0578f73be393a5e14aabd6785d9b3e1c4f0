@@ -1,0 +1,28 @@
+src/app/api/plan/route.ts
+  s_fd31e2b543baf5::t_cb236aea7dee80 1-18
+src/lib/fleet/planner.ts
+  s_fd31e2b543baf5::t_4b146d1a95e2d4 58,67
+  s_fd31e2b543baf5::t_a038a1f8ee8ef9 17-24
+  s_fd31e2b543baf5::t_20908b6a625d40 1-16,25-57,59-66,68-106
+src/lib/fleet/planner.test.ts
+  s_fd31e2b543baf5::t_710e29ccf22652 1-57
+src/mcp/tools.ts
+  s_fd31e2b543baf5::t_610ae4c2dc9612 50-59
+  s_fd31e2b543baf5::t_8f5c9d54c7aafe 48-49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "1b18e0578f73be393a5e14aabd6785d9b3e1c4f0",
+  "prompts": {},
+  "sessions": {
+    "s_fd31e2b543baf5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebcada33-3d4e-46f7-96e9-ac45fa0c7077",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Pranav Kannepalli <pranav.kannepalli@gmail.com>"
+    }
+  }
+}
