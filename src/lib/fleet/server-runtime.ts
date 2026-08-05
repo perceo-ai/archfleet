@@ -14,6 +14,7 @@ import { spawnExecRunner } from "./ssh-exec";
 import { runWorkflow } from "./orchestrator";
 import { getDb, type Db } from "./db/db";
 import { saveRun } from "./db/runs-repo";
+import { loadSecrets } from "./db/secrets-repo";
 import { seedFleetState } from "./seed";
 import type { TriggerExecute } from "./triggers/triggers-runtime";
 import type { FleetState, Workflow, WorkflowRun } from "./types";
@@ -41,6 +42,20 @@ export type ExecuteOptions = {
   triggerId?: string;
 };
 
+/** Prefer encrypted secrets from the db (production); fall back to seed secrets
+ * when no CUF_SECRET_KEY is configured (dev). Db secrets override seed by name. */
+function resolveSecrets(db: Db, state: FleetState): FleetState["secrets"] {
+  if (!process.env.CUF_SECRET_KEY) return state.secrets;
+  try {
+    const dbSecrets = loadSecrets(db);
+    const byName = new Map(state.secrets.map((s) => [s.name, s]));
+    for (const s of dbSecrets) byName.set(s.name, s);
+    return [...byName.values()];
+  } catch {
+    return state.secrets; // never fail a run on secret-store issues; redaction still applies
+  }
+}
+
 export async function executeManualRun(
   state: FleetState,
   workflow: Workflow,
@@ -55,7 +70,7 @@ export async function executeManualRun(
   const runId = `run_${runCounter++}_${now()}`;
 
   const run = await runWorkflow(
-    { workflow, secrets: state.secrets, params: state.params, runId },
+    { workflow, secrets: resolveSecrets(db, state), params: state.params, runId },
     { daemon, exec: spawnExecRunner, now, env: guestEnv() },
   );
   saveRun(db, opts.triggerId ? { ...run, triggerId: opts.triggerId } : run);

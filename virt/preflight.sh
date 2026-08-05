@@ -32,7 +32,8 @@ if [ "$miss" -eq 0 ]; then
   echo "PREFLIGHT OK — run: AGENT_PASSWORD='...' ./virt/build-golden.sh"
 else
   echo "PREFLIGHT INCOMPLETE. On Arch install with:"
-  echo "  sudo pacman -S --needed libvirt qemu-desktop virt-install libguestfs sshpass edk2-ovmf dnsmasq"
+  echo "  sudo pacman -S --needed libvirt qemu-desktop virt-install libguestfs guestfs-tools sshpass edk2-ovmf dnsmasq"
+  echo "  # virt-customize ships in guestfs-tools (separate from libguestfs/guestfish)"
   echo "  systemctl --user enable --now libvirtd 2>/dev/null || true"
 fi
 exit "$miss"
