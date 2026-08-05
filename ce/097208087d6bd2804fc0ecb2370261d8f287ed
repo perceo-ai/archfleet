@@ -1,0 +1,26 @@
+src/components/fleet/WorkflowCanvas.tsx
+  s_fd31e2b543baf5::t_bcbc7e2a1f6ea6 84-88
+  s_fd31e2b543baf5::t_3813be547283f3 3-18,22,27,29-30,35-65,67-71,73-83,89-108,115,117-124,126-128,130-139,142-204
+src/components/fleet/flow-convert.test.ts
+  s_fd31e2b543baf5::t_c9ce17cd66e92b 1-33
+src/components/fleet/FleetManager.tsx
+  s_fd31e2b543baf5::t_b5e299661e38bf 93-105
+src/components/fleet/flow-convert.ts
+  s_fd31e2b543baf5::t_0acc8a16aa2e24 1-52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "ce097208087d6bd2804fc0ecb2370261d8f287ed",
+  "prompts": {},
+  "sessions": {
+    "s_fd31e2b543baf5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebcada33-3d4e-46f7-96e9-ac45fa0c7077",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Pranav Kannepalli <pranav.kannepalli@gmail.com>"
+    }
+  }
+}
