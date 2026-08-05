@@ -4,9 +4,12 @@
 import type { Db } from "./db";
 import { seedFleetState } from "../seed";
 import { saveWorkflow } from "./workflows-repo";
+import { saveVm } from "./vms-repo";
 
 export function ensureSeeded(db: Db, now = new Date().toISOString()): void {
   const { c } = db.prepare("SELECT COUNT(*) AS c FROM cuf_workflows").get() as { c: number };
   if (c > 0) return;
-  for (const wf of seedFleetState().workflows) saveWorkflow(db, wf, now);
+  const state = seedFleetState();
+  for (const wf of state.workflows) saveWorkflow(db, wf, now);
+  for (const vm of state.vms) saveVm(db, vm);
 }
