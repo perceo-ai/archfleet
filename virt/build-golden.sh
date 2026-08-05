@@ -143,21 +143,48 @@ if $VIRSH dominfo "${VM_NAME}" >/dev/null 2>&1; then
   $VIRSH undefine "${VM_NAME}" --nvram >/dev/null 2>&1 || true
 fi
 
+# Define via `virsh define` + generated XML (no virt-install / PyGObject dep).
+# Networking is entirely qemu user-mode (slirp) via <qemu:commandline>, with host
+# port-forwards for SSH (control) and RDP (human takeover).
 log "defining + starting domain ${VM_NAME}"
-virt-install \
-  --connect "${LIBVIRT_URI}" \
-  --name "${VM_NAME}" \
-  --memory "${RAM_MB}" \
-  --vcpus "${VCPUS}" \
-  --cpu host-passthrough \
-  --import \
-  --disk "path=${GOLDEN_IMG},format=qcow2,bus=virtio" \
-  --os-variant "${OS_VARIANT}" \
-  --graphics vnc,listen=127.0.0.1 \
-  --network none \
-  --qemu-commandline="-netdev user,id=unet,hostfwd=tcp::${HOST_SSH_PORT}-:22,hostfwd=tcp::${HOST_RDP_PORT}-:3389 -device virtio-net-pci,netdev=unet" \
-  --noautoconsole \
-  --import || die "virt-install failed"
+QEMU_BIN="$(command -v qemu-system-x86_64)"
+DOMAIN_XML="$(mktemp)"
+cat > "${DOMAIN_XML}" <<XML
+<domain type='kvm' xmlns:qemu='http://libvirt.org/schemas/domain/qemu/1.0'>
+  <name>${VM_NAME}</name>
+  <memory unit='MiB'>${RAM_MB}</memory>
+  <vcpu>${VCPUS}</vcpu>
+  <os>
+    <type arch='x86_64' machine='q35'>hvm</type>
+    <boot dev='hd'/>
+  </os>
+  <features><acpi/><apic/></features>
+  <cpu mode='host-passthrough'/>
+  <clock offset='utc'/>
+  <devices>
+    <emulator>${QEMU_BIN}</emulator>
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='qcow2'/>
+      <source file='${GOLDEN_IMG}'/>
+      <target dev='vda' bus='virtio'/>
+    </disk>
+    <graphics type='vnc' port='-1' listen='127.0.0.1'/>
+    <video><model type='vga'/></video>
+    <console type='pty'/>
+    <memballoon model='virtio'/>
+  </devices>
+  <qemu:commandline>
+    <qemu:arg value='-netdev'/>
+    <qemu:arg value='user,id=unet,hostfwd=tcp::${HOST_SSH_PORT}-:22,hostfwd=tcp::${HOST_RDP_PORT}-:3389'/>
+    <qemu:arg value='-device'/>
+    <qemu:arg value='virtio-net-pci,netdev=unet'/>
+  </qemu:commandline>
+</domain>
+XML
+
+$VIRSH define "${DOMAIN_XML}" || die "virsh define failed"
+$VIRSH start "${VM_NAME}" || die "virsh start failed"
+rm -f "${DOMAIN_XML}"
 
 # ---------------------------------------------------------------------------
 # 5. Wait for provisioning marker over the forwarded SSH port.
