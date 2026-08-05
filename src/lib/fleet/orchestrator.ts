@@ -158,17 +158,35 @@ export async function runWorkflow(
     }
   };
 
+  // The most recent executable task node — retry_wait re-runs it.
+  let lastTaskNode: WorkflowNode | undefined;
+
   // Execute one node, returning a branch outcome. Emits events + collects
   // artifacts as side effects.
   const runNode = async (node: WorkflowNode): Promise<Outcome> => {
+    if (node.type === "computer_use_task" || node.type === "cli_agent_task" || node.type === "shell_task") {
+      lastTaskNode = node;
+    }
     switch (node.type) {
       case "start":
       case "end":
       case "artifact":
         return "success";
-      case "retry_wait":
-        emit("info", `Node "${node.name}": retry/wait.`);
-        return "success";
+      case "retry_wait": {
+        if (!lastTaskNode) {
+          emit("info", `Node "${node.name}": nothing to retry.`);
+          return "success";
+        }
+        const max = node.config.maxAttempts ?? 2;
+        for (let attempt = 1; attempt <= max; attempt++) {
+          emit("info", `Node "${node.name}": retry ${attempt}/${max} of "${lastTaskNode.name}".`);
+          const out = await runNode(lastTaskNode);
+          if (out === "paused") return "paused";
+          if (out === "success") return "success";
+        }
+        emit("warn", `Node "${node.name}": retries exhausted.`);
+        return "failure";
+      }
       case "human_takeover":
         emit("warn", `Node "${node.name}": paused for human takeover.`);
         return "paused";

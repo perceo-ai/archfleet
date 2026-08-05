@@ -200,6 +200,39 @@ describe("outcome-driven engine", () => {
     expect(client.reverts).toHaveLength(1); // held, not released
   });
 
+  it("retry_wait re-runs the preceding task until it succeeds", async () => {
+    const client = fakeClient({ "dom-vm1": "running" });
+    const daemon = createVmDaemon(client, [testVm()]);
+    // shell fails first call, succeeds second — retry_wait (maxAttempts 3) recovers.
+    let calls = 0;
+    const shellExec = vi.fn(async () => ({ code: calls++ === 0 ? 1 : 0, stdout: "", stderr: "" }));
+    const wf: Workflow = {
+      id: "wf_retry",
+      name: "Retry",
+      description: "",
+      enabled: true,
+      triggerKinds: ["manual"],
+      nodes: [
+        { id: "start", type: "start", name: "S", position: { x: 0, y: 0 }, config: {} },
+        { id: "sh", type: "shell_task", name: "Flaky", position: { x: 1, y: 0 }, config: { prompt: "flaky" } },
+        { id: "rw", type: "retry_wait", name: "Retry", position: { x: 2, y: 0 }, config: { maxAttempts: 3 } },
+        { id: "end", type: "end", name: "E", position: { x: 3, y: 0 }, config: {} },
+      ],
+      edges: [
+        { id: "e1", from: "start", to: "sh", condition: "always" },
+        { id: "e2", from: "sh", to: "end", condition: "success" },
+        { id: "e3", from: "sh", to: "rw", condition: "failure" },
+        { id: "e4", from: "rw", to: "end", condition: "success" },
+      ],
+    };
+    const run = await runWorkflow(
+      { workflow: wf, secrets, params, runId: "r" },
+      { daemon, exec: async () => ({ code: 0, stdout: "", stderr: "" }), shellExec, now: now() },
+    );
+    expect(run.status).toBe("succeeded"); // failed once, retried, succeeded
+    expect(shellExec).toHaveBeenCalledTimes(2);
+  });
+
   it("runs a shell_task node and branches on exit code", async () => {
     const client = fakeClient({ "dom-vm1": "running" });
     const daemon = createVmDaemon(client, [testVm()]);

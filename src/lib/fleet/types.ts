@@ -36,6 +36,8 @@ export type WorkflowNode = {
     timeoutMs?: number;
     requiredLabels?: string[];
     provider?: AgentProvider;
+    /** retry_wait: how many times to re-run the preceding task node. */
+    maxAttempts?: number;
   };
 };
 
