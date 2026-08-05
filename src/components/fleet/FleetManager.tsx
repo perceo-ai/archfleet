@@ -7,7 +7,7 @@ import { RunPanel, type RunSummary } from "./RunPanel";
 import { SecretsParamsPanel } from "./SecretsParamsPanel";
 import { WorkflowCanvas } from "./WorkflowCanvas";
 import { seedFleetState } from "@/lib/fleet/seed";
-import type { WorkflowRun } from "@/lib/fleet/types";
+import type { FleetVm, WorkflowRun } from "@/lib/fleet/types";
 
 export function FleetManager() {
   const state = useMemo(() => seedFleetState(), []);
@@ -15,6 +15,7 @@ export function FleetManager() {
   const [latestRun, setLatestRun] = useState<WorkflowRun>();
   const [running, setRunning] = useState(false);
   const [runs, setRuns] = useState<RunSummary[]>([]);
+  const [vms, setVms] = useState<FleetVm[]>(state.vms);
 
   const refreshRuns = useCallback(async () => {
     try {
@@ -25,11 +26,27 @@ export function FleetManager() {
     }
   }, []);
 
+  const refreshVms = useCallback(async () => {
+    try {
+      const res = await fetch("/api/vms");
+      if (res.ok) {
+        const live = (await res.json()) as FleetVm[];
+        if (live.length) setVms(live);
+      }
+    } catch {
+      // keep seed vms
+    }
+  }, []);
+
   useEffect(() => {
-    // setState happens after an awaited fetch, not synchronously — no cascade.
+    // setState happens after awaited fetches, not synchronously — no cascade.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void refreshRuns();
-  }, [refreshRuns]);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void refreshVms();
+    const t = setInterval(() => void refreshVms(), 8000);
+    return () => clearInterval(t);
+  }, [refreshRuns, refreshVms]);
 
   const loadRun = useCallback(async (id: string) => {
     try {
@@ -61,7 +78,7 @@ export function FleetManager() {
     }
   }
 
-  const idleVms = state.vms.filter((vm) => vm.status === "idle").length;
+  const idleVms = vms.filter((vm) => vm.status === "idle").length;
   const activeRuns = latestRun && latestRun.status !== "succeeded" ? 1 : 0;
 
   return (
@@ -88,7 +105,7 @@ export function FleetManager() {
       </header>
 
       <div className="grid min-h-0 grid-cols-[320px_minmax(0,1fr)_360px]">
-        <FleetSidebar vms={state.vms} />
+        <FleetSidebar vms={vms} />
         <div className="grid min-h-0 grid-rows-[1fr_auto]">
           <WorkflowCanvas
             workflow={workflow}

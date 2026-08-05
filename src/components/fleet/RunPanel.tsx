@@ -116,13 +116,23 @@ export function RunPanel({
               {latestRun.artifacts && latestRun.artifacts.length > 0 ? (
                 <div className="rounded border border-zinc-200 p-2 text-xs">
                   <div className="mb-1 font-medium text-zinc-950">Artifacts</div>
-                  <ul className="space-y-1 font-mono text-[11px] text-zinc-600">
-                    {latestRun.artifacts.map((a) => (
-                      <li key={a.id} className="truncate">
-                        {a.type}: {a.path}
-                      </li>
-                    ))}
-                  </ul>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {latestRun.artifacts.map((a) => {
+                      const name = a.path.split("/").pop() ?? a.path;
+                      const url = `/api/runs/${latestRun.id}/artifacts/${encodeURIComponent(name)}`;
+                      const isImage = /\.(png|jpe?g)$/i.test(name);
+                      return isImage ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <a key={a.id} href={url} target="_blank" rel="noreferrer" title={name}>
+                          <img src={url} alt={name} className="h-16 w-full rounded border border-zinc-200 object-cover" />
+                        </a>
+                      ) : (
+                        <a key={a.id} href={url} className="col-span-3 truncate font-mono text-[11px] text-blue-600 hover:underline" target="_blank" rel="noreferrer">
+                          {name}
+                        </a>
+                      );
+                    })}
+                  </div>
                 </div>
               ) : null}
             </div>
