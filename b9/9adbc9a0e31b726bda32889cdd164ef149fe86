@@ -1,0 +1,25 @@
+src/lib/fleet/db/init-db.ts
+  s_fd31e2b543baf5::t_6f0b7c9a5db8c6 7,12-14
+src/lib/fleet/db/vms-repo.test.ts
+  s_fd31e2b543baf5::t_d8fb873dea2c9f 1-48
+src/lib/fleet/db/vms-repo.ts
+  s_fd31e2b543baf5::t_0413f67a2b5fe8 1-63
+src/app/api/vms/route.ts
+  s_fd31e2b543baf5::t_5e3808d5e20ab4 1-15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "b99adbc9a0e31b726bda32889cdd164ef149fe86",
+  "prompts": {},
+  "sessions": {
+    "s_fd31e2b543baf5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebcada33-3d4e-46f7-96e9-ac45fa0c7077",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Pranav Kannepalli <pranav.kannepalli@gmail.com>"
+    }
+  }
+}
