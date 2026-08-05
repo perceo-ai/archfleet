@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Activity, ShieldCheck } from "lucide-react";
 import { FleetSidebar } from "./FleetSidebar";
-import { RunPanel } from "./RunPanel";
+import { RunPanel, type RunSummary } from "./RunPanel";
 import { SecretsParamsPanel } from "./SecretsParamsPanel";
 import { WorkflowCanvas } from "./WorkflowCanvas";
 import { seedFleetState } from "@/lib/fleet/seed";
@@ -14,12 +14,29 @@ export function FleetManager() {
   const workflow = state.workflows[0];
   const [latestRun, setLatestRun] = useState<WorkflowRun>();
   const [running, setRunning] = useState(false);
+  const [runs, setRuns] = useState<RunSummary[]>([]);
+
+  const refreshRuns = useCallback(async () => {
+    try {
+      const res = await fetch("/api/runs");
+      if (res.ok) setRuns((await res.json()) as RunSummary[]);
+    } catch {
+      // ignore — history is best-effort (e.g. no server in a unit test)
+    }
+  }, []);
+
+  useEffect(() => {
+    // setState happens after an awaited fetch, not synchronously — no cascade.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void refreshRuns();
+  }, [refreshRuns]);
 
   async function runWorkflow() {
     setRunning(true);
     try {
       const res = await fetch("/api/runs", { method: "POST" });
       setLatestRun((await res.json()) as WorkflowRun);
+      void refreshRuns();
     } finally {
       setRunning(false);
     }
@@ -57,7 +74,13 @@ export function FleetManager() {
           <WorkflowCanvas workflow={workflow} />
           <SecretsParamsPanel params={state.params} secrets={state.secrets} />
         </div>
-        <RunPanel latestRun={latestRun} secrets={state.secrets} onRun={runWorkflow} running={running} />
+        <RunPanel
+          latestRun={latestRun}
+          secrets={state.secrets}
+          onRun={runWorkflow}
+          running={running}
+          runs={runs}
+        />
       </div>
     </main>
   );

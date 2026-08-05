@@ -3,14 +3,23 @@ import { buildAgentCommand } from "@/lib/fleet/agent-adapters";
 import { getRunTimeline } from "@/lib/fleet/runtime";
 import type { Secret, WorkflowRun } from "@/lib/fleet/types";
 
+export type RunSummary = {
+  id: string;
+  workflowName: string;
+  status: string;
+  startedAt: string;
+  vmId?: string;
+};
+
 type RunPanelProps = {
   latestRun?: WorkflowRun;
   secrets: Secret[];
   onRun: () => void;
   running?: boolean;
+  runs?: RunSummary[];
 };
 
-export function RunPanel({ latestRun, secrets, onRun, running = false }: RunPanelProps) {
+export function RunPanel({ latestRun, secrets, onRun, running = false, runs = [] }: RunPanelProps) {
   const claude = buildAgentCommand({
     provider: "claude-code",
     prompt: "Run workflow node",
@@ -100,6 +109,29 @@ export function RunPanel({ latestRun, secrets, onRun, running = false }: RunPane
           ) : (
             <div className="rounded border border-dashed border-zinc-300 p-3 text-xs text-zinc-500">
               No run yet. Start manually or enable a trigger.
+            </div>
+          )}
+        </section>
+
+        <section>
+          <h3 className="mb-2 text-xs font-semibold uppercase text-zinc-500">Recent Runs</h3>
+          {runs.length > 0 ? (
+            <ul className="space-y-1.5 text-xs">
+              {runs.slice(0, 6).map((run) => (
+                <li
+                  key={run.id}
+                  className="flex items-center justify-between rounded border border-zinc-200 px-2 py-1.5"
+                >
+                  <span className="truncate text-zinc-700">{run.workflowName}</span>
+                  <span className="ml-2 shrink-0 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600">
+                    {run.status}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="rounded border border-dashed border-zinc-300 p-2 text-xs text-zinc-500">
+              No run history yet.
             </div>
           )}
         </section>
