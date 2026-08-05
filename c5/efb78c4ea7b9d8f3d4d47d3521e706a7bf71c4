@@ -1,0 +1,26 @@
+virt/agent-runner/cli.py
+  s_fd31e2b543baf5::t_05079d549208c9 43-46
+  s_fd31e2b543baf5::t_c6ebdc204a40a8 74
+src/lib/fleet/server-runtime.ts
+  s_fd31e2b543baf5::t_c51c29a979fbd2 39
+virt/agent-runner/backends.py
+  s_fd31e2b543baf5::t_6c7650a7d78104 65-87
+virt/agent-runner/test_backends.py
+  s_fd31e2b543baf5::t_db78dbd7ca02cb 47-66
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "c5efb78c4ea7b9d8f3d4d47d3521e706a7bf71c4",
+  "prompts": {},
+  "sessions": {
+    "s_fd31e2b543baf5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebcada33-3d4e-46f7-96e9-ac45fa0c7077",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Pranav Kannepalli <pranav.kannepalli@gmail.com>"
+    }
+  }
+}
