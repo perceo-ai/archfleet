@@ -1,0 +1,33 @@
+src/lib/fleet/ssh-exec.ts
+  s_fd31e2b543baf5::t_5b52149b085bee 2,5-31
+  s_fd31e2b543baf5::t_d0b24821a817d6 32
+src/lib/fleet/server-runtime.ts
+  s_fd31e2b543baf5::t_c01d3c447848d8 13-15,17-18
+  s_fd31e2b543baf5::t_07fd8c09eb98ff 85-109
+src/lib/fleet/orchestrator.ts
+  s_fd31e2b543baf5::t_2075163c74b5cd 10
+  s_fd31e2b543baf5::t_ba04d04d8ee73a 183-194
+  s_fd31e2b543baf5::t_e682b7f0d30264 174
+  s_fd31e2b543baf5::t_aaf9f7395f0896 36-42
+virt/agent-runner/cli.py
+  s_fd31e2b543baf5::t_5ee9652a0a6b16 69,77-81
+  s_fd31e2b543baf5::t_042282300f315c 41,45-50,54,56-62
+src/lib/fleet/orchestrator.test.ts
+  s_fd31e2b543baf5::t_0548b78ab63247 194-220
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "cae07dd12f5e8cbca779ed8746fd1cd67533b9eb",
+  "prompts": {},
+  "sessions": {
+    "s_fd31e2b543baf5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebcada33-3d4e-46f7-96e9-ac45fa0c7077",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Pranav Kannepalli <pranav.kannepalli@gmail.com>"
+    }
+  }
+}
