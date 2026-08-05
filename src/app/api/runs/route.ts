@@ -10,12 +10,18 @@ export const dynamic = "force-dynamic";
 // (instrumentation loop or POST /api/runs/process) executes it. Body: { workflowId? }.
 export async function POST(req: Request) {
   let workflowId: string | undefined;
+  let params: Record<string, string | number | boolean | null> | undefined;
   try {
-    workflowId = ((await req.json()) as { workflowId?: string }).workflowId;
+    const body = (await req.json()) as {
+      workflowId?: string;
+      params?: Record<string, string | number | boolean | null>;
+    };
+    workflowId = body.workflowId;
+    params = body.params;
   } catch {
-    // no body — default workflow
+    // no body — default workflow, no params
   }
-  const run = enqueueManualRun(workflowId);
+  const run = enqueueManualRun(workflowId, { params });
   return Response.json(run, { status: 202 });
 }
 

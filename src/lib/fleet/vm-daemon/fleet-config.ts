@@ -1,50 +1,86 @@
 // Assembles the list of REAL (libvirt-domain-bound) VMs the daemon controls, from
-// environment set by build-golden.sh / the operator. When no real VM is configured
-// this returns [] and the daemon simply has nothing to acquire (runs queue).
+// environment. Two forms, both optional (combined + de-duped by domain):
 //
-// Env (all optional):
-//   CUF_GOLDEN_DOMAIN     libvirt domain name (enables one real VM when set)
-//   CUF_GOLDEN_LABELS     comma labels          (default: linux-desktop,browser)
-//   CUF_GOLDEN_SNAPSHOT   warm snapshot name    (default: golden-warm)
-//   CUF_GUEST_HOST        ssh/xrdp host         (default: 127.0.0.1)
-//   CUF_GUEST_SSH_PORT    forwarded ssh port    (default: 10022)
-//   CUF_GUEST_RDP_PORT    forwarded xrdp port   (default: 13389)
-//   AGENT_USER            guest login user      (default: agent)
+//   CUF_GOLDEN_DOMAIN=cuf-golden        single-VM shorthand (uses CUF_GUEST_* + AGENT_USER)
+//   CUF_FLEET_JSON=[{domain,...}, ...]  full multi-VM fleet
+//
+// A fleet spec: { domain, name?, labels?(csv or []), host?, sshPort?, rdpPort?,
+//   user?, snapshot?, memGb?, diskGb? }.
+//
+// With neither set this returns [] and the daemon has nothing to acquire.
 
 import type { FleetVm } from "../types";
 
-export function realVmsFromEnv(env: Record<string, string | undefined> = process.env): FleetVm[] {
-  const domain = env.CUF_GOLDEN_DOMAIN;
-  if (!domain) return [];
+type VmSpec = {
+  domain: string;
+  name?: string;
+  labels?: string[] | string;
+  host?: string;
+  sshPort?: number;
+  rdpPort?: number;
+  user?: string;
+  snapshot?: string;
+  memGb?: number;
+  diskGb?: number;
+};
 
-  const host = env.CUF_GUEST_HOST ?? "127.0.0.1";
-  const sshPort = Number(env.CUF_GUEST_SSH_PORT ?? "10022");
-  const rdpPort = Number(env.CUF_GUEST_RDP_PORT ?? "13389");
-  const user = env.AGENT_USER ?? "agent";
-  const labels = (env.CUF_GOLDEN_LABELS ?? "linux-desktop,browser")
+function toLabels(labels: string[] | string | undefined, fallback: string): string[] {
+  if (Array.isArray(labels)) return labels;
+  return (labels ?? fallback)
     .split(",")
     .map((l) => l.trim())
     .filter(Boolean);
+}
 
-  return [
-    {
-      id: `vm_${domain}`,
-      name: domain,
-      status: "idle",
-      labels,
-      cpu: 0,
-      memoryGb: Number(env.CUF_GOLDEN_MEM_GB ?? "4"),
-      diskGb: Number(env.CUF_GOLDEN_DISK_GB ?? "25"),
-      xrdp: {
-        host,
-        port: rdpPort,
-        username: user,
-        credentialSource: "env:AGENT_PASSWORD",
-      },
-      ssh: { host, port: sshPort, username: user },
-      lastHealthAt: "",
-      domain,
-      warmSnapshot: env.CUF_GOLDEN_SNAPSHOT ?? "golden-warm",
-    },
-  ];
+function buildVm(spec: VmSpec): FleetVm {
+  const host = spec.host ?? "127.0.0.1";
+  const user = spec.user ?? "agent";
+  const sshPort = spec.sshPort ?? 10022;
+  const rdpPort = spec.rdpPort ?? 13389;
+  return {
+    id: `vm_${spec.domain}`,
+    name: spec.name ?? spec.domain,
+    status: "idle",
+    labels: toLabels(spec.labels, "linux-desktop,browser"),
+    cpu: 0,
+    memoryGb: spec.memGb ?? 4,
+    diskGb: spec.diskGb ?? 25,
+    xrdp: { host, port: rdpPort, username: user, credentialSource: "env:AGENT_PASSWORD" },
+    ssh: { host, port: sshPort, username: user },
+    lastHealthAt: "",
+    domain: spec.domain,
+    warmSnapshot: spec.snapshot ?? "golden-warm",
+  };
+}
+
+export function realVmsFromEnv(env: Record<string, string | undefined> = process.env): FleetVm[] {
+  const specs: VmSpec[] = [];
+
+  if (env.CUF_GOLDEN_DOMAIN) {
+    specs.push({
+      domain: env.CUF_GOLDEN_DOMAIN,
+      labels: env.CUF_GOLDEN_LABELS,
+      host: env.CUF_GUEST_HOST,
+      sshPort: env.CUF_GUEST_SSH_PORT ? Number(env.CUF_GUEST_SSH_PORT) : undefined,
+      rdpPort: env.CUF_GUEST_RDP_PORT ? Number(env.CUF_GUEST_RDP_PORT) : undefined,
+      user: env.AGENT_USER,
+      snapshot: env.CUF_GOLDEN_SNAPSHOT,
+      memGb: env.CUF_GOLDEN_MEM_GB ? Number(env.CUF_GOLDEN_MEM_GB) : undefined,
+      diskGb: env.CUF_GOLDEN_DISK_GB ? Number(env.CUF_GOLDEN_DISK_GB) : undefined,
+    });
+  }
+
+  if (env.CUF_FLEET_JSON) {
+    try {
+      const parsed = JSON.parse(env.CUF_FLEET_JSON) as VmSpec[];
+      for (const s of parsed) if (s && s.domain) specs.push(s);
+    } catch {
+      // ignore malformed fleet config
+    }
+  }
+
+  // De-dupe by domain (shorthand + JSON may overlap); first wins.
+  const byDomain = new Map<string, FleetVm>();
+  for (const s of specs) if (!byDomain.has(s.domain)) byDomain.set(s.domain, buildVm(s));
+  return [...byDomain.values()];
 }

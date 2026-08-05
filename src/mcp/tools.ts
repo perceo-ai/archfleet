@@ -60,9 +60,13 @@ export const FLEET_TOOLS: FleetTool[] = [
   },
   {
     name: "run_workflow",
-    description: "Enqueue a manual run of a workflow. Returns the queued run (a worker executes it).",
-    shape: { workflowId: z.string().optional() },
-    run: (db, a) => enqueueManualRun(a.workflowId as string | undefined, { db }),
+    description: "Enqueue a manual run of a workflow, optionally with run-level params. Returns the queued run (a worker executes it).",
+    shape: { workflowId: z.string().optional(), params: z.record(z.string(), z.unknown()).optional() },
+    run: (db, a) =>
+      enqueueManualRun(a.workflowId as string | undefined, {
+        db,
+        params: a.params as Record<string, string | number | boolean | null> | undefined,
+      }),
   },
   {
     name: "process_runs",
