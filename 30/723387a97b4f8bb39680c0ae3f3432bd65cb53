@@ -1,0 +1,29 @@
+src/lib/fleet/server-runtime.ts
+  s_fd31e2b543baf5::t_2a00ae2390d1ec 86-87
+  s_fd31e2b543baf5::t_242fc45f459667 15
+src/lib/fleet/orchestrator.test.ts
+  s_fd31e2b543baf5::t_8df1f114028134 136-232
+src/lib/fleet/ssh-exec.ts
+  s_fd31e2b543baf5::t_fcdf294c1b7488 33-51
+src/lib/fleet/orchestrator.ts
+  s_fd31e2b543baf5::t_663316a0c0ee04 161-198,215,217,225,230-232,234-236,240,256,260,262,264-302
+  s_fd31e2b543baf5::t_4d1d92c1696a2a 119,127
+  s_fd31e2b543baf5::t_e438be6fc7c257 43-47,50-51
+  s_fd31e2b543baf5::t_21e0bf95da6067 52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "30723387a97b4f8bb39680c0ae3f3432bd65cb53",
+  "prompts": {},
+  "sessions": {
+    "s_fd31e2b543baf5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebcada33-3d4e-46f7-96e9-ac45fa0c7077",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Pranav Kannepalli <pranav.kannepalli@gmail.com>"
+    }
+  }
+}
