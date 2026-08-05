@@ -1,0 +1,42 @@
+src/lib/fleet/vm-daemon/fleet-config.ts
+  s_fd31e2b543baf5::t_931359a162cffd 1-50
+src/lib/fleet/server-runtime.test.ts
+  s_fd31e2b543baf5::t_d39bab33abd724 1-15
+src/components/fleet/RunPanel.tsx
+  s_fd31e2b543baf5::t_a015ce84a50222 37-38,41
+  s_fd31e2b543baf5::t_b4a26ba4f5187e 10,13
+src/lib/fleet/vm-daemon/fleet-config.test.ts
+  s_fd31e2b543baf5::t_0f3eed066e8c92 1-29
+src/lib/fleet/orchestrator.ts
+  s_fd31e2b543baf5::t_c365731fe80103 128-132,135
+src/lib/fleet/orchestrator.test.ts
+  s_fd31e2b543baf5::t_f94dd43498ef67 107-122
+  s_fd31e2b543baf5::t_e2041a750c52c5 35
+src/lib/fleet/server-runtime.ts
+  s_fd31e2b543baf5::t_615c6720111dcc 1-49
+src/components/fleet/FleetManager.tsx
+  s_fd31e2b543baf5::t_39a149fb26eb02 16,18-25
+  s_fd31e2b543baf5::t_a284d51d0f17b3 60
+virt/preflight.sh
+  s_fd31e2b543baf5::t_5c403e0b277e40 1-38
+src/app/api/runs/route.ts
+  s_fd31e2b543baf5::t_f70dc18d6119ef 1-14
+src/lib/fleet/types.ts
+  s_fd31e2b543baf5::t_7f6d8d8a41a5f1 75-77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "5d5ccc05dc26a354564b3ba635999c701b4dfd95",
+  "prompts": {},
+  "sessions": {
+    "s_fd31e2b543baf5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebcada33-3d4e-46f7-96e9-ac45fa0c7077",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Pranav Kannepalli <pranav.kannepalli@gmail.com>"
+    }
+  }
+}
