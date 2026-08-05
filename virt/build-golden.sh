@@ -172,8 +172,9 @@ XML
 stage_provision() {
   domain_running || die "domain not running — run the 'boot' stage first"
   log "provisioning over SSH (live output; re-runnable)"
-  # Stream provision.sh output straight to this log. Runs as root via sudo.
-  $SSH "sudo AGENT_USER='${AGENT_USER}' AGENT_PASSWORD='${AGENT_PASSWORD}' GUI_AGENTS_VERSION='${GUI_AGENTS_VERSION}' bash /opt/provision.sh 2>&1" \
+  # Stream provision.sh output straight to this log. Runs as root via `sudo -S`
+  # (password on stdin) so it works over SSH without a TTY, NOPASSWD or not.
+  $SSH "echo '${AGENT_PASSWORD}' | sudo -S -p '' env AGENT_USER='${AGENT_USER}' AGENT_PASSWORD='${AGENT_PASSWORD}' GUI_AGENTS_VERSION='${GUI_AGENTS_VERSION}' bash /opt/provision.sh 2>&1" \
     || die "provision.sh failed (see output above) — fix + rerun: build-golden.sh --from provision"
   $SSH 'test -f /opt/agent/PROVISIONED' 2>/dev/null || die "provision finished but marker missing"
   log "provisioning complete"
