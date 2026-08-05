@@ -38,7 +38,7 @@ apt-get install -y --no-install-recommends \
   xrdp \
   openssh-server \
   python3 python3-venv python3-pip python3-dev python3-tk build-essential \
-  scrot gnome-screenshot xdotool wmctrl x11-utils \
+  xvfb scrot gnome-screenshot xdotool wmctrl x11-utils \
   fonts-liberation ca-certificates curl wget git unzip
 
 # ---------------------------------------------------------------------------
@@ -69,22 +69,38 @@ chmod +x /etc/xrdp/startwm.sh
 adduser xrdp ssl-cert || true
 
 # ---------------------------------------------------------------------------
-# 4. Auto-login on the local console so a display exists WITHOUT an XRDP client.
-#    Agent S drives the local X display via pyautogui; XRDP is for human takeover.
-#    lightdm autologin keeps a real session (and :0 display) alive after boot.
+# 4. Headless X display :0 via Xvfb + XFCE, as a systemd service.
+#    Agent S / pyautogui drive :0. Xvfb is GPU-independent (no real display
+#    hardware / display manager needed), so it always comes up in a VM. XRDP
+#    (separate session) remains for human takeover.
 # ---------------------------------------------------------------------------
-log "enable lightdm autologin"
-apt-get install -y --no-install-recommends lightdm
-mkdir -p /etc/lightdm/lightdm.conf.d
-cat > /etc/lightdm/lightdm.conf.d/50-autologin.conf <<EOF
-[Seat:*]
-autologin-user=${AGENT_USER}
-autologin-user-timeout=0
-user-session=xfce
+log "install headless desktop service (Xvfb :0 + xfce)"
+cat > /opt/agent/start-desktop.sh <<'EOF'
+#!/bin/sh
+rm -f /tmp/.X0-lock 2>/dev/null || true
+Xvfb :0 -screen 0 1920x1080x24 -nolisten tcp &
+sleep 2
+export DISPLAY=:0
+xhost +local: 2>/dev/null || true
+exec startxfce4
 EOF
-# Autologin needs the user in the nopasswdlogin/autologin groups on some builds.
-groupadd -f autologin
-usermod -aG autologin "${AGENT_USER}" || true
+chmod +x /opt/agent/start-desktop.sh
+chown "${AGENT_USER}:${AGENT_USER}" /opt/agent/start-desktop.sh
+cat > /etc/systemd/system/cuf-desktop.service <<EOF
+[Unit]
+Description=CUF headless desktop (Xvfb :0 + xfce)
+After=network.target
+[Service]
+User=${AGENT_USER}
+Environment=HOME=${AGENT_HOME}
+ExecStart=/opt/agent/start-desktop.sh
+Restart=always
+RestartSec=3
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload
+systemctl enable cuf-desktop.service 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
 # 5. Python venv for the Agent S runner + GUI automation libs.
@@ -135,22 +151,9 @@ systemctl restart ssh 2>/dev/null || true
 #     SSH-launched agent (same 'agent' user) can connect to :0 without xauth —
 #     safe because the VM is reachable only from the local controller.
 # ---------------------------------------------------------------------------
-log "bring up desktop + allow local X access"
-mkdir -p "${AGENT_HOME}/.config/autostart"
-cat > "${AGENT_HOME}/.config/autostart/cuf-xhost.desktop" <<EOF
-[Desktop Entry]
-Type=Application
-Name=cuf-xhost
-Exec=sh -c 'xhost +local: || true'
-X-GNOME-Autostart-enabled=true
-EOF
-chown -R "${AGENT_USER}:${AGENT_USER}" "${AGENT_HOME}/.config"
-apt-get install -y --no-install-recommends x11-xserver-utils >/dev/null 2>&1 || true
-
-systemctl start lightdm 2>/dev/null || true
+log "start headless desktop service + wait for :0"
+systemctl restart cuf-desktop.service 2>/dev/null || systemctl start cuf-desktop.service 2>/dev/null || true
 for _ in $(seq 1 45); do [ -e /tmp/.X11-unix/X0 ] && break; sleep 1; done
-# Belt-and-suspenders: apply xhost directly against the live session too.
-sudo -u "${AGENT_USER}" DISPLAY=:0 xhost +local: 2>/dev/null || true
 [ -e /tmp/.X11-unix/X0 ] && log "X display :0 is up" || log "WARN: :0 not up yet"
 
 # ---------------------------------------------------------------------------
