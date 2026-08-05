@@ -10,6 +10,7 @@ import { redactSecrets } from "./redaction";
 import { runComputerUseTask, type ExecRunner, type GuestReport } from "./computer-use";
 import type { VmDaemon } from "./vm-daemon/daemon";
 import type {
+  RunArtifact,
   RunEvent,
   RunStatus,
   Secret,
@@ -118,6 +119,7 @@ export async function runWorkflow(
 
   const env = { ...secretEnv(secrets), ...(deps.env ?? {}) };
   const paramMap = Object.fromEntries(params.map((p) => [p.name, p.value]));
+  const artifacts: RunArtifact[] = [];
   let pastWork = "";
   let finalStatus: RunStatus = "succeeded";
 
@@ -150,7 +152,17 @@ export async function runWorkflow(
 
       const level = report.status === "succeeded" ? "info" : "warn";
       emit(level, `Node "${node.name}" ${report.status} (${report.reason}) after ${report.steps} steps.`);
-      for (const artifact of report.artifacts) emit("info", `Artifact: ${artifact}.`);
+      for (const artifact of report.artifacts) {
+        emit("info", `Artifact: ${artifact}.`);
+        artifacts.push({
+          id: `art_${runId}_${artifacts.length}`,
+          runId,
+          nodeId: node.id,
+          type: "file",
+          path: artifact,
+          createdAt: deps.now(),
+        });
+      }
 
       if (report.status !== "succeeded") {
         finalStatus = reportToStatus(report.status);
@@ -177,5 +189,6 @@ export async function runWorkflow(
     startedAt,
     finishedAt: deps.now(),
     events,
+    artifacts,
   };
 }

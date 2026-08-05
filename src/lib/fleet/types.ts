@@ -83,6 +83,19 @@ export type FleetVm = {
   warmSnapshot?: string;
 };
 
+export type Trigger = {
+  id: string;
+  workflowId: string;
+  type: TriggerKind;
+  config: Record<string, unknown>;
+  enabled: boolean;
+  /** Cron expression for schedule triggers. */
+  cron?: string;
+  /** Next fire time (ISO) for schedule triggers. */
+  nextRunAt?: string;
+  createdAt: string;
+};
+
 export type Secret = {
   id: string;
   name: string;
@@ -104,15 +117,27 @@ export type RunEvent = {
   message: string;
 };
 
+export type RunArtifact = {
+  id: string;
+  runId: string;
+  nodeId?: string;
+  type: string;
+  path: string;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+};
+
 export type WorkflowRun = {
   id: string;
   workflowId: string;
   workflowName: string;
   status: RunStatus;
   vmId?: string;
+  triggerId?: string;
   startedAt: string;
   finishedAt?: string;
   events: RunEvent[];
+  artifacts?: RunArtifact[];
 };
 
 export type FleetState = {

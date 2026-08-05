@@ -12,6 +12,10 @@ import { execVirshRunner } from "./vm-daemon/exec-runner";
 import { realVmsFromEnv } from "./vm-daemon/fleet-config";
 import { spawnExecRunner } from "./ssh-exec";
 import { runWorkflow } from "./orchestrator";
+import { getDb, type Db } from "./db/db";
+import { saveRun } from "./db/runs-repo";
+import { seedFleetState } from "./seed";
+import type { TriggerExecute } from "./triggers/triggers-runtime";
 import type { FleetState, Workflow, WorkflowRun } from "./types";
 
 let runCounter = 0;
@@ -31,19 +35,39 @@ function guestEnv(env: Record<string, string | undefined> = process.env): Record
   );
 }
 
+export type ExecuteOptions = {
+  now?: () => string;
+  db?: Db;
+  triggerId?: string;
+};
+
 export async function executeManualRun(
   state: FleetState,
   workflow: Workflow,
-  now: () => string = () => new Date().toISOString(),
+  opts: ExecuteOptions = {},
 ): Promise<WorkflowRun> {
+  const now = opts.now ?? (() => new Date().toISOString());
+  const db = opts.db ?? getDb();
   const uri = process.env.CUF_LIBVIRT_URI ?? "qemu:///session";
   const client = createVirshClient(execVirshRunner(), uri);
   // Real domain-bound VMs (from env) first, then mock seed VMs for display.
   const daemon = createVmDaemon(client, [...realVmsFromEnv(), ...state.vms]);
   const runId = `run_${runCounter++}_${now()}`;
 
-  return runWorkflow(
+  const run = await runWorkflow(
     { workflow, secrets: state.secrets, params: state.params, runId },
     { daemon, exec: spawnExecRunner, now, env: guestEnv() },
   );
+  saveRun(db, opts.triggerId ? { ...run, triggerId: opts.triggerId } : run);
+  return run;
+}
+
+/** Executor for schedule/webhook triggers: resolves the trigger's workflow from
+ * seed state and runs it, tagging the run with the trigger id. */
+export function makeTriggerExecute(db?: Db): TriggerExecute {
+  return async (trigger) => {
+    const state = seedFleetState();
+    const workflow = state.workflows.find((w) => w.id === trigger.workflowId) ?? state.workflows[0];
+    return executeManualRun(state, workflow, { db, triggerId: trigger.id });
+  };
 }
