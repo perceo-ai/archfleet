@@ -1,0 +1,29 @@
+src/lib/fleet/db/secrets.test.ts
+  s_fd31e2b543baf5::t_699187c7778c5d 1-52
+src/lib/fleet/server-runtime.ts
+  s_fd31e2b543baf5::t_35b6a097b38592 45-58
+  s_fd31e2b543baf5::t_ca217834abee7e 73
+  s_fd31e2b543baf5::t_9ba885e1b9397e 17
+src/lib/fleet/db/crypto.ts
+  s_fd31e2b543baf5::t_91a3d80d88e543 1-39
+virt/preflight.sh
+  s_fd31e2b543baf5::t_ed93831156dbda 35-36
+src/lib/fleet/db/secrets-repo.ts
+  s_fd31e2b543baf5::t_927ffcd011de44 1-48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "b1509217124e04e20b0b6a696d0b2efc0de751e7",
+  "prompts": {},
+  "sessions": {
+    "s_fd31e2b543baf5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebcada33-3d4e-46f7-96e9-ac45fa0c7077",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Pranav Kannepalli <pranav.kannepalli@gmail.com>"
+    }
+  }
+}
