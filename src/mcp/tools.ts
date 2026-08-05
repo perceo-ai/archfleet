@@ -47,6 +47,18 @@ export const FLEET_TOOLS: FleetTool[] = [
     },
   },
   {
+    name: "plan_workflow",
+    description: "Draft a workflow graph from a plain-language task (agent planner). Returns {workflow, errors}; the draft is disabled until reviewed. Set save=true to persist a valid draft.",
+    shape: { task: z.string(), save: z.boolean().optional() },
+    run: async (db, a) => {
+      const { planWorkflow } = await import("../lib/fleet/planner");
+      const { spawnAgentExec } = await import("../lib/fleet/ssh-exec");
+      const result = await planWorkflow(a.task as string, spawnAgentExec);
+      if (a.save && result.errors.length === 0) saveWorkflow(db, result.workflow);
+      return result;
+    },
+  },
+  {
     name: "run_workflow",
     description: "Enqueue a manual run of a workflow. Returns the queued run (a worker executes it).",
     shape: { workflowId: z.string().optional() },
