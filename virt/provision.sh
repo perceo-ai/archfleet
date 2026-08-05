@@ -37,7 +37,7 @@ apt-get install -y --no-install-recommends \
   xfce4 xfce4-goodies dbus-x11 x11-xserver-utils \
   xrdp \
   openssh-server \
-  python3 python3-venv python3-pip python3-dev python3-tk \
+  python3 python3-venv python3-pip python3-dev python3-tk build-essential \
   scrot gnome-screenshot xdotool wmctrl x11-utils \
   fonts-liberation ca-certificates curl wget git unzip
 
@@ -95,9 +95,10 @@ log "create python venv at ${VENV_DIR}"
 mkdir -p "$(dirname "${VENV_DIR}")"
 python3 -m venv "${VENV_DIR}"
 "${VENV_DIR}/bin/pip" install --upgrade pip wheel
-# Base runner deps are required.
+# Base runner deps are required. (No pynput — it pulls evdev which needs a C build
+# and we drive the GUI via pyautogui, not pynput.)
 "${VENV_DIR}/bin/pip" install \
-  pyautogui pillow mss pynput \
+  pyautogui pillow mss \
   "openai>=1.0"          `# OpenRouter is OpenAI-API-compatible: planner client` \
   requests httpx pyyaml
 # Agent S is heavier (may pull large ML deps); keep it non-fatal so the golden
