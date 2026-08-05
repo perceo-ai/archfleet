@@ -1,0 +1,21 @@
+virt/provision.sh
+  s_fd31e2b543baf5::t_9af3373b2c98f9 131-155
+src/lib/fleet/server-runtime.ts
+  s_fd31e2b543baf5::t_e5d06a0dcbe44f 39-45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "e8b1bd973dbfc6ac20215c0168f0c37b88b2d157",
+  "prompts": {},
+  "sessions": {
+    "s_fd31e2b543baf5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebcada33-3d4e-46f7-96e9-ac45fa0c7077",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Pranav Kannepalli <pranav.kannepalli@gmail.com>"
+    }
+  }
+}
