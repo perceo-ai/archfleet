@@ -124,6 +124,7 @@ virt-customize -a "${GOLDEN_IMG}" \
   --run-command "mkdir -p /etc/ssh/sshd_config.d && printf 'PasswordAuthentication yes\nKbdInteractiveAuthentication yes\n' > /etc/ssh/sshd_config.d/10-cuf.conf" \
   --run-command "systemctl enable ssh || systemctl enable ssh.socket || true" \
   --copy-in "${SCRIPT_DIR}/provision.sh:/opt" \
+  --mkdir "/opt/agent" \
   --copy-in "${SCRIPT_DIR}/agent-runner:/opt/agent" \
   --run-command "rm -rf /opt/agent/agent-runner/__pycache__" \
   --run-command "systemctl set-default graphical.target" \
