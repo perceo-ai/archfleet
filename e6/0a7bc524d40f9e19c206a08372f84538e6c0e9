@@ -1,0 +1,36 @@
+src/lib/fleet/server-runtime.test.ts
+  s_fd31e2b543baf5::t_58769ff7a99129 3,5-6,8,20-46
+src/app/api/runs/route.ts
+  s_fd31e2b543baf5::t_fc22a46fe44e6f 1,9-19
+src/lib/fleet/db/schema.ts
+  s_fd31e2b543baf5::t_3aefc87fec78e9 28-30
+src/lib/fleet/server-runtime.ts
+  s_fd31e2b543baf5::t_a87b434f1b7ce1 14,17,24
+  s_fd31e2b543baf5::t_996c77626a8584 16
+  s_fd31e2b543baf5::t_fe84cac03c744c 61-70,79-80,86-113,115-132,139-158
+  s_fd31e2b543baf5::t_450d957e50e1ff 133-138
+src/app/api/runs/process/route.ts
+  s_fd31e2b543baf5::t_299989b4488e1b 1-14
+src/lib/fleet/db/runs-repo.ts
+  s_fd31e2b543baf5::t_93560199457eaf 119-123,125,130-131,133-134,140-150
+  s_fd31e2b543baf5::t_46774ab8b3e7d8 124,126-129,132,135-139
+src/instrumentation.ts
+  s_fd31e2b543baf5::t_fcbb4a926f23bd 15
+  s_fd31e2b543baf5::t_baeb6396fbbbc2 34-52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "e60a7bc524d40f9e19c206a08372f84538e6c0e9",
+  "prompts": {},
+  "sessions": {
+    "s_fd31e2b543baf5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebcada33-3d4e-46f7-96e9-ac45fa0c7077",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Pranav Kannepalli <pranav.kannepalli@gmail.com>"
+    }
+  }
+}
