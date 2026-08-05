@@ -181,6 +181,9 @@ stage_provision() {
   domain_running || die "domain not running — run the 'boot' stage first"
   log "syncing current provision.sh + agent-runner to guest (so edits take effect on rerun)"
   local SCP="sshpass -p ${AGENT_PASSWORD} scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -P ${HOST_SSH_PORT}"
+  # Clean the temp dir first: `scp -r` into an existing dir NESTS (agent-runner/
+  # agent-runner), which left stale files on repeated syncs.
+  $SSH "rm -rf /tmp/agent-runner" 2>/dev/null || true
   $SCP "${SCRIPT_DIR}/provision.sh" "${AGENT_USER}@127.0.0.1:/tmp/provision.sh" || die "scp provision.sh failed"
   $SCP -r "${SCRIPT_DIR}/agent-runner" "${AGENT_USER}@127.0.0.1:/tmp/agent-runner" || die "scp agent-runner failed"
   $SSH "echo '${AGENT_PASSWORD}' | sudo -S -p '' sh -c 'cp /tmp/provision.sh /opt/provision.sh && rm -rf /opt/agent/agent-runner && cp -r /tmp/agent-runner /opt/agent/agent-runner && rm -rf /opt/agent/agent-runner/__pycache__ && chown -R ${AGENT_USER}:${AGENT_USER} /opt/agent/agent-runner'" \
