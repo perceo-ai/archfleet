@@ -44,6 +44,26 @@ class ParamBuilderTest(unittest.TestCase):
         self.assertEqual(params["grounding_height"], 1080)
 
 
+class MockBackendTest(unittest.TestCase):
+    def test_completes_via_run_task(self):
+        from agent_runner import Limits, TaskSlice, run_task
+        from backends import MockBackend
+
+        shots = iter([b"a", b"b", b"c"])
+        actions_run = []
+        report = run_task(
+            TaskSlice("do a thing"),
+            MockBackend(),
+            limits=Limits(max_steps=5, timeout_s=100, max_no_progress=3),
+            screenshot=lambda: next(shots, b"z"),
+            clock=lambda: 0.0,
+            execute=lambda a: actions_run.append(a),
+        )
+        self.assertEqual(report.status, "succeeded")
+        self.assertEqual(report.steps, 2)
+        self.assertEqual(len(actions_run), 1)  # one no-op action before done
+
+
 @unittest.skipUnless(_HAS_GUI_AGENTS, "gui_agents not installed")
 class AgentSConstructionTest(unittest.TestCase):
     def test_constructs_without_error(self):

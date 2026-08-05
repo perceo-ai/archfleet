@@ -36,6 +36,7 @@ function guestEnv(env: Record<string, string | undefined> = process.env): Record
     "CUF_GROUNDING_MODEL",
     "CUF_GROUNDING_BASE_URL",
     "CUF_GROUNDING_API_KEY",
+    "CUF_AGENT_BACKEND",
   ];
   const forwarded = Object.fromEntries(
     keys.filter((k) => env[k] != null).map((k) => [k, env[k] as string]),

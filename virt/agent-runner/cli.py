@@ -40,7 +40,10 @@ def _parse_task(raw: dict) -> tuple[TaskSlice, Limits]:
 def _run_real(task: TaskSlice, limits: Limits) -> "RunReport":  # noqa: F821
     import os
     import pyautogui  # lazy: needs a display
-    from backends import AgentSBackend
+    from backends import AgentSBackend, MockBackend
+
+    # Model-free demo/integration mode: exercises the full loop without models.
+    backend = MockBackend() if os.environ.get("CUF_AGENT_BACKEND") == "mock" else AgentSBackend()
 
     # Save each step's screenshot so the controller can scp them back as artifacts.
     run_id = os.environ.get("CUF_RUN_ID", "adhoc")
@@ -68,7 +71,7 @@ def _run_real(task: TaskSlice, limits: Limits) -> "RunReport":  # noqa: F821
 
     report = run_task(
         task,
-        AgentSBackend(),
+        backend,
         limits=limits,
         screenshot=screenshot,
         clock=time.time,

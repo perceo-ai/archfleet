@@ -62,6 +62,29 @@ def grounding_engine_params(config: AgentSConfig) -> dict:
     }
 
 
+class MockBackend:
+    """Model-free backend: takes a screenshot, does one harmless action, then
+    reports done. Lets the whole pipeline run to a green success without any
+    OpenRouter/UI-TARS model — for integration tests + demos. Enable with
+    CUF_AGENT_BACKEND=mock."""
+
+    def __init__(self, platform: str = "linux"):
+        self.n = 0
+
+    def predict(self, instruction, observation):
+        self.n += 1
+        if self.n >= 2:
+            return {"done": True, "structured_output": {"mock": "ok", "instruction": instruction}}, []
+        # A no-op mouse nudge proves action execution works on the display.
+        return {}, ["pyautogui.moveTo(50, 50, duration=0.1)"]
+
+    def is_done(self, info):
+        return bool(info.get("done"))
+
+    def reported_stuck(self, info):
+        return bool(info.get("failed"))
+
+
 class AgentSBackend:
     """Adapts AgentS3.predict() to the runner's AgentBackend protocol."""
 
