@@ -1,0 +1,25 @@
+Dockerfile
+  s_fd31e2b543baf5::t_8c18022554c0ed 1-21
+src/app/api/health/route.ts
+  s_fd31e2b543baf5::t_191c6625663140 1-22
+README.md
+  s_fd31e2b543baf5::t_adab4fc0433b0f 78-92
+.dockerignore
+  s_fd31e2b543baf5::t_d0a799735c5239 1-11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "c1f1f74202f47799ff052e105d1c67692bf7a79b",
+  "prompts": {},
+  "sessions": {
+    "s_fd31e2b543baf5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebcada33-3d4e-46f7-96e9-ac45fa0c7077",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Pranav Kannepalli <pranav.kannepalli@gmail.com>"
+    }
+  }
+}
