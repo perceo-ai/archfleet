@@ -75,6 +75,21 @@ Computer-use runs take minutes, so runs are **async + durable**:
 - Schedule triggers fire when something POSTs `/api/triggers/tick` (the loop does
   this too; or a platform cron).
 
+### Docker
+
+```bash
+docker build -t archfleet .
+docker run -p 3000:3000 -v $PWD/data:/data \
+  -v /var/run/libvirt:/var/run/libvirt \
+  -v $PWD/virt/.state:/keys:ro \
+  -e CUF_LIBVIRT_URI=qemu:///system \
+  -e CUF_GOLDEN_DOMAIN=cuf-golden -e CUF_SSH_KEY=/keys/cuf_id \
+  -e CUF_SECRET_KEY=... -e OPENROUTER_API_KEY=... archfleet
+```
+
+Health probe: `GET /api/health`. The image bundles `virsh`/`ssh`; VM control needs
+the mounted libvirt socket. Run the VM host + UI-TARS wherever GPUs live.
+
 ## MCP server
 
 `npm run mcp` starts a stdio MCP server exposing every fleet op as tools

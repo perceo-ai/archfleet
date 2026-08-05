@@ -1,0 +1,11 @@
+node_modules
+.next
+.git
+data
+virt/images
+virt/.cache
+virt/.state
+*.db
+*.db-wal
+*.db-shm
+npm-debug.log
