@@ -40,7 +40,15 @@ export type OrchestratorDeps = {
     runId: string,
     nodeId: string,
   ) => Promise<RunArtifact[]>;
+  /** Run a shell_task command (controller-side). Absent = shell disabled. */
+  shellExec?: (
+    command: string,
+    opts?: { env?: Record<string, string> },
+  ) => Promise<{ code: number; stdout: string; stderr: string }>;
 };
+
+/** A node's branch outcome, used to pick the next edge. */
+type Outcome = "success" | "failure" | "paused";
 
 export type RunWorkflowInput = {
   workflow: Workflow;
@@ -108,11 +116,7 @@ export async function runWorkflow(
     });
   };
 
-  const plan = planExecution(workflow);
-  const taskNodes = plan.filter(
-    (n) => n.type === "computer_use_task" || n.type === "cli_agent_task",
-  );
-  const needsVm = taskNodes.some((n) => n.type === "computer_use_task");
+  const needsVm = workflow.nodes.some((n) => n.type === "computer_use_task");
   const startedAt = deps.now();
 
   // Acquire a VM only when a computer-use node needs one. CLI-agent-only
@@ -120,7 +124,7 @@ export async function runWorkflow(
   let acquired: Awaited<ReturnType<typeof deps.daemon.acquire>> | undefined;
   if (needsVm) {
     const requiredLabels =
-      taskNodes.find((n) => n.type === "computer_use_task")?.config.requiredLabels ?? [];
+      workflow.nodes.find((n) => n.type === "computer_use_task")?.config.requiredLabels ?? [];
     acquired = await deps.daemon.acquire({ requiredLabels, runId });
     if (!acquired.ok) {
       emit("warn", `Queued ${workflow.name}: ${acquired.reason}.`);
@@ -154,11 +158,44 @@ export async function runWorkflow(
     }
   };
 
-  try {
-    for (const node of taskNodes) {
-      if (node.type === "computer_use_task") {
-        emit("info", `Running node "${node.name}" on ${vm!.name}.`);
-        const baseConn = vm!.ssh ?? { host: vm!.xrdp.host, port: 22, username: vm!.xrdp.username };
+  // Execute one node, returning a branch outcome. Emits events + collects
+  // artifacts as side effects.
+  const runNode = async (node: WorkflowNode): Promise<Outcome> => {
+    switch (node.type) {
+      case "start":
+      case "end":
+      case "artifact":
+        return "success";
+      case "retry_wait":
+        emit("info", `Node "${node.name}": retry/wait.`);
+        return "success";
+      case "human_takeover":
+        emit("warn", `Node "${node.name}": paused for human takeover.`);
+        return "paused";
+      case "condition": {
+        // MVP: succeed if prior output contains config.prompt (else success when unset).
+        const needle = node.config.prompt;
+        const ok = !needle || pastWork.includes(needle);
+        emit("info", `Condition "${node.name}" -> ${ok ? "success" : "failure"}.`);
+        return ok ? "success" : "failure";
+      }
+      case "shell_task": {
+        if (!deps.shellExec) {
+          emit("error", `Node "${node.name}": shell execution not enabled.`);
+          return "failure";
+        }
+        const res = await deps.shellExec(node.config.prompt ?? "", { env });
+        emit(res.code === 0 ? "info" : "warn", `Shell "${node.name}" exited ${res.code}.`);
+        pastWork += `\n${node.name}: exit ${res.code}`;
+        return res.code === 0 ? "success" : "failure";
+      }
+      case "computer_use_task": {
+        if (!vm) {
+          emit("error", `Node "${node.name}": no VM available.`);
+          return "failure";
+        }
+        emit("info", `Running node "${node.name}" on ${vm.name}.`);
+        const baseConn = vm.ssh ?? { host: vm.xrdp.host, port: 22, username: vm.xrdp.username };
         const guestConn = { ...baseConn, identityFile: deps.sshIdentityFile };
         let report: GuestReport;
         try {
@@ -175,11 +212,9 @@ export async function runWorkflow(
           );
         } catch (e) {
           emit("error", `Node "${node.name}" transport error: ${String(e)}`);
-          finalStatus = "failed";
-          break;
+          return "failure";
         }
-        const level = report.status === "succeeded" ? "info" : "warn";
-        emit(level, `Node "${node.name}" ${report.status} (${report.reason}) after ${report.steps} steps.`);
+        emit(report.status === "succeeded" ? "info" : "warn", `Node "${node.name}" ${report.status} (${report.reason}) after ${report.steps} steps.`);
         if (report.artifacts.length && deps.fetchArtifacts) {
           try {
             const fetched = await deps.fetchArtifacts(guestConn, report.artifacts, runId, node.id);
@@ -187,23 +222,22 @@ export async function runWorkflow(
             for (const f of fetched) emit("info", `Artifact: ${f.path}.`);
           } catch (e) {
             emit("warn", `Artifact fetch failed for "${node.name}": ${String(e)}`);
-            collectArtifacts(node.id, report.artifacts); // keep guest-path metadata
+            collectArtifacts(node.id, report.artifacts);
           }
         } else {
           collectArtifacts(node.id, report.artifacts);
         }
-        if (report.status !== "succeeded") {
-          finalStatus = reportToStatus(report.status);
-          break;
+        if (report.status === "succeeded") {
+          pastWork += `\n${node.name}: ${report.reason}`;
+          return "success";
         }
-        pastWork += `\n${node.name}: ${report.reason}`;
-      } else {
-        // cli_agent_task — controller-side CLI agent (claude / codex).
+        return reportToStatus(report.status) === "paused" ? "paused" : "failure";
+      }
+      case "cli_agent_task": {
         emit("info", `Running CLI-agent node "${node.name}".`);
         if (!deps.agentExec) {
           emit("error", `Node "${node.name}": no CLI-agent executor configured.`);
-          finalStatus = "failed";
-          break;
+          return "failure";
         }
         let result: AgentRunResult;
         try {
@@ -219,17 +253,53 @@ export async function runWorkflow(
           );
         } catch (e) {
           emit("error", `Node "${node.name}" agent error: ${String(e)}`);
-          finalStatus = "failed";
-          break;
+          return "failure";
         }
         emit(result.status === "succeeded" ? "info" : "warn", `Node "${node.name}" ${result.status}.`);
         collectArtifacts(node.id, result.artifacts);
-        if (result.status !== "succeeded") {
-          finalStatus = "failed";
-          break;
-        }
+        if (result.status !== "succeeded") return "failure";
         pastWork += `\n${node.name}: ${typeof result.structuredOutput === "string" ? result.structuredOutput : "done"}`;
+        return "success";
       }
+      default:
+        return "success";
+    }
+  };
+
+  // Outcome-driven traversal: follow the edge matching each node's outcome
+  // (success / failure), or an 'always' edge. Supports failure branches, pause,
+  // and recovery paths — not just a linear happy path.
+  const byId = new Map(workflow.nodes.map((n) => [n.id, n]));
+  let current: WorkflowNode | undefined =
+    workflow.nodes.find((n) => n.type === "start") ?? workflow.nodes[0];
+  const maxSteps = workflow.nodes.length * 4 + 10;
+  let steps = 0;
+  try {
+    while (current && steps++ < maxSteps) {
+      const node = current;
+      const outcome = await runNode(node);
+      if (outcome === "paused") {
+        finalStatus = "paused";
+        break;
+      }
+      if (node.type === "end") {
+        finalStatus = "succeeded";
+        break;
+      }
+      const outEdges = workflow.edges.filter((e) => e.from === node.id);
+      const edge =
+        outEdges.find((e) => e.condition === outcome) ??
+        outEdges.find((e) => e.condition === "always");
+      if (!edge) {
+        // Dead end: an unhandled failure fails the run; success just stops.
+        if (outcome === "failure") finalStatus = "failed";
+        break;
+      }
+      current = byId.get(edge.to);
+    }
+    if (steps >= maxSteps) {
+      emit("error", "Workflow exceeded max steps (possible cycle).");
+      finalStatus = "failed";
     }
   } finally {
     if (vm) {

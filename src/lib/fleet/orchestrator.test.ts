@@ -133,6 +133,103 @@ describe("cli_agent workflows (no VM)", () => {
   });
 });
 
+describe("outcome-driven engine", () => {
+  it("follows a failure edge to a recovery node (run recovers to succeeded)", async () => {
+    const client = fakeClient({ "dom-vm1": "running" });
+    const daemon = createVmDaemon(client, [testVm()]);
+    const wf: Workflow = {
+      id: "wf_recover",
+      name: "Recover",
+      description: "",
+      enabled: true,
+      triggerKinds: ["manual"],
+      nodes: [
+        { id: "start", type: "start", name: "S", position: { x: 0, y: 0 }, config: {} },
+        { id: "cu", type: "computer_use_task", name: "Try", position: { x: 1, y: 0 }, config: { requiredLabels: [] } },
+        { id: "rec", type: "cli_agent_task", name: "Recover", position: { x: 2, y: 0 }, config: { prompt: "fix" } },
+        { id: "end", type: "end", name: "E", position: { x: 3, y: 0 }, config: {} },
+      ],
+      edges: [
+        { id: "e1", from: "start", to: "cu", condition: "always" },
+        { id: "e2", from: "cu", to: "rec", condition: "failure" },
+        { id: "e3", from: "cu", to: "end", condition: "success" },
+        { id: "e4", from: "rec", to: "end", condition: "success" },
+      ],
+    };
+    const agentExec = vi.fn(async () => ({ code: 0, stdout: '{"result":"fixed"}', stderr: "" }));
+    const run = await runWorkflow(
+      { workflow: wf, secrets, params, runId: "r" },
+      {
+        daemon,
+        exec: execReturning({ status: "failed", reason: "boom", steps: 1, artifacts: [] }),
+        agentExec,
+        now: now(),
+      },
+    );
+    expect(run.status).toBe("succeeded"); // failure handled by recovery branch
+    expect(agentExec).toHaveBeenCalledTimes(1);
+    expect(client.reverts).toHaveLength(2); // acquire + release
+  });
+
+  it("pauses at a human_takeover node and holds the VM", async () => {
+    const client = fakeClient({ "dom-vm1": "running" });
+    const daemon = createVmDaemon(client, [testVm()]);
+    const wf: Workflow = {
+      id: "wf_ht",
+      name: "HT",
+      description: "",
+      enabled: true,
+      triggerKinds: ["manual"],
+      nodes: [
+        { id: "start", type: "start", name: "S", position: { x: 0, y: 0 }, config: {} },
+        { id: "cu", type: "computer_use_task", name: "Try", position: { x: 1, y: 0 }, config: { requiredLabels: [] } },
+        { id: "ht", type: "human_takeover", name: "Takeover", position: { x: 2, y: 0 }, config: {} },
+        { id: "end", type: "end", name: "E", position: { x: 3, y: 0 }, config: {} },
+      ],
+      edges: [
+        { id: "e1", from: "start", to: "cu", condition: "always" },
+        { id: "e2", from: "cu", to: "ht", condition: "always" },
+        { id: "e3", from: "ht", to: "end", condition: "success" },
+      ],
+    };
+    const run = await runWorkflow(
+      { workflow: wf, secrets, params, runId: "r" },
+      { daemon, exec: execReturning({ status: "succeeded", reason: "ok", steps: 1, artifacts: [] }), now: now() },
+    );
+    expect(run.status).toBe("paused");
+    expect(client.reverts).toHaveLength(1); // held, not released
+  });
+
+  it("runs a shell_task node and branches on exit code", async () => {
+    const client = fakeClient({ "dom-vm1": "running" });
+    const daemon = createVmDaemon(client, [testVm()]);
+    const wf: Workflow = {
+      id: "wf_sh",
+      name: "Sh",
+      description: "",
+      enabled: true,
+      triggerKinds: ["manual"],
+      nodes: [
+        { id: "start", type: "start", name: "S", position: { x: 0, y: 0 }, config: {} },
+        { id: "sh", type: "shell_task", name: "Echo", position: { x: 1, y: 0 }, config: { prompt: "echo hi" } },
+        { id: "end", type: "end", name: "E", position: { x: 2, y: 0 }, config: {} },
+      ],
+      edges: [
+        { id: "e1", from: "start", to: "sh", condition: "always" },
+        { id: "e2", from: "sh", to: "end", condition: "success" },
+      ],
+    };
+    const shellExec = vi.fn(async () => ({ code: 0, stdout: "hi", stderr: "" }));
+    const run = await runWorkflow(
+      { workflow: wf, secrets, params, runId: "r" },
+      { daemon, exec: async () => ({ code: 0, stdout: "", stderr: "" }), shellExec, now: now() },
+    );
+    expect(run.status).toBe("succeeded");
+    expect(run.vmId).toBeUndefined(); // shell-only, no VM
+    expect(shellExec).toHaveBeenCalledOnce();
+  });
+});
+
 describe("planExecution", () => {
   it("walks success/always edges from start", () => {
     const order = planExecution(workflow()).map((n) => n.id);

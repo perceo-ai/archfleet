@@ -30,6 +30,25 @@ export function scpFetch(
   });
 }
 
+/** Real shell executor for shell_task nodes (controller-side bash -c). */
+export function spawnShellExec(
+  command: string,
+  opts?: { env?: Record<string, string> },
+): Promise<{ code: number; stdout: string; stderr: string }> {
+  return new Promise((resolve) => {
+    const child = spawn("bash", ["-c", command], {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, ...opts?.env },
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (d) => (stdout += d.toString()));
+    child.stderr.on("data", (d) => (stderr += d.toString()));
+    child.on("error", (e) => resolve({ code: 127, stdout, stderr: String(e) }));
+    child.on("close", (code) => resolve({ code: code ?? -1, stdout, stderr }));
+  });
+}
+
 /** Real AgentExec: spawns a CLI agent command with its env + stdin. */
 export const spawnAgentExec: AgentExec = (cmd) =>
   new Promise((resolve) => {
