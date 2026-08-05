@@ -1,0 +1,35 @@
+src/lib/fleet/computer-use.ts
+  s_fd31e2b543baf5::t_7331efea0b0c68 35-36
+  s_fd31e2b543baf5::t_5aceef399b0e82 90
+src/lib/fleet/computer-use.test.ts
+  s_fd31e2b543baf5::t_e2543bb08cd2ab 45-51
+virt/build-golden.sh
+  s_fd31e2b543baf5::t_477b8b4c2cc222 81-82,87-89
+  s_fd31e2b543baf5::t_c3878bad1e3379 115
+  s_fd31e2b543baf5::t_7123f6228e81fd 263
+  s_fd31e2b543baf5::t_da21aeb0aab816 90
+src/lib/fleet/orchestrator.ts
+  s_fd31e2b543baf5::t_788878f5d507f7 30-31
+  s_fd31e2b543baf5::t_46cd7e92c980ed 132,137
+src/lib/fleet/server-runtime.ts
+  s_fd31e2b543baf5::t_de414c28f328fc 69-75
+  s_fd31e2b543baf5::t_fc480b4c518a7d 36,39-40
+virt/provision.sh
+  s_fd31e2b543baf5::t_0054c0643cd4ff 106-108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "99506d15c5c6c19ce34194b6d8e5cb467af70053",
+  "prompts": {},
+  "sessions": {
+    "s_fd31e2b543baf5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebcada33-3d4e-46f7-96e9-ac45fa0c7077",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Pranav Kannepalli <pranav.kannepalli@gmail.com>"
+    }
+  }
+}
