@@ -1,0 +1,22 @@
+src/components/fleet/SecretsParamsPanel.tsx
+  s_fd31e2b543baf5::t_1a49b78e6d6897 1-4,10,13-46,51-63,77,86,88,91,93,97-118
+  s_fd31e2b543baf5::t_53448b5e042a00 119
+src/components/fleet/FleetManager.tsx
+  s_fd31e2b543baf5::t_223282d281a2c2 106
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "91961f9ac1f18617b31370a04eda4e1d8ad47fd1",
+  "prompts": {},
+  "sessions": {
+    "s_fd31e2b543baf5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebcada33-3d4e-46f7-96e9-ac45fa0c7077",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Pranav Kannepalli <pranav.kannepalli@gmail.com>"
+    }
+  }
+}
