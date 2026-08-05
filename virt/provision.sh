@@ -77,6 +77,9 @@ adduser xrdp ssl-cert || true
 log "install headless desktop service (Xvfb :0 + xfce)"
 cat > /opt/agent/start-desktop.sh <<'EOF'
 #!/bin/sh
+# Empty Xauthority so Xlib clients (pyautogui) don't error on a missing file;
+# access is granted via `xhost +local:` below (VM is local-only).
+touch "$HOME/.Xauthority" 2>/dev/null || true
 rm -f /tmp/.X0-lock 2>/dev/null || true
 Xvfb :0 -screen 0 1920x1080x24 -nolisten tcp &
 sleep 2
