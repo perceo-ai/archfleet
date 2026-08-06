@@ -1,0 +1,42 @@
+virt/agent-runner/test_browser_runner.py
+  s_fd31e2b543baf5::t_a76f62963a9b88 1-28
+virt/provision.sh
+  s_fd31e2b543baf5::t_01a01a6cabefdf 129-132
+virt/agent-runner/browser_runner.py
+  s_fd31e2b543baf5::t_60ad2b4c59cf85 1-85
+virt/agent-runner/desktop_runner.py
+  s_fd31e2b543baf5::t_a58c371b7212e4 1-89
+src/lib/fleet/orchestrator.ts
+  s_fd31e2b543baf5::t_0def3af8e35891 122-124
+  s_fd31e2b543baf5::t_61c2138fc540d9 199-228
+  s_fd31e2b543baf5::t_d40760e7b91aa9 125,128-129,133
+  s_fd31e2b543baf5::t_d779cb68cea855 49-50
+  s_fd31e2b543baf5::t_b69a19bdfa3a26 249,264,267-269,271
+  s_fd31e2b543baf5::t_5e83d729b9c4db 250,256-263,266,270
+virt/agent-runner/test_desktop_runner.py
+  s_fd31e2b543baf5::t_26c34ea0c972e1 1-25
+src/lib/fleet/types.ts
+  s_fd31e2b543baf5::t_6a14b5d231a771 17-18,21
+src/lib/fleet/server-runtime.ts
+  s_fd31e2b543baf5::t_d645ce3f714bfd 93
+src/components/fleet/WorkflowCanvas.tsx
+  s_fd31e2b543baf5::t_9e2995a6e811c7 37-38,41,43
+src/lib/fleet/orchestrator.test.ts
+  s_fd31e2b543baf5::t_056ef568b2ef45 203-246
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "ec4785aa0857efdec7aabe7738c64945c1cc0d12",
+  "prompts": {},
+  "sessions": {
+    "s_fd31e2b543baf5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebcada33-3d4e-46f7-96e9-ac45fa0c7077",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Pranav Kannepalli <pranav.kannepalli@gmail.com>"
+    }
+  }
+}
