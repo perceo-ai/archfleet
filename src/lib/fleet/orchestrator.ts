@@ -9,6 +9,7 @@
 import { redactSecrets } from "./redaction";
 import { runComputerUseTask, type ExecRunner, type GuestReport, type GuestConnection } from "./computer-use";
 import { runCliAgent, type AgentExec, type AgentRunResult } from "./cli-agent-runner";
+import { resolveTemplate } from "./templating";
 import type { AgentProvider } from "./types";
 import type { VmDaemon } from "./vm-daemon/daemon";
 import type {
@@ -147,6 +148,9 @@ export async function runWorkflow(
   const env = { ...secretEnv(secrets), ...(deps.env ?? {}) };
   const secretMap = Object.fromEntries(secrets.map((s) => [s.name, s.value]));
   const paramMap = Object.fromEntries(params.map((p) => [p.name, p.value]));
+  // Resolve {{secret.x}}/{{param.x}} in a node prompt. Values reach the guest so
+  // the agent can type them; events are still secret-redacted before persistence.
+  const fillPrompt = (text: string) => resolveTemplate(text, { secrets: secretMap, params: paramMap });
   const artifacts: RunArtifact[] = [];
   let pastWork = "";
   let finalStatus: RunStatus = "succeeded";
@@ -220,7 +224,7 @@ export async function runWorkflow(
           report = await runComputerUseTask(
             guestConn,
             {
-              instruction: node.config.prompt ?? node.name,
+              instruction: fillPrompt(node.config.prompt ?? node.name),
               pastWork,
               params: paramMap,
               limits: node.config.timeoutMs ? { timeoutS: node.config.timeoutMs / 1000 } : undefined,
@@ -262,7 +266,7 @@ export async function runWorkflow(
           result = await runCliAgent(
             {
               provider: (node.config.provider as AgentProvider) ?? "claude-code",
-              prompt: pastWork ? `${node.config.prompt ?? node.name}\n\nContext:\n${pastWork}` : node.config.prompt ?? node.name,
+              prompt: fillPrompt(pastWork ? `${node.config.prompt ?? node.name}\n\nContext:\n${pastWork}` : node.config.prompt ?? node.name),
               secrets: secretMap,
               allowApiFallback: false,
             },

@@ -305,6 +305,27 @@ describe("runWorkflow", () => {
     expect(seenArgs).not.toContain("13389"); // not the RDP port
   });
 
+  it("templates {{secret.x}} into the guest instruction but redacts it from logs", async () => {
+    const client = fakeClient({ "dom-vm1": "running" });
+    const daemon = createVmDaemon(client, [testVm()]);
+    const wf = workflow();
+    wf.nodes[1].config.prompt = "log in and type {{secret.portal_password}}";
+    let seenStdin = "";
+    const capturingExec: ExecRunner = async (_e, _a, stdin) => {
+      seenStdin = stdin;
+      return { code: 0, stdout: '{"status":"succeeded","reason":"done","steps":1,"artifacts":[]}', stderr: "" };
+    };
+    const run = await runWorkflow(
+      { workflow: wf, secrets, params, runId: "run_1" },
+      { daemon, exec: capturingExec, now: now() },
+    );
+    expect(run.status).toBe("succeeded");
+    // resolved secret reaches the guest task (agent must type it)...
+    expect(JSON.parse(seenStdin).instruction).toContain("swordfish");
+    // ...but never appears in persisted events
+    expect(run.events.map((e) => e.message).join("\n")).not.toContain("swordfish");
+  });
+
   it("redacts secrets that leak into a report reason", async () => {
     const client = fakeClient({ "dom-vm1": "running" });
     const daemon = createVmDaemon(client, [testVm()]);
