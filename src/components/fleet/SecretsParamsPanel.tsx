@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { KeyRound, Plus, SlidersHorizontal, Webhook } from "lucide-react";
 import type { Secret, WorkflowParam } from "@/lib/fleet/types";
 
@@ -12,6 +12,15 @@ type SecretsParamsPanelProps = {
 
 export function SecretsParamsPanel({ params, secrets, workflowId }: SecretsParamsPanelProps) {
   const [names, setNames] = useState<string[]>(secrets.map((s) => s.name));
+  useEffect(() => {
+    // Merge in persisted secret names (metadata only — never values).
+    void fetch("/api/secrets")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((meta: { name: string }[]) =>
+        setNames((n) => [...new Set([...n, ...meta.map((m) => m.name)])]),
+      )
+      .catch(() => {});
+  }, []);
   const [newName, setNewName] = useState("");
   const [newValue, setNewValue] = useState("");
   const [note, setNote] = useState<string>();
