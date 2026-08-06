@@ -1,0 +1,27 @@
+src/lib/fleet/templating.ts
+  s_fd31e2b543baf5::t_c4f11405d0d36c 1-33
+src/lib/fleet/orchestrator.ts
+  s_fd31e2b543baf5::t_ef7435f13ed307 151-153
+  s_fd31e2b543baf5::t_c8d8a7d0102338 12
+  s_fd31e2b543baf5::t_1e6fb5cc93f079 227,269
+src/lib/fleet/orchestrator.test.ts
+  s_fd31e2b543baf5::t_b917cb000ac27c 308-328
+src/lib/fleet/templating.test.ts
+  s_fd31e2b543baf5::t_6f95abb6f5b5d6 1-33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "93a62efcd5935942fc5f111b6a82492371600758",
+  "prompts": {},
+  "sessions": {
+    "s_fd31e2b543baf5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebcada33-3d4e-46f7-96e9-ac45fa0c7077",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Pranav Kannepalli <pranav.kannepalli@gmail.com>"
+    }
+  }
+}
