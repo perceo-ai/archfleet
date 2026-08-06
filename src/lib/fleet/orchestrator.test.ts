@@ -200,6 +200,50 @@ describe("outcome-driven engine", () => {
     expect(client.reverts).toHaveLength(1); // held, not released
   });
 
+  it("script_task drives the guest via the desktop_runner (no LLM)", async () => {
+    const client = fakeClient({ "dom-vm1": "running" });
+    const daemon = createVmDaemon(client, [testVm()]);
+    let remoteCmd = "";
+    const capturingExec: ExecRunner = async (_e, args) => {
+      remoteCmd = args[args.length - 1];
+      return { code: 0, stdout: '{"status":"succeeded","reason":"script_done","steps":2,"artifacts":[]}', stderr: "" };
+    };
+    const wf: Workflow = {
+      id: "wf_s", name: "Script", description: "", enabled: true, triggerKinds: ["manual"],
+      nodes: [
+        { id: "start", type: "start", name: "S", position: { x: 0, y: 0 }, config: {} },
+        { id: "sc", type: "script_task", name: "Click", position: { x: 1, y: 0 }, config: { prompt: '[{"click":[10,20]}]', requiredLabels: [] } },
+        { id: "end", type: "end", name: "E", position: { x: 2, y: 0 }, config: {} },
+      ],
+      edges: [{ id: "e1", from: "start", to: "sc", condition: "always" }, { id: "e2", from: "sc", to: "end", condition: "success" }],
+    };
+    const run = await runWorkflow({ workflow: wf, secrets, params, runId: "r" }, { daemon, exec: capturingExec, now: now() });
+    expect(run.status).toBe("succeeded");
+    expect(remoteCmd).toContain("desktop_runner.py"); // used the scripted runner, not cli.py
+  });
+
+  it("api_call node succeeds on 2xx, fails otherwise (no VM)", async () => {
+    const client = fakeClient({ "dom-vm1": "running" });
+    const daemon = createVmDaemon(client, [testVm()]);
+    const httpFetch = vi.fn(async () => new Response("{}", { status: 200 }));
+    const wf: Workflow = {
+      id: "wf_api", name: "API", description: "", enabled: true, triggerKinds: ["manual"],
+      nodes: [
+        { id: "start", type: "start", name: "S", position: { x: 0, y: 0 }, config: {} },
+        { id: "a", type: "api_call", name: "Ping", position: { x: 1, y: 0 }, config: { prompt: '{"url":"https://x/health","method":"GET"}' } },
+        { id: "end", type: "end", name: "E", position: { x: 2, y: 0 }, config: {} },
+      ],
+      edges: [{ id: "e1", from: "start", to: "a", condition: "always" }, { id: "e2", from: "a", to: "end", condition: "success" }],
+    };
+    const run = await runWorkflow(
+      { workflow: wf, secrets, params, runId: "r" },
+      { daemon, exec: async () => ({ code: 0, stdout: "", stderr: "" }), httpFetch: httpFetch as unknown as typeof fetch, now: now() },
+    );
+    expect(run.status).toBe("succeeded");
+    expect(run.vmId).toBeUndefined(); // api_call needs no VM
+    expect(httpFetch).toHaveBeenCalledOnce();
+  });
+
   it("retry_wait re-runs the preceding task until it succeeds", async () => {
     const client = fakeClient({ "dom-vm1": "running" });
     const daemon = createVmDaemon(client, [testVm()]);

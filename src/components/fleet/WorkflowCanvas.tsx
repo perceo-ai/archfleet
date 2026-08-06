@@ -34,9 +34,13 @@ const nodeTone: Record<string, string> = {
 
 const PALETTE: NodeKind[] = [
   "computer_use_task",
+  "script_task",
+  "browser_task",
   "cli_agent_task",
   "shell_task",
+  "api_call",
   "condition",
+  "retry_wait",
   "human_takeover",
   "end",
 ];

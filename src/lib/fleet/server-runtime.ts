@@ -90,6 +90,7 @@ function buildRunDeps(state: FleetState, now: () => string): OrchestratorDeps {
     fetchArtifacts: makeFetchArtifacts(now),
     // shell_task is off unless explicitly enabled (runs arbitrary controller commands).
     shellExec: process.env.CUF_ALLOW_SHELL === "1" ? spawnShellExec : undefined,
+    httpFetch: fetch,
   };
 }
 

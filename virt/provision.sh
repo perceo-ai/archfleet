@@ -126,6 +126,10 @@ python3 -m venv "${VENV_DIR}"
 # python), but it runs fine there.
 "${VENV_DIR}/bin/pip" install --ignore-requires-python "gui-agents==${GUI_AGENTS_VERSION:-0.3.2}" \
   || log "WARN: gui-agents install failed — install it into ${VENV_DIR} later"
+# Playwright for browser_task nodes (heavy chromium download; non-fatal).
+"${VENV_DIR}/bin/pip" install playwright \
+  && "${VENV_DIR}/bin/playwright" install --with-deps chromium \
+  || log "WARN: playwright/chromium install failed — browser_task unavailable until installed"
 chown -R "${AGENT_USER}:${AGENT_USER}" "$(dirname "${VENV_DIR}")"
 
 # ---------------------------------------------------------------------------

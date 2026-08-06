@@ -46,6 +46,8 @@ export type OrchestratorDeps = {
     command: string,
     opts?: { env?: Record<string, string> },
   ) => Promise<{ code: number; stdout: string; stderr: string }>;
+  /** HTTP client for api_call nodes. Absent = fetch disabled. */
+  httpFetch?: typeof fetch;
 };
 
 /** A node's branch outcome, used to pick the next edge. */
@@ -117,15 +119,18 @@ export async function runWorkflow(
     });
   };
 
-  const needsVm = workflow.nodes.some((n) => n.type === "computer_use_task");
+  // computer_use + browser + scripted-desktop tasks all run on the VM's :0 desktop.
+  const runsOnVm = (t: WorkflowNode["type"]) =>
+    t === "computer_use_task" || t === "browser_task" || t === "script_task";
+  const needsVm = workflow.nodes.some((n) => runsOnVm(n.type));
   const startedAt = deps.now();
 
-  // Acquire a VM only when a computer-use node needs one. CLI-agent-only
-  // workflows run entirely on the controller.
+  // Acquire a VM only when a node needs one. CLI-agent / shell-only workflows
+  // run entirely on the controller.
   let acquired: Awaited<ReturnType<typeof deps.daemon.acquire>> | undefined;
   if (needsVm) {
     const requiredLabels =
-      workflow.nodes.find((n) => n.type === "computer_use_task")?.config.requiredLabels ?? [];
+      workflow.nodes.find((n) => runsOnVm(n.type))?.config.requiredLabels ?? [];
     acquired = await deps.daemon.acquire({ requiredLabels, runId });
     if (!acquired.ok) {
       emit("warn", `Queued ${workflow.name}: ${acquired.reason}.`);
@@ -191,6 +196,36 @@ export async function runWorkflow(
         emit("warn", `Node "${node.name}": retries exhausted.`);
         return "failure";
       }
+      case "api_call": {
+        if (!deps.httpFetch) {
+          emit("error", `Node "${node.name}": HTTP not enabled.`);
+          return "failure";
+        }
+        let spec: { url?: string; method?: string; headers?: Record<string, string>; body?: unknown };
+        try {
+          spec = JSON.parse(fillPrompt(node.config.prompt ?? "{}"));
+        } catch {
+          emit("error", `Node "${node.name}": invalid api_call spec (needs JSON {url,method,...}).`);
+          return "failure";
+        }
+        if (!spec.url) {
+          emit("error", `Node "${node.name}": api_call needs a url.`);
+          return "failure";
+        }
+        try {
+          const res = await deps.httpFetch(spec.url, {
+            method: spec.method ?? "GET",
+            headers: spec.headers,
+            body: spec.body != null ? JSON.stringify(spec.body) : undefined,
+          });
+          emit(res.ok ? "info" : "warn", `API ${spec.method ?? "GET"} ${spec.url} -> ${res.status}.`);
+          pastWork += `\n${node.name}: HTTP ${res.status}`;
+          return res.ok ? "success" : "failure";
+        } catch (e) {
+          emit("error", `Node "${node.name}" api_call error: ${String(e)}`);
+          return "failure";
+        }
+      }
       case "human_takeover":
         emit("warn", `Node "${node.name}": paused for human takeover.`);
         return "paused";
@@ -211,14 +246,29 @@ export async function runWorkflow(
         pastWork += `\n${node.name}: exit ${res.code}`;
         return res.code === 0 ? "success" : "failure";
       }
+      case "browser_task":
+      case "script_task":
       case "computer_use_task": {
         if (!vm) {
           emit("error", `Node "${node.name}": no VM available.`);
           return "failure";
         }
-        emit("info", `Running node "${node.name}" on ${vm.name}.`);
+        // All three drive the guest :0 desktop via the same transport; only the
+        // runner differs: LLM agent (cli.py) / Playwright / scripted pyautogui.
+        const runnerByType: Partial<Record<WorkflowNode["type"], string>> = {
+          browser_task: "/opt/agent/agent-runner/browser_runner.py",
+          script_task: "/opt/agent/agent-runner/desktop_runner.py",
+        };
+        const kind =
+          node.type === "browser_task" ? "browser" : node.type === "script_task" ? "script" : "computer-use";
+        emit("info", `Running ${kind} node "${node.name}" on ${vm.name}.`);
         const baseConn = vm.ssh ?? { host: vm.xrdp.host, port: 22, username: vm.xrdp.username };
-        const guestConn = { ...baseConn, identityFile: deps.sshIdentityFile };
+        const runnerPath = runnerByType[node.type];
+        const guestConn = {
+          ...baseConn,
+          identityFile: deps.sshIdentityFile,
+          ...(runnerPath ? { runnerPath } : {}),
+        };
         let report: GuestReport;
         try {
           report = await runComputerUseTask(
