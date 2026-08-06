@@ -7,17 +7,29 @@
 // (b) always redact the value from persisted logs/events (see redaction.ts).
 // Prefer params for anything non-sensitive.
 
+import { generateTotp } from "./totp";
+
 export type TemplateValues = {
   secrets: Record<string, string>;
   params: Record<string, string | number | boolean | null>;
 };
 
-const PLACEHOLDER = /\{\{\s*(secret|param)\.([a-zA-Z0-9_.-]+)\s*\}\}/g;
+// {{secret.x}}, {{param.x}}, or {{totp.x}} (x = a secret holding a base32 TOTP seed).
+const PLACEHOLDER = /\{\{\s*(secret|param|totp)\.([a-zA-Z0-9_.-]+)\s*\}\}/g;
 
 export function resolveTemplate(text: string, values: TemplateValues): string {
   return text.replace(PLACEHOLDER, (whole, kind: string, name: string) => {
     if (kind === "secret") {
       return name in values.secrets ? values.secrets[name] : whole;
+    }
+    if (kind === "totp") {
+      // Live authenticator code from the secret seed named `name`.
+      if (!(name in values.secrets)) return whole;
+      try {
+        return generateTotp(values.secrets[name]);
+      } catch {
+        return whole;
+      }
     }
     return name in values.params ? String(values.params[name]) : whole;
   });

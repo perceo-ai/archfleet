@@ -73,6 +73,28 @@ Every step's screenshot is captured on the guest and scp-fetched to the
 controller (`data/artifacts/<runId>/`), shown as thumbnails in the run panel and
 downloadable at `GET /api/runs/:id/artifacts/:name`.
 
+## Passing 2FA at runtime (data sources)
+
+Two built-in ways to feed a fresh code to the agent mid-run:
+
+**Authenticator (TOTP)** — store the base32 seed as a secret, reference it inline:
+```
+"Enter the 2FA code {{totp.mfa_seed}}"      # live RFC-6238 code, generated per run
+```
+
+**Email OTP** — an `otp_email` node reads the inbox, extracts the code, and stores
+it in a run param that later nodes type:
+```
+otp_email node config (JSON):
+  {"host":"imap.gmail.com","user":"{{secret.mail_user}}","pass":"{{secret.mail_pass}}",
+   "fromContains":"bank.com","regex":"\\b(\\d{6})\\b","param":"otp"}
+next node prompt: "type {{param.otp}} and submit"
+```
+(SMS/other sources: land the code via a webhook trigger → run param, or an
+`api_call` to the provider, then reference `{{param.otp}}`.)
+
+All of these resolve at execution time and are redacted from persisted logs.
+
 ## Choosing an executor per step
 
 - **`computer_use_task`** — pixel/vision agent (Agent S + UI-TARS). Works on any

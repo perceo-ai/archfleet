@@ -222,6 +222,38 @@ describe("outcome-driven engine", () => {
     expect(remoteCmd).toContain("desktop_runner.py"); // used the scripted runner, not cli.py
   });
 
+  it("otp_email fetches a code into a param that a later node types", async () => {
+    const client = fakeClient({ "dom-vm1": "running" });
+    const daemon = createVmDaemon(client, [testVm()]);
+    const emailOtp = vi.fn(async () => "654321");
+    let instruction = "";
+    const capturingExec: ExecRunner = async (_e, _a, stdin) => {
+      instruction = JSON.parse(stdin).instruction;
+      return { code: 0, stdout: '{"status":"succeeded","reason":"done","steps":1,"artifacts":[]}', stderr: "" };
+    };
+    const wf: Workflow = {
+      id: "wf_otp", name: "OTP", description: "", enabled: true, triggerKinds: ["manual"],
+      nodes: [
+        { id: "start", type: "start", name: "S", position: { x: 0, y: 0 }, config: {} },
+        { id: "otp", type: "otp_email", name: "Get code", position: { x: 1, y: 0 }, config: { prompt: '{"host":"imap.x","user":"u","pass":"p"}' } },
+        { id: "cu", type: "computer_use_task", name: "Enter code", position: { x: 2, y: 0 }, config: { prompt: "type {{param.otp}}", requiredLabels: [] } },
+        { id: "end", type: "end", name: "E", position: { x: 3, y: 0 }, config: {} },
+      ],
+      edges: [
+        { id: "e1", from: "start", to: "otp", condition: "always" },
+        { id: "e2", from: "otp", to: "cu", condition: "success" },
+        { id: "e3", from: "cu", to: "end", condition: "success" },
+      ],
+    };
+    const run = await runWorkflow(
+      { workflow: wf, secrets, params, runId: "r" },
+      { daemon, exec: capturingExec, emailOtp, now: now() },
+    );
+    expect(run.status).toBe("succeeded");
+    expect(emailOtp).toHaveBeenCalledOnce();
+    expect(instruction).toContain("654321"); // OTP flowed into the next node
+  });
+
   it("api_call node succeeds on 2xx, fails otherwise (no VM)", async () => {
     const client = fakeClient({ "dom-vm1": "running" });
     const daemon = createVmDaemon(client, [testVm()]);

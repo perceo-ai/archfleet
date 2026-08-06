@@ -26,6 +26,20 @@ describe("resolveTemplate", () => {
   });
 });
 
+describe("totp templating", () => {
+  it("resolves {{totp.seed}} to a 6-digit code from the secret seed", () => {
+    const out = resolveTemplate("code: {{totp.mfa_seed}}", {
+      secrets: { mfa_seed: "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ" },
+      params: {},
+    });
+    expect(out).toMatch(/^code: \d{6}$/);
+  });
+
+  it("leaves {{totp.x}} untouched when the seed secret is missing", () => {
+    expect(resolveTemplate("{{totp.nope}}", { secrets: {}, params: {} })).toBe("{{totp.nope}}");
+  });
+});
+
 describe("referencedSecrets", () => {
   it("lists only secret names referenced", () => {
     expect(referencedSecrets("{{secret.a}} {{param.b}} {{secret.c}}").sort()).toEqual(["a", "c"]);

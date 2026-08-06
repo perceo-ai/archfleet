@@ -25,9 +25,14 @@ type WorkflowCanvasProps = {
 const nodeTone: Record<string, string> = {
   start: "border-emerald-400 bg-emerald-50",
   computer_use_task: "border-violet-400 bg-violet-50",
+  script_task: "border-fuchsia-400 bg-fuchsia-50",
+  browser_task: "border-cyan-400 bg-cyan-50",
   cli_agent_task: "border-blue-400 bg-blue-50",
   shell_task: "border-slate-400 bg-slate-50",
+  api_call: "border-teal-400 bg-teal-50",
+  otp_email: "border-orange-400 bg-orange-50",
   condition: "border-yellow-400 bg-yellow-50",
+  retry_wait: "border-lime-400 bg-lime-50",
   human_takeover: "border-amber-400 bg-amber-50",
   end: "border-zinc-400 bg-zinc-50",
 };
@@ -39,6 +44,7 @@ const PALETTE: NodeKind[] = [
   "cli_agent_task",
   "shell_task",
   "api_call",
+  "otp_email",
   "condition",
   "retry_wait",
   "human_takeover",

@@ -48,6 +48,8 @@ export type OrchestratorDeps = {
   ) => Promise<{ code: number; stdout: string; stderr: string }>;
   /** HTTP client for api_call nodes. Absent = fetch disabled. */
   httpFetch?: typeof fetch;
+  /** Fetch an email OTP for otp_email nodes. Absent = email OTP disabled. */
+  emailOtp?: (config: import("./otp-email").EmailOtpConfig) => Promise<string | null>;
 };
 
 /** A node's branch outcome, used to pick the next edge. */
@@ -223,6 +225,33 @@ export async function runWorkflow(
           return res.ok ? "success" : "failure";
         } catch (e) {
           emit("error", `Node "${node.name}" api_call error: ${String(e)}`);
+          return "failure";
+        }
+      }
+      case "otp_email": {
+        if (!deps.emailOtp) {
+          emit("error", `Node "${node.name}": email OTP not enabled.`);
+          return "failure";
+        }
+        let cfg: import("./otp-email").EmailOtpConfig;
+        try {
+          cfg = JSON.parse(fillPrompt(node.config.prompt ?? "{}"));
+        } catch {
+          emit("error", `Node "${node.name}": invalid otp_email config JSON.`);
+          return "failure";
+        }
+        try {
+          const code = await deps.emailOtp(cfg);
+          if (!code) {
+            emit("warn", `Node "${node.name}": no OTP found in mailbox.`);
+            return "failure";
+          }
+          const param = cfg.param ?? "otp";
+          paramMap[param] = code; // available to later nodes as {{param.<name>}}
+          emit("info", `Node "${node.name}": fetched OTP into param "${param}".`); // value redacted
+          return "success";
+        } catch (e) {
+          emit("error", `Node "${node.name}" email OTP error: ${String(e)}`);
           return "failure";
         }
       }

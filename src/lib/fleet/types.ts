@@ -19,6 +19,7 @@ export type NodeKind =
   | "cli_agent_task"
   | "shell_task"
   | "api_call"
+  | "otp_email"
   | "human_takeover"
   | "condition"
   | "retry_wait"

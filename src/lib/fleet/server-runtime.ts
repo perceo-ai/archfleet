@@ -22,6 +22,7 @@ import { getWorkflow } from "./db/workflows-repo";
 import { loadSecrets } from "./db/secrets-repo";
 import { seedFleetState } from "./seed";
 import { notifyRun } from "./notify";
+import { fetchEmailOtpImap } from "./email-imap";
 import type { TriggerExecute } from "./triggers/triggers-runtime";
 import type { FleetState, Workflow, WorkflowRun } from "./types";
 
@@ -91,6 +92,7 @@ function buildRunDeps(state: FleetState, now: () => string): OrchestratorDeps {
     // shell_task is off unless explicitly enabled (runs arbitrary controller commands).
     shellExec: process.env.CUF_ALLOW_SHELL === "1" ? spawnShellExec : undefined,
     httpFetch: fetch,
+    emailOtp: fetchEmailOtpImap,
   };
 }
 
