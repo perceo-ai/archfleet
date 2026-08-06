@@ -1,0 +1,51 @@
+package.json
+  s_fd31e2b543baf5::t_ed692d9e5493d9 18,20,31
+src/lib/fleet/templating.ts
+  s_fd31e2b543baf5::t_f5e0a506d4d88b 10-11,17-18,25-32
+  s_fd31e2b543baf5::t_d09080a021022c 33
+src/components/fleet/WorkflowCanvas.tsx
+  s_fd31e2b543baf5::t_655b94d5047b74 47
+  s_fd31e2b543baf5::t_4138cc729ecdf3 28-29,32-33,35
+src/lib/fleet/templating.test.ts
+  s_fd31e2b543baf5::t_c3240109b0e542 29-42
+src/lib/fleet/email-imap.ts
+  s_fd31e2b543baf5::t_59342aa1bcdd85 1-41
+RUNBOOK.md
+  s_fd31e2b543baf5::t_fc5d2768f0370b 76-97
+src/lib/fleet/orchestrator.ts
+  s_fd31e2b543baf5::t_fd073f53f47c7c 51-52
+  s_fd31e2b543baf5::t_40a259b0c585d7 231-257
+src/lib/fleet/server-runtime.ts
+  s_fd31e2b543baf5::t_655b94d5047b74 25
+  s_fd31e2b543baf5::t_21ff261ceccef8 95
+src/lib/fleet/otp-email.ts
+  s_fd31e2b543baf5::t_6945f6b61b5d3b 1-51
+src/lib/fleet/totp.test.ts
+  s_fd31e2b543baf5::t_ecf5e5c13a1b75 1-28
+src/lib/fleet/types.ts
+  s_fd31e2b543baf5::t_3205bd496ae316 22
+src/lib/fleet/totp.ts
+  s_fd31e2b543baf5::t_aceffc001bd266 1-53
+src/lib/fleet/otp-email.test.ts
+  s_fd31e2b543baf5::t_9d7b59fd84b271 1-38
+src/lib/fleet/orchestrator.test.ts
+  s_fd31e2b543baf5::t_92cc54e92d5dba 225-256
+package-lock.json
+  s_fd31e2b543baf5::t_ffb11253ab82bc 14,16,27,2162-2167,2438-2453,2950-2973,3834-3844,4168-4176,4831-4839,4927-4993,5037-5045,6360-6368,6408-6457,6504-6519,7270-7278,7293-7316,7590-7608,7685-7702,7992-8000,8136-8144,8261-8273,8326-8334,8354-8390,8487-8502,8538-8546,8584-8589,8646-8654,8905-8913,8939-8950,9224-9256,9266-9274,9556-9573,9649-9657,9950-9955
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "cca04c0ac27bc16a257a2fcf5d63352080145903",
+  "prompts": {},
+  "sessions": {
+    "s_fd31e2b543baf5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebcada33-3d4e-46f7-96e9-ac45fa0c7077",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Pranav Kannepalli <pranav.kannepalli@gmail.com>"
+    }
+  }
+}
