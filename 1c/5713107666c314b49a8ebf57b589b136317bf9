@@ -1,0 +1,31 @@
+src/app/login/page.tsx
+  s_fd31e2b543baf5::t_c57f5925b98a7f 1-58
+src/lib/auth.ts
+  s_fd31e2b543baf5::t_c25707a435953b 1-28
+src/lib/fleet/server-runtime.ts
+  s_fd31e2b543baf5::t_e9ec0a8d875605 52
+src/lib/auth.test.ts
+  s_fd31e2b543baf5::t_2d99e5cdeba908 1-27
+src/middleware.ts
+  s_fd31e2b543baf5::t_d3c41ba90b9588 1-25
+virt/provision.sh
+  s_fd31e2b543baf5::t_e525f002f3f92b 130-133,135-136
+src/app/api/auth/route.ts
+  s_fd31e2b543baf5::t_50731133ad50be 1-27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "1c5713107666c314b49a8ebf57b589b136317bf9",
+  "prompts": {},
+  "sessions": {
+    "s_fd31e2b543baf5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebcada33-3d4e-46f7-96e9-ac45fa0c7077",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Pranav Kannepalli <pranav.kannepalli@gmail.com>"
+    }
+  }
+}
