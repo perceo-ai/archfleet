@@ -85,20 +85,28 @@ export function FleetManager() {
     <main className="grid min-h-screen grid-rows-[auto_1fr] bg-zinc-100 text-zinc-950">
       <header className="border-b border-zinc-200 bg-white">
         <div className="flex h-16 items-center justify-between px-5">
-          <div>
-            <h1 className="text-lg font-semibold tracking-normal">Computer Use Fleet</h1>
-            <p className="text-xs text-zinc-500">
-              Local VM orchestration, visual workflows, XRDP takeover, and CLI-first agents.
-            </p>
-          </div>
-          <div className="flex items-center gap-3 text-xs">
-            <div className="inline-flex items-center gap-1 rounded border border-zinc-200 px-2.5 py-1.5">
-              <Activity className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
-              {idleVms} idle VMs
+          <div className="flex items-center gap-3">
+            <span className="grid h-9 w-9 place-items-center rounded-lg bg-zinc-950 text-sm font-bold text-white">
+              af
+            </span>
+            <div>
+              <h1 className="text-[15px] font-semibold leading-tight tracking-tight">
+                archfleet <span className="text-zinc-400">·</span>{" "}
+                <span className="font-medium text-zinc-500">Computer Use Fleet</span>
+              </h1>
+              <p className="text-xs text-zinc-500">
+                Local VM orchestration, visual workflows, XRDP takeover, and CLI-first agents.
+              </p>
             </div>
-            <div className="inline-flex items-center gap-1 rounded border border-zinc-200 px-2.5 py-1.5">
+          </div>
+          <div className="flex items-center gap-2 text-xs">
+            <div className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 font-medium text-zinc-700">
+              <Activity className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
+              {idleVms} idle
+            </div>
+            <div className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 font-medium text-zinc-700">
               <ShieldCheck className="h-3.5 w-3.5 text-blue-600" aria-hidden="true" />
-              {activeRuns} active runs
+              {activeRuns} active
             </div>
           </div>
         </div>

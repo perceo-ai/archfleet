@@ -1,6 +1,7 @@
 import { Pause, Play, RotateCcw, TerminalSquare } from "lucide-react";
 import { buildAgentCommand } from "@/lib/fleet/agent-adapters";
 import { getRunTimeline } from "@/lib/fleet/runtime";
+import { runStatusTone } from "./status-colors";
 import type { Secret, WorkflowRun } from "@/lib/fleet/types";
 
 export type RunSummary = {
@@ -95,7 +96,7 @@ export function RunPanel({
           <div className="mb-2 flex items-center justify-between">
             <h3 className="text-xs font-semibold uppercase text-zinc-500">Latest Run</h3>
             {latestRun ? (
-              <span className="rounded bg-emerald-100 px-2 py-1 text-[11px] font-medium text-emerald-800">
+              <span className={`rounded px-2 py-1 text-[11px] font-medium ${runStatusTone(latestRun.status)}`}>
                 {latestRun.status}
               </span>
             ) : null}
@@ -155,7 +156,7 @@ export function RunPanel({
                     className="flex w-full items-center justify-between rounded border border-zinc-200 px-2 py-1.5 text-left hover:bg-zinc-50"
                   >
                     <span className="truncate text-zinc-700">{run.workflowName}</span>
-                    <span className="ml-2 shrink-0 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600">
+                    <span className={`ml-2 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${runStatusTone(run.status)}`}>
                       {run.status}
                     </span>
                   </button>
