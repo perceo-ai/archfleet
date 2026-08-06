@@ -49,6 +49,7 @@ function guestEnv(env: Record<string, string | undefined> = process.env): Record
   return {
     DISPLAY: env.CUF_GUEST_DISPLAY ?? ":0",
     XAUTHORITY: env.CUF_GUEST_XAUTHORITY ?? "/home/agent/.Xauthority",
+    PLAYWRIGHT_BROWSERS_PATH: env.CUF_PLAYWRIGHT_BROWSERS_PATH ?? "/opt/agent/pw-browsers",
     ...forwarded,
   };
 }

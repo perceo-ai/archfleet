@@ -127,8 +127,13 @@ python3 -m venv "${VENV_DIR}"
 "${VENV_DIR}/bin/pip" install --ignore-requires-python "gui-agents==${GUI_AGENTS_VERSION:-0.3.2}" \
   || log "WARN: gui-agents install failed — install it into ${VENV_DIR} later"
 # Playwright for browser_task nodes (heavy chromium download; non-fatal).
+# Install browsers to a SHARED path the agent user can read (default cache is
+# root-only). PLAYWRIGHT_BROWSERS_PATH is also forwarded to the guest at run time.
+export PLAYWRIGHT_BROWSERS_PATH=/opt/agent/pw-browsers
+mkdir -p "${PLAYWRIGHT_BROWSERS_PATH}"
 "${VENV_DIR}/bin/pip" install playwright \
-  && "${VENV_DIR}/bin/playwright" install --with-deps chromium \
+  && PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH}" "${VENV_DIR}/bin/playwright" install --with-deps chromium \
+  && chmod -R a+rX "${PLAYWRIGHT_BROWSERS_PATH}" \
   || log "WARN: playwright/chromium install failed — browser_task unavailable until installed"
 chown -R "${AGENT_USER}:${AGENT_USER}" "$(dirname "${VENV_DIR}")"
 
