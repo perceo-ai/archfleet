@@ -173,13 +173,37 @@ export function RunPanel({
         <section>
           <h3 className="mb-2 text-xs font-semibold uppercase text-zinc-500">Human Takeover</h3>
           <div className="grid grid-cols-2 gap-2">
-            <button className="inline-flex items-center justify-center gap-1 rounded border border-zinc-200 px-2 py-2 text-xs text-zinc-700">
+            <button
+              type="button"
+              disabled={!latestRun}
+              onClick={() =>
+                latestRun &&
+                fetch(`/api/runs/${latestRun.id}/action`, {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({ action: "cancel" }),
+                }).then(() => onSelectRun?.(latestRun.id))
+              }
+              className="inline-flex items-center justify-center gap-1 rounded border border-zinc-200 px-2 py-2 text-xs text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+            >
               <Pause className="h-3.5 w-3.5" aria-hidden="true" />
-              Pause
+              Cancel
             </button>
-            <button className="inline-flex items-center justify-center gap-1 rounded border border-zinc-200 px-2 py-2 text-xs text-zinc-700">
+            <button
+              type="button"
+              disabled={!latestRun}
+              onClick={() =>
+                latestRun &&
+                fetch(`/api/runs/${latestRun.id}/action`, {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({ action: "retry" }),
+                }).then(() => onSelectRun?.(latestRun.id))
+              }
+              className="inline-flex items-center justify-center gap-1 rounded border border-zinc-200 px-2 py-2 text-xs text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+            >
               <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
-              Retry
+              Retry / Resume
             </button>
           </div>
         </section>
