@@ -1,0 +1,26 @@
+src/components/fleet/FleetManager.tsx
+  s_fd31e2b543baf5::t_a93cdaa8d1b437 88-93,96-100,102-103,105,107,109
+  s_fd31e2b543baf5::t_3ef0d9dab8ed50 94-95
+src/components/fleet/RunPanel.tsx
+  s_fd31e2b543baf5::t_3522154e4c2b36 99
+  s_fd31e2b543baf5::t_831aaa2cbf608b 159
+  s_fd31e2b543baf5::t_0b2d805ba9c840 4
+src/components/fleet/status-colors.ts
+  s_fd31e2b543baf5::t_7b0e0ec1636625 1-20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "309a526e681c1d4c15cde78991476d483a40453a",
+  "prompts": {},
+  "sessions": {
+    "s_fd31e2b543baf5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebcada33-3d4e-46f7-96e9-ac45fa0c7077",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Pranav Kannepalli <pranav.kannepalli@gmail.com>"
+    }
+  }
+}
