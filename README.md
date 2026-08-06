@@ -14,6 +14,11 @@ Part of the Perceo stack (alongside Archductor, Archivum). Shares one SQLite DB.
 - **Autonomous computer-use** — Agent S drives the guest desktop (screenshot → plan → act)
   inside the VM, wrapped with a bounded loop that bails to human-takeover when stuck.
 - **CLI-first agents** — Claude Code / Codex adapters preferred over direct API spend.
+- **Node types** — `computer_use_task` (Agent S, LLM), `script_task` (scripted
+  pyautogui, **no LLM**), `browser_task` (Playwright, no LLM), `cli_agent_task`,
+  `shell_task`, `api_call`, `otp_email` (email 2FA), `human_takeover`, `condition`,
+  `retry_wait`. All resolve `{{secret.x}}` / `{{param.x}}` / `{{totp.x}}` at runtime.
+- **Runtime 2FA** — `{{totp.seed}}` (authenticator) + `otp_email` node (reads inbox).
 - **Triggers** — manual, cron schedule, and webhook (hashed token).
 - **Secrets & params** — secrets AES-256-GCM encrypted at rest, redacted from logs.
 - **XRDP takeover** — every VM exposes a connection profile for manual intervention.
@@ -63,6 +68,8 @@ model — proves the whole stack end to end.
 |-----|---------|
 | `CUF_DB_PATH` | SQLite file (point at the shared Perceo DB) |
 | `CUF_SECRET_KEY` | master key for secret encryption at rest |
+| `CUF_AUTH_TOKEN` | if set, gates the app (login/bearer); unset = open (dev) |
+| `CUF_NOTIFY_WEBHOOK` | Slack-style webhook paged when a run needs a human |
 | `CUF_GOLDEN_DOMAIN` | libvirt domain to bind as a fleet VM (single-VM shorthand) |
 | `CUF_FLEET_JSON` | `[{domain,labels,sshPort,rdpPort,...}]` — multi-VM fleet |
 | `CUF_SSH_KEY` | controller SSH private key for the guest transport |
