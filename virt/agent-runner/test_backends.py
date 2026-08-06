@@ -38,7 +38,7 @@ class ParamBuilderTest(unittest.TestCase):
             grounding_height=1080,
         )
         params = grounding_engine_params(cfg)
-        self.assertEqual(params["engine_type"], "huggingface")
+        self.assertIn(params["engine_type"], ("openai", "huggingface"))
         self.assertEqual(params["base_url"], "http://gpu-host:8080/v1")
         self.assertEqual(params["grounding_width"], 1920)
         self.assertEqual(params["grounding_height"], 1080)

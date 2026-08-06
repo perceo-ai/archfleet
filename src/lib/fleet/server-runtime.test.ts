@@ -58,18 +58,31 @@ describe("async run queue", () => {
     db.close();
   });
 
-  it("processPendingRuns claims + executes queued runs (no VM -> stays queued/failed, terminal)", async () => {
+  it("processPendingRuns claims + executes queued runs to a terminal state", async () => {
     const db = openDb(":memory:");
-    ensureSeeded(db);
-    enqueueManualRun(undefined, { db });
-    enqueueManualRun(undefined, { db });
+    // A no-op start->end workflow: executes instantly with no VM or CLI spawn,
+    // keeping this test deterministic regardless of what's installed on the host.
+    const { saveWorkflow } = await import("./db/workflows-repo");
+    saveWorkflow(db, {
+      id: "wf_noop",
+      name: "Noop",
+      description: "",
+      enabled: true,
+      triggerKinds: ["manual"],
+      nodes: [
+        { id: "start", type: "start", name: "S", position: { x: 0, y: 0 }, config: {} },
+        { id: "end", type: "end", name: "E", position: { x: 1, y: 0 }, config: {} },
+      ],
+      edges: [{ id: "e1", from: "start", to: "end", condition: "always" }],
+    });
+    enqueueManualRun("wf_noop", { db });
+    enqueueManualRun("wf_noop", { db });
     const processed = await processPendingRuns(db, 5);
     expect(processed).toBe(2);
-    // no more queued left to claim after processing
-    const again = await processPendingRuns(db, 5);
-    expect(again).toBe(0);
-    // both runs reached a terminal-ish persisted state
+    expect(await processPendingRuns(db, 5)).toBe(0);
     expect(listRuns(db)).toHaveLength(2);
+    // both reached a terminal success (no executable nodes)
+    expect(listRuns(db).every((r) => r.status === "succeeded")).toBe(true);
     db.close();
   });
 });

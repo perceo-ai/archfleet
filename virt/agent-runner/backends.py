@@ -32,7 +32,10 @@ class AgentSConfig:
     planner_model: str = os.environ.get("CUF_PLANNER_MODEL", "anthropic/claude-sonnet-4-6")
     planner_base_url: str = os.environ.get("CUF_OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     planner_api_key: str = os.environ.get("OPENROUTER_API_KEY", "")
-    # Grounding (UI-TARS) served locally or in a cloud container.
+    # Grounding (UI-TARS) served locally or in a cloud container. engine_type is
+    # configurable because a Hugging Face dedicated endpoint / vLLM is OpenAI-
+    # compatible ("openai"), while a raw TGI setup may want "huggingface".
+    grounding_engine_type: str = os.environ.get("CUF_GROUNDING_ENGINE_TYPE", "openai")
     grounding_model: str = os.environ.get("CUF_GROUNDING_MODEL", "ui-tars-1.5-7b")
     grounding_base_url: str = os.environ.get("CUF_GROUNDING_BASE_URL", "http://127.0.0.1:8080/v1")
     grounding_api_key: str = os.environ.get("CUF_GROUNDING_API_KEY", "EMPTY")
@@ -53,7 +56,7 @@ def planner_engine_params(config: AgentSConfig) -> dict:
 def grounding_engine_params(config: AgentSConfig) -> dict:
     """UI-TARS grounding params. Pure — unit testable."""
     return {
-        "engine_type": "huggingface",
+        "engine_type": config.grounding_engine_type,
         "model": config.grounding_model,
         "base_url": config.grounding_base_url,
         "api_key": config.grounding_api_key,
