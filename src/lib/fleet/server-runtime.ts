@@ -21,6 +21,7 @@ import { saveRun, getRun, claimQueuedRun, deferRun } from "./db/runs-repo";
 import { getWorkflow } from "./db/workflows-repo";
 import { loadSecrets } from "./db/secrets-repo";
 import { seedFleetState } from "./seed";
+import { notifyRun } from "./notify";
 import type { TriggerExecute } from "./triggers/triggers-runtime";
 import type { FleetState, Workflow, WorkflowRun } from "./types";
 
@@ -201,6 +202,9 @@ export async function executeRunById(db: Db, runId: string, now = () => new Date
     const backoffMs = Number(process.env.CUF_RUN_BACKOFF_MS ?? "30000");
     deferRun(db, runId, new Date(Date.now() + backoffMs).toISOString());
   }
+  // Page an operator when a human is needed (or on failure).
+  const vm = realVmsFromEnv().find((v) => v.id === run.vmId);
+  await notifyRun(run, { xrdp: vm?.xrdp });
 }
 
 /** Process up to `max` queued runs. Returns how many were executed. Call from a
