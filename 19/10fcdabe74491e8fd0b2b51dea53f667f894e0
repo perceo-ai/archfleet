@@ -1,0 +1,30 @@
+src/lib/fleet/notify.ts
+  s_fd31e2b543baf5::t_385f6a0030c509 1-46
+src/lib/fleet/server-runtime.ts
+  s_fd31e2b543baf5::t_01e9088ce5eb6b 205-207
+  s_fd31e2b543baf5::t_afad7b9e6ac457 24
+virt/connect-xrdp.sh
+  s_fd31e2b543baf5::t_9b2c4aa4b2ee52 1-20
+src/lib/fleet/notify.test.ts
+  s_fd31e2b543baf5::t_a3f870637dcaac 1-38
+src/app/api/vms/[id]/rdp/route.ts
+  s_fd31e2b543baf5::t_33ec76ac84f4e6 1-30
+RUNBOOK.md
+  s_fd31e2b543baf5::t_e35dd1582bccc7 1-83
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "1910fcdabe74491e8fd0b2b51dea53f667f894e0",
+  "prompts": {},
+  "sessions": {
+    "s_fd31e2b543baf5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ebcada33-3d4e-46f7-96e9-ac45fa0c7077",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Pranav Kannepalli <pranav.kannepalli@gmail.com>"
+    }
+  }
+}
