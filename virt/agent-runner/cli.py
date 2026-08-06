@@ -19,7 +19,7 @@ import json
 import sys
 import time
 
-from agent_runner import Limits, TaskSlice, run_task
+from agent_runner import Limits, RunReport, TaskSlice, run_task
 
 
 def _parse_task(raw: dict) -> tuple[TaskSlice, Limits]:
@@ -67,7 +67,10 @@ def _run_real(task: TaskSlice, limits: Limits) -> "RunReport":  # noqa: F821
 
     def execute(actions):
         for action in actions:
-            exec(action, {"pyautogui": pyautogui})  # noqa: S102 — Agent S action code
+            try:
+                exec(action, {"pyautogui": pyautogui})  # noqa: S102 — Agent S action code
+            except Exception as e:  # a bad action must not crash the whole run
+                sys.stderr.write(f"[runner] action failed: {e!r}\n")
 
     report = run_task(
         task,
@@ -128,7 +131,15 @@ def main(argv=None) -> int:
 
     raw = json.load(open(args.task_file)) if args.task_file else json.load(sys.stdin)
     task, limits = _parse_task(raw)
-    report = _run_real(task, limits)
+    try:
+        report = _run_real(task, limits)
+    except Exception as e:
+        # Always emit a valid report so the controller gets a structured result
+        # instead of a transport parse error.
+        import traceback
+
+        traceback.print_exc(file=sys.stderr)
+        report = RunReport("failed", f"runner_exception: {e!r}", 0)
     print(report.to_json())
     # needs_human / timed_out are not process failures — the controller decides.
     return 0
