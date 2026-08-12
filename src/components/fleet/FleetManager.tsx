@@ -61,6 +61,11 @@ type WorkspaceVersion = {
 };
 
 const STORAGE_KEY = "archfleet.workspace.v1";
+const MIN_CHAT_WIDTH = 220;
+const MIN_GRAPH_WIDTH = 380;
+const MIN_DESKTOP_WIDTH = 340;
+const MIN_WORKBENCH_HEIGHT = 180;
+const MAX_WORKBENCH_HEIGHT = 420;
 
 const initialMessage = (description: string): ChatMessage => ({
   id: "msg_initial",
@@ -68,6 +73,10 @@ const initialMessage = (description: string): ChatMessage => ({
   text: description,
   createdAt: new Date(0).toISOString(),
 });
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
 
 export function FleetManager() {
   const state = useMemo(() => seedFleetState(), []);
@@ -91,6 +100,9 @@ export function FleetManager() {
   const [desktopBusy, setDesktopBusy] = useState(false);
   const [actionMessage, setActionMessage] = useState<string>();
   const [workbenchTab, setWorkbenchTab] = useState<WorkbenchTab>("versions");
+  const [chatWidth, setChatWidth] = useState(300);
+  const [graphWidth, setGraphWidth] = useState(620);
+  const [workbenchHeight, setWorkbenchHeight] = useState(260);
 
   const refreshRuns = useCallback(async () => {
     try {
@@ -215,6 +227,59 @@ export function FleetManager() {
     { label: "Steps", value: workflow.nodes.length },
     { label: "vCPU", value: vmCapacity },
   ];
+
+  function startColumnResize(which: "chat" | "graph", event: React.PointerEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startChatWidth = chatWidth;
+    const startGraphWidth = graphWidth;
+
+    function move(e: PointerEvent) {
+      const delta = e.clientX - startX;
+      if (which === "chat") {
+        const nextChat = clamp(startChatWidth + delta, MIN_CHAT_WIDTH, 520);
+        const graphDelta = nextChat - startChatWidth;
+        setChatWidth(nextChat);
+        setGraphWidth(clamp(startGraphWidth - graphDelta, MIN_GRAPH_WIDTH, 920));
+        return;
+      }
+      setGraphWidth(clamp(startGraphWidth + delta, MIN_GRAPH_WIDTH, 980));
+    }
+
+    function stop() {
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+    }
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop, { once: true });
+  }
+
+  function startWorkbenchResize(event: React.PointerEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    const startY = event.clientY;
+    const startHeight = workbenchHeight;
+
+    function move(e: PointerEvent) {
+      setWorkbenchHeight(clamp(startHeight - (e.clientY - startY), MIN_WORKBENCH_HEIGHT, MAX_WORKBENCH_HEIGHT));
+    }
+
+    function stop() {
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+    }
+
+    document.body.style.cursor = "row-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop, { once: true });
+  }
 
   function sendChat() {
     const text = chatDraft.trim();
@@ -511,11 +576,14 @@ export function FleetManager() {
       </header>
 
       <div
-        className="grid min-h-[620px] flex-1 bg-white/[0.08] [grid-template-columns:1fr] xl:min-h-0 xl:[grid-template-columns:minmax(220px,var(--chat-width))_6px_minmax(380px,var(--graph-width))_6px_minmax(340px,1fr)]"
+        className="grid min-h-[620px] flex-1 bg-white/[0.08] [grid-template-columns:1fr] xl:min-h-0 xl:[grid-template-columns:minmax(var(--min-chat-width),var(--chat-width))_6px_minmax(var(--min-graph-width),var(--graph-width))_6px_minmax(var(--min-desktop-width),1fr)]"
         style={
           {
             "--chat-width": `${chatWidth}px`,
             "--graph-width": `${graphWidth}px`,
+            "--min-chat-width": `${MIN_CHAT_WIDTH}px`,
+            "--min-graph-width": `${MIN_GRAPH_WIDTH}px`,
+            "--min-desktop-width": `${MIN_DESKTOP_WIDTH}px`,
           } as React.CSSProperties
         }
       >
@@ -679,7 +747,7 @@ export function FleetManager() {
       </button>
 
       <div
-        className="border-t border-white/[0.08] bg-[#232323]/70 xl:h-[var(--workbench-height)] xl:min-h-0 xl:overflow-hidden"
+        className="border-t border-white/[0.08] bg-[#232323]/70 xl:h-[var(--workbench-height)] xl:min-h-0 xl:overflow-auto"
         style={{ "--workbench-height": `${workbenchHeight}px` } as React.CSSProperties}
       >
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.08] px-4 py-2">
