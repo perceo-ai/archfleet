@@ -33,64 +33,65 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="grid min-h-screen place-items-center bg-[#f7f4ef] px-4 text-zinc-950">
-      <form onSubmit={submit} className="w-full max-w-sm rounded-md border border-stone-200 bg-white p-6 shadow-sm">
+    <main className="grid-lines relative grid min-h-screen place-items-center overflow-hidden bg-[#312F2F] px-4 text-white">
+      <div className="dot-pattern dot-pattern-fade z-0" aria-hidden="true" />
+      <form onSubmit={submit} className="glass glass-border relative z-10 w-full max-w-sm rounded-[5px] p-6">
         <div className="mb-5 flex items-center gap-3">
-          <span className="grid h-8 w-8 place-items-center rounded-sm bg-zinc-950 text-[11px] font-semibold uppercase text-white">
+          <span className="grid h-8 w-8 place-items-center rounded-[6px] bg-gradient-to-b from-[#8b5cf6] to-[#7848e6] text-[11px] font-semibold uppercase text-white">
             pe
           </span>
           <div>
-            <h1 className="text-sm font-semibold">Perceo Archfleet</h1>
-            <p className="text-xs text-zinc-500">Sign in to continue</p>
+            <h1 className="font-serif text-xl font-bold italic tracking-tight">Perceo Archfleet</h1>
+            <p className="text-xs text-white/45">Sign in to continue</p>
           </div>
         </div>
 
         {useToken ? (
-          <label className="block text-xs font-medium text-zinc-600">
+          <label className="block text-xs font-medium text-white/60">
             Bootstrap token
             <input
               type="password"
               value={token}
               onChange={(e) => setToken(e.target.value)}
               autoFocus
-              className="mt-1 h-9 w-full rounded-md border border-stone-300 px-2 text-sm outline-none focus:border-zinc-500"
+              className="mt-1 h-9 w-full rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 text-sm text-white outline-none focus:border-[#8b5cf6]"
             />
           </label>
         ) : (
           <div className="space-y-3">
-            <label className="block text-xs font-medium text-zinc-600">
+            <label className="block text-xs font-medium text-white/60">
               Username
               <input
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 autoFocus
-                className="mt-1 h-9 w-full rounded-md border border-stone-300 px-2 text-sm outline-none focus:border-zinc-500"
+                className="mt-1 h-9 w-full rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 text-sm text-white outline-none focus:border-[#8b5cf6]"
               />
             </label>
-            <label className="block text-xs font-medium text-zinc-600">
+            <label className="block text-xs font-medium text-white/60">
               Password
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="mt-1 h-9 w-full rounded-md border border-stone-300 px-2 text-sm outline-none focus:border-zinc-500"
+                className="mt-1 h-9 w-full rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 text-sm text-white outline-none focus:border-[#8b5cf6]"
               />
             </label>
           </div>
         )}
 
-        {error ? <p className="mt-3 rounded-sm bg-red-50 px-2 py-1 text-xs text-red-700">{error}</p> : null}
+        {error ? <p className="mt-3 rounded-[5px] border border-[#f87171]/30 bg-[#f87171]/20 px-2 py-1 text-xs text-[#fca5a5]">{error}</p> : null}
         <button
           type="submit"
           disabled={busy}
-          className="mt-4 h-9 w-full rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+          className="perceo-primary mt-4 h-9 w-full rounded-[5px] px-3 text-sm font-semibold disabled:opacity-60"
         >
           {busy ? "Signing in..." : "Sign in"}
         </button>
         <button
           type="button"
           onClick={() => setUseToken((v) => !v)}
-          className="mt-3 w-full text-center text-xs text-zinc-500 hover:text-zinc-900"
+          className="mt-3 w-full text-center text-xs text-white/45 hover:text-white"
         >
           {useToken ? "Use username and password" : "Use bootstrap token"}
         </button>

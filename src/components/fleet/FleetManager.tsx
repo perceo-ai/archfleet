@@ -208,6 +208,13 @@ export function FleetManager() {
     },
   ];
   const healthyVms = vms.filter((vm) => vm.status !== "unhealthy" && vm.status !== "stopped").length;
+  const vmCapacity = vms.reduce((sum, vm) => sum + vm.cpu, 0);
+  const workspaceStats = [
+    { label: "Golden ready", value: idleVms },
+    { label: "VMs online", value: healthyVms },
+    { label: "Steps", value: workflow.nodes.length },
+    { label: "vCPU", value: vmCapacity },
+  ];
 
   function sendChat() {
     const text = chatDraft.trim();
@@ -312,99 +319,142 @@ export function FleetManager() {
       <main className="grid-lines relative min-h-screen overflow-hidden bg-[#312F2F] text-white">
         <div className="dot-pattern dot-pattern-fade z-0" aria-hidden="true" />
         <header className="relative z-10 border-b border-white/[0.08] bg-[#312f2f]/70 backdrop-blur-xl">
-          <div className="mx-auto flex min-h-16 max-w-6xl flex-wrap items-center justify-between gap-3 px-5 py-3 md:px-12">
+          <div className="mx-auto flex min-h-16 max-w-7xl flex-wrap items-center justify-between gap-3 px-5 py-3 md:px-12">
             <div className="flex items-center gap-3">
               <span className="grid h-8 w-8 place-items-center rounded-[6px] bg-gradient-to-b from-[#8b5cf6] to-[#7848e6] text-[11px] font-semibold uppercase text-white shadow-sm">
                 pe
               </span>
               <div>
                 <div className="font-serif text-xl font-bold italic tracking-tight text-white">Perceo Archfleet</div>
-                <div className="text-xs text-white/50">Task golden VMs and repeatable browser workflows</div>
+                <div className="text-xs text-white/50">Computer-use runs on isolated golden VMs</div>
               </div>
             </div>
             <div className="flex items-center gap-2 text-xs text-white/60">
-              <span className="rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 py-1">{idleVms} golden ready</span>
-              <span className="rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 py-1">{activeRuns} active run</span>
+              <Link
+                href="/users"
+                className="rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-3 py-2 font-semibold text-white hover:bg-white/[0.08]"
+              >
+                Users
+              </Link>
+              <span className="rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-3 py-2">{activeRuns} active run</span>
             </div>
           </div>
         </header>
 
-        <section className="relative z-10 mx-auto grid max-w-6xl gap-8 px-5 py-10 md:px-12 lg:grid-cols-[340px_minmax(0,1fr)]">
-          <div className="pt-2">
-            <p className="text-xs font-semibold uppercase text-white/40">Home</p>
-            <h1 className="mt-3 max-w-sm text-4xl font-bold leading-tight text-white sm:text-5xl">
-              Pick a task, work in its golden VM, run it again.
-            </h1>
-            <p className="mt-4 max-w-sm text-sm leading-6 text-zinc-400">
-              The main path is intentionally small: open the task, use the desktop when human login
-              is needed, edit the graph, then trigger a run.
-            </p>
-            <div className="mt-6 grid grid-cols-3 gap-2 text-xs">
-              <div className="glass rounded-[5px] p-3">
-                <div className="text-2xl font-semibold">{taskCards.length}</div>
-                <div className="mt-1 text-white/45">task</div>
-              </div>
-              <div className="glass rounded-[5px] p-3">
-                <div className="text-2xl font-semibold">{healthyVms}</div>
-                <div className="mt-1 text-white/45">VMs online</div>
-              </div>
-              <div className="glass rounded-[5px] p-3">
-                <div className="text-2xl font-semibold">{workflow.triggerKinds.length}</div>
-                <div className="mt-1 text-white/45">triggers</div>
-              </div>
+        <section className="relative z-10 mx-auto grid max-w-7xl gap-5 px-5 py-6 md:px-12">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-white/40">Task launcher</p>
+              <h1 className="mt-2 text-2xl font-semibold tracking-tight text-white md:text-3xl">Run browser workflows on golden desktops.</h1>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
+                Choose a task, attach the VM when human login is needed, edit the workflow graph, then run it and keep the trace.
+              </p>
             </div>
+            <button
+              type="button"
+              onClick={() => setMode("workspace")}
+              className="perceo-primary inline-flex h-10 items-center gap-2 rounded-[5px] px-4 text-sm font-semibold"
+            >
+              <Play className="h-4 w-4" aria-hidden="true" />
+              Open workspace
+            </button>
           </div>
 
-          <div className="grid content-start gap-3">
-            {taskCards.map((task) => (
-              <button
-                key={task.id}
-                type="button"
-                onClick={() => setMode("workspace")}
-                className="glass glass-border group grid min-h-36 grid-cols-[1fr_auto] gap-4 rounded-[5px] p-5 text-left transition hover:-translate-y-0.5 hover:bg-white/[0.07] focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/50"
-              >
-                <div>
-                  <div className="flex items-center gap-2">
-                    <CircleDot className="h-4 w-4 text-[#8add84]" aria-hidden="true" />
-                    <h2 className="text-base font-semibold text-white">{task.name}</h2>
-                  </div>
-                  <p className="mt-2 max-w-xl text-sm leading-6 text-zinc-400">{task.description}</p>
-                  <div className="mt-5 flex flex-wrap gap-2 text-xs">
-                    <span className="rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 py-1 text-white/70">
-                      {statusLabel(task.vm)}
-                    </span>
-                    <span className="rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 py-1 text-white/70">
-                      {task.workflow.nodes.length} steps
-                    </span>
-                    <span className="rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 py-1 text-white/70">
-                      XRDP ready
-                    </span>
-                  </div>
-                </div>
-                <span className="perceo-primary self-start rounded-[5px] px-3 py-2 text-xs font-semibold shadow-sm">
-                  Open
-                </span>
-              </button>
-            ))}
-
-            <div className="glass grid gap-3 rounded-[5px] border-dashed p-5 sm:grid-cols-[1fr_auto] sm:items-center">
-              <div>
-                <h2 className="text-sm font-semibold text-white">Prepare another golden profile</h2>
-                <p className="mt-1 text-sm leading-6 text-zinc-400">
-                  Open the workspace and use Profile setup to draft a login flow, capture source state, and clone it.
-                </p>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {workspaceStats.map((stat) => (
+              <div key={stat.label} className="glass rounded-[5px] p-4">
+                <div className="text-2xl font-semibold text-white">{stat.value}</div>
+                <div className="mt-1 text-xs text-white/45">{stat.label}</div>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setMode("workspace");
-                  setWorkbenchTab("profile");
-                }}
-                className="inline-flex h-9 items-center justify-center rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-3 text-xs font-semibold text-white hover:bg-white/[0.08]"
-              >
-                Profile setup
-              </button>
-            </div>
+            ))}
+          </div>
+
+          <div className="grid gap-5 lg:grid-cols-[minmax(0,1.35fr)_360px]">
+            <section className="glass glass-border rounded-[5px]">
+              <div className="border-b border-white/[0.08] px-4 py-3">
+                <h2 className="text-sm font-semibold text-white">Tasks</h2>
+                <p className="mt-1 text-xs text-white/45">Select the workflow you want to operate.</p>
+              </div>
+              <div className="divide-y divide-white/[0.08]">
+                {taskCards.map((task) => (
+                  <button
+                    key={task.id}
+                    type="button"
+                    onClick={() => setMode("workspace")}
+                    className="grid w-full gap-4 px-4 py-4 text-left transition hover:bg-white/[0.05] focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/50 md:grid-cols-[minmax(0,1fr)_auto]"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <CircleDot className="h-4 w-4 text-[#8add84]" aria-hidden="true" />
+                        <h3 className="truncate text-base font-semibold text-white">{task.name}</h3>
+                      </div>
+                      <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">{task.description}</p>
+                      <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                        <span className="rounded-[5px] border border-[#4ade80]/30 bg-[#4ade80]/15 px-2 py-1 text-[#8add84]">
+                          {statusLabel(task.vm)}
+                        </span>
+                        <span className="rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 py-1 text-white/65">
+                          {task.workflow.nodes.length} steps
+                        </span>
+                        <span className="rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 py-1 text-white/65">
+                          {workflow.triggerKinds.join(" / ")}
+                        </span>
+                      </div>
+                    </div>
+                    <span className="perceo-primary inline-flex h-9 items-center justify-center rounded-[5px] px-3 text-xs font-semibold">
+                      Open
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <aside className="grid gap-3">
+              <section className="glass rounded-[5px] p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-sm font-semibold text-white">Primary VM</h2>
+                    <p className="mt-1 text-xs text-white/45">{primaryVm?.name ?? "No VM available"}</p>
+                  </div>
+                  <span className="rounded-[5px] bg-[#4ade80]/20 px-2 py-1 text-xs font-semibold text-[#8add84]">
+                    {statusLabel(primaryVm)}
+                  </span>
+                </div>
+                {primaryVm ? (
+                  <div className="mt-4 grid grid-cols-3 gap-2 text-xs text-white/55">
+                    <div>
+                      <div className="text-white">{primaryVm.cpu}</div>
+                      <div>CPU</div>
+                    </div>
+                    <div>
+                      <div className="text-white">{primaryVm.memoryGb} GB</div>
+                      <div>Memory</div>
+                    </div>
+                    <div>
+                      <div className="text-white">{primaryVm.diskGb} GB</div>
+                      <div>Disk</div>
+                    </div>
+                  </div>
+                ) : null}
+              </section>
+
+              <section className="glass rounded-[5px] p-4">
+                <h2 className="text-sm font-semibold text-white">Next setup action</h2>
+                <p className="mt-2 text-sm leading-6 text-zinc-400">
+                  Prepare or refresh a golden profile when credentials, MFA trust, or browser state expires.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode("workspace");
+                    setWorkbenchTab("profile");
+                  }}
+                  className="mt-4 inline-flex h-9 w-full items-center justify-center rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-3 text-xs font-semibold text-white hover:bg-white/[0.08]"
+                >
+                  Open profile setup
+                </button>
+              </section>
+            </aside>
           </div>
         </section>
       </main>
@@ -434,7 +484,7 @@ export function FleetManager() {
           <div className="flex items-center gap-2">
             <Link
               href="/users"
-              className="inline-flex h-8 items-center rounded-md border border-stone-200 bg-white px-3 text-xs font-semibold text-zinc-800 hover:bg-stone-50"
+              className="inline-flex h-8 items-center rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-3 text-xs font-semibold text-white hover:bg-white/[0.08]"
             >
               Users
             </Link>
@@ -593,13 +643,13 @@ export function FleetManager() {
         </section>
       </div>
 
-      <div className="border-t border-stone-200 bg-[#fbfaf7]">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-200 px-4 py-2">
+      <div className="border-t border-white/[0.08] bg-[#232323]/70">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.08] px-4 py-2">
           <div className="flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 text-[#b45f36]" aria-hidden="true" />
+            <CheckCircle2 className="h-4 w-4 text-[#8add84]" aria-hidden="true" />
             <h2 className="text-sm font-semibold">Workbench</h2>
           </div>
-          <div className="flex rounded-md border border-stone-200 bg-white p-0.5 text-xs">
+          <div className="flex rounded-[5px] border border-white/[0.08] bg-white/[0.05] p-0.5 text-xs">
             {[
               ["versions", "Versions"],
               ["profile", "Profile setup"],
@@ -610,7 +660,7 @@ export function FleetManager() {
                 type="button"
                 onClick={() => setWorkbenchTab(id as WorkbenchTab)}
                 className={`h-8 rounded px-3 font-semibold ${
-                  workbenchTab === id ? "bg-zinc-950 text-white" : "text-zinc-600 hover:bg-stone-50"
+                  workbenchTab === id ? "perceo-primary text-white" : "text-white/60 hover:bg-white/[0.08]"
                 }`}
               >
                 {label}
@@ -620,60 +670,60 @@ export function FleetManager() {
         </div>
 
         {workbenchTab === "versions" ? (
-          <div className="grid gap-px bg-stone-200 lg:grid-cols-[minmax(0,1fr)_420px]">
-            <section className="bg-[#fbfaf7]">
+          <div className="grid gap-px bg-white/[0.08] lg:grid-cols-[minmax(0,1fr)_420px]">
+            <section className="bg-[#232323]/70">
               <div className="grid gap-3 p-3 text-xs xl:grid-cols-[minmax(420px,1fr)_minmax(280px,0.45fr)]">
                 <div className="grid gap-2 md:grid-cols-[180px_180px_minmax(240px,1fr)]">
                   <label className="block">
-                    <span className="font-medium text-zinc-500">Task</span>
+                    <span className="font-medium text-white/45">Task</span>
                     <input
                       value={taskName}
                       onChange={(e) => setTaskName(e.target.value)}
-                      className="mt-1 h-9 w-full rounded-md border border-stone-200 bg-white px-2 text-sm text-zinc-950 outline-none focus:border-zinc-500"
+                      className="mt-1 h-9 w-full rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 text-sm text-white outline-none focus:border-[#8b5cf6]"
                     />
                   </label>
                   <label className="block">
-                    <span className="font-medium text-zinc-500">Profile</span>
+                    <span className="font-medium text-white/45">Profile</span>
                     <input
                       value={profileName}
                       onChange={(e) => setProfileName(e.target.value)}
-                      className="mt-1 h-9 w-full rounded-md border border-stone-200 bg-white px-2 text-sm text-zinc-950 outline-none focus:border-zinc-500"
+                      className="mt-1 h-9 w-full rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 text-sm text-white outline-none focus:border-[#8b5cf6]"
                     />
                   </label>
                   <label className="block">
-                    <span className="font-medium text-zinc-500">Current objective</span>
+                    <span className="font-medium text-white/45">Current objective</span>
                     <input
                       value={objective}
                       onChange={(e) => setObjective(e.target.value)}
-                      className="mt-1 h-9 w-full rounded-md border border-stone-200 bg-white px-2 text-sm text-zinc-950 outline-none focus:border-zinc-500"
+                      className="mt-1 h-9 w-full rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 text-sm text-white outline-none focus:border-[#8b5cf6]"
                     />
                   </label>
                 </div>
                 <div className="grid grid-cols-[1fr_auto] gap-2">
                   <label className="block">
-                    <span className="font-medium text-zinc-500">Version name</span>
+                    <span className="font-medium text-white/45">Version name</span>
                     <input
                       value={versionName}
                       onChange={(e) => setVersionName(e.target.value)}
-                      className="mt-1 h-9 w-full rounded-md border border-stone-200 bg-white px-2 text-sm text-zinc-950 outline-none focus:border-zinc-500"
+                      className="mt-1 h-9 w-full rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 text-sm text-white outline-none focus:border-[#8b5cf6]"
                     />
                   </label>
                   <button
                     type="button"
                     onClick={() => void saveVersion()}
-                    className="mt-5 inline-flex h-9 items-center gap-1.5 rounded-md bg-zinc-950 px-3 text-xs font-semibold text-white hover:bg-zinc-800"
+                    className="perceo-primary mt-5 inline-flex h-9 items-center gap-1.5 rounded-[5px] px-3 text-xs font-semibold"
                   >
                     <Save className="h-3.5 w-3.5" aria-hidden="true" />
                     Save
                   </button>
                   <div className="col-span-2 flex min-w-0 items-center gap-2 overflow-x-auto">
-                    {saveNote ? <span className="shrink-0 text-zinc-500">{saveNote}</span> : null}
+                    {saveNote ? <span className="shrink-0 text-white/45">{saveNote}</span> : null}
                     {versions.map((version) => (
                       <button
                         key={version.id}
                         type="button"
                         onClick={() => restoreVersion(version)}
-                        className="shrink-0 rounded-sm border border-stone-200 bg-white px-2 py-1 text-[11px] text-zinc-700 hover:bg-stone-50"
+                        className="shrink-0 rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 py-1 text-[11px] text-white/70 hover:bg-white/[0.08]"
                       >
                         {version.name}
                       </button>
@@ -683,10 +733,10 @@ export function FleetManager() {
               </div>
             </section>
 
-            <section className="grid min-h-44 grid-rows-[44px_minmax(0,1fr)] bg-white">
-              <div className="flex items-center justify-between border-b border-stone-200 px-3">
+            <section className="grid min-h-44 grid-rows-[44px_minmax(0,1fr)] bg-[#232323]/70">
+              <div className="flex items-center justify-between border-b border-white/[0.08] px-3">
                 <div className="flex items-center gap-2">
-                  <TerminalSquare className="h-4 w-4 text-zinc-700" aria-hidden="true" />
+                  <TerminalSquare className="h-4 w-4 text-white/70" aria-hidden="true" />
                   <h2 className="text-sm font-semibold">Run</h2>
                 </div>
                 <div className="flex items-center gap-1">
@@ -694,7 +744,7 @@ export function FleetManager() {
                     type="button"
                     onClick={() => void runAction("cancel")}
                     disabled={!latestRun || !["queued", "running", "paused"].includes(latestRun.status)}
-                    className="inline-flex h-8 items-center gap-1.5 rounded-md border border-stone-200 px-2 text-xs text-zinc-700 hover:bg-stone-50 disabled:opacity-40"
+                    className="inline-flex h-8 items-center gap-1.5 rounded-[5px] border border-white/[0.08] px-2 text-xs text-white/70 hover:bg-white/[0.08] disabled:opacity-40"
                   >
                     <Square className="h-3.5 w-3.5" aria-hidden="true" />
                     Stop
@@ -703,7 +753,7 @@ export function FleetManager() {
                     type="button"
                     onClick={() => void runAction("resume")}
                     disabled={!latestRun || !["paused", "failed", "canceled"].includes(latestRun.status)}
-                    className="inline-flex h-8 items-center gap-1.5 rounded-md border border-stone-200 px-2 text-xs text-zinc-700 hover:bg-stone-50 disabled:opacity-40"
+                    className="inline-flex h-8 items-center gap-1.5 rounded-[5px] border border-white/[0.08] px-2 text-xs text-white/70 hover:bg-white/[0.08] disabled:opacity-40"
                   >
                     <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
                     Resume
@@ -713,7 +763,7 @@ export function FleetManager() {
                     onClick={runWorkflow}
                     disabled={running}
                     title="Run"
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-zinc-950 text-white hover:bg-zinc-800 disabled:opacity-60"
+                    className="perceo-primary inline-flex h-8 w-8 items-center justify-center rounded-[5px] disabled:opacity-60"
                   >
                     <Play className="h-3.5 w-3.5" aria-hidden="true" />
                   </button>
@@ -723,32 +773,32 @@ export function FleetManager() {
                 {latestRun ? (
                   <div className="space-y-2">
                     {actionMessage ? (
-                      <div className="rounded-sm border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+                      <div className="rounded-[5px] border border-[#8b5cf6]/30 bg-[#8b5cf6]/20 px-2 py-1.5 text-xs text-[#c4b5fd]">
                         {actionMessage}
                       </div>
                     ) : null}
                     <div className="flex items-center justify-between text-xs">
-                      <span className="font-medium text-zinc-950">{latestRun.workflowName}</span>
-                      <span className={`rounded-sm px-2 py-1 text-[11px] font-medium ${runStatusTone(latestRun.status)}`}>
+                      <span className="font-medium text-white">{latestRun.workflowName}</span>
+                      <span className={`rounded-[5px] px-2 py-1 text-[11px] font-medium ${runStatusTone(latestRun.status)}`}>
                         {latestRun.status}
                       </span>
                     </div>
                     <div className="space-y-1.5">
                       {getRunTimeline(latestRun).map((event) => (
-                        <div key={event.id} className="rounded-sm bg-zinc-950 px-2 py-1.5 font-mono text-[11px] leading-5 text-zinc-100">
-                          <span className="text-[#f2b66d]">{event.level}</span> {event.message}
+                        <div key={event.id} className="rounded-[5px] bg-[#161616] px-2 py-1.5 font-mono text-[11px] leading-5 text-zinc-100">
+                          <span className="text-[#8add84]">{event.level}</span> {event.message}
                         </div>
                       ))}
                     </div>
                   </div>
                 ) : (
-                  <div className="grid h-full place-items-center rounded-md border border-dashed border-stone-300 text-xs text-zinc-500">
+                  <div className="grid h-full place-items-center rounded-[5px] border border-dashed border-white/[0.12] text-xs text-white/45">
                     Trigger a run to see logs.
                   </div>
                 )}
                 {runs.length ? (
-                  <div className="mt-3 border-t border-stone-200 pt-2">
-                    <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-zinc-500">
+                  <div className="mt-3 border-t border-white/[0.08] pt-2">
+                    <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-white/45">
                       <History className="h-3.5 w-3.5" aria-hidden="true" />
                       Recent
                     </div>
@@ -758,7 +808,7 @@ export function FleetManager() {
                           key={run.id}
                           type="button"
                           onClick={() => void loadRun(run.id)}
-                          className="shrink-0 rounded-sm border border-stone-200 px-2 py-1 text-[11px] text-zinc-600 hover:bg-stone-50"
+                          className="shrink-0 rounded-[5px] border border-white/[0.08] px-2 py-1 text-[11px] text-white/60 hover:bg-white/[0.08]"
                         >
                           {run.status}
                         </button>

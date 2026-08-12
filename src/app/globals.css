@@ -2,21 +2,37 @@
 @import "@xyflow/react/dist/style.css";
 
 :root {
-  --background: #f4f4f5;
-  --foreground: #171717;
+  --background: #161616;
+  --foreground: #ffffff;
+  --purple: #8b5cf6;
+  --green: #4ade80;
+  --red: #f87171;
+  --gray: #71717a;
+  --card-bg: rgba(35, 35, 35, 0.6);
+  --border-color: rgba(255, 255, 255, 0.08);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-instrument);
   --font-mono: var(--font-geist-mono);
+  --font-serif: var(--font-playfair);
+}
+
+html {
+  overflow-x: clip;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  font-family:
+    var(--font-instrument),
+    "Instrument Sans",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
 }
 
 button {
@@ -25,4 +41,95 @@ button {
 
 .react-flow__attribution {
   display: none;
+}
+
+.react-flow__controls {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: none;
+}
+
+.react-flow__controls-button {
+  color: rgba(255, 255, 255, 0.75);
+  background: rgba(35, 35, 35, 0.85);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.react-flow__controls-button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.react-flow__controls-button svg {
+  fill: currentColor;
+}
+
+select option {
+  color: #ffffff;
+  background: #232323;
+}
+
+.font-serif {
+  font-family: var(--font-playfair), "Playfair Display", Georgia, serif;
+}
+
+.grid-lines {
+  background-image: linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 20% 100%;
+  background-position: 0 0;
+}
+
+.dot-pattern {
+  position: fixed;
+  inset: 0;
+  background-image:
+    radial-gradient(circle, #626262 1px, transparent 1px),
+    radial-gradient(circle, #626262 1px, transparent 1px);
+  background-size: 28px 48px;
+  background-position:
+    0 0,
+    14px 24px;
+  pointer-events: none;
+}
+
+.dot-pattern-fade {
+  mask-image: linear-gradient(to bottom, transparent 0%, black 200px);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 200px);
+}
+
+.glass {
+  background: rgba(35, 35, 35, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.glass-border {
+  position: relative;
+  overflow: clip;
+}
+
+.glass-border::after {
+  position: absolute;
+  inset: 0;
+  padding: 1px;
+  pointer-events: none;
+  content: "";
+  background: linear-gradient(to bottom right, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.05));
+  border-radius: inherit;
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  -webkit-mask-composite: xor;
+}
+
+.perceo-primary {
+  background-image: linear-gradient(to bottom, #8b5cf6, #7848e6);
+  color: #ffffff;
+}
+
+.perceo-primary:hover {
+  background-image: linear-gradient(to bottom, #7c3aed, #6d28d9);
 }

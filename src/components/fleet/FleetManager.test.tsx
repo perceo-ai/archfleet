@@ -7,7 +7,7 @@ describe("FleetManager", () => {
     render(<FleetManager />);
 
     expect(screen.getByText("Perceo Archfleet")).toBeInTheDocument();
-    expect(screen.getByText("Pick a task, work in its golden VM, run it again.")).toBeInTheDocument();
+    expect(screen.getByText("Run browser workflows on golden desktops.")).toBeInTheDocument();
     expect(screen.getByText("Portal login check")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /portal login check/i }));
