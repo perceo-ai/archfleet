@@ -13,7 +13,7 @@ import {
   type Edge,
   type Node,
 } from "@xyflow/react";
-import { GitBranchPlus, Plus, Save, Trash2 } from "lucide-react";
+import { GitBranchPlus, Plus, Save, Trash2, X } from "lucide-react";
 import type { NodeKind, Workflow, WorkflowNode } from "@/lib/fleet/types";
 import { flowToWorkflow, makeNode, type FlowEdge, type FlowNode } from "./flow-convert";
 
@@ -24,18 +24,18 @@ type WorkflowCanvasProps = {
 };
 
 const nodeTone: Record<string, string> = {
-  start: "border-[#4ade80]/40 bg-[#4ade80]/15 text-white",
-  computer_use_task: "border-white/[0.12] bg-white/[0.06] text-white",
-  script_task: "border-white/[0.12] bg-white/[0.06] text-white",
-  browser_task: "border-[#60a5fa]/40 bg-[#60a5fa]/15 text-white",
-  cli_agent_task: "border-[#8b5cf6]/40 bg-[#8b5cf6]/15 text-white",
-  shell_task: "border-white/[0.12] bg-white/[0.06] text-white",
-  api_call: "border-[#60a5fa]/40 bg-[#60a5fa]/15 text-white",
-  otp_email: "border-[#8b5cf6]/40 bg-[#8b5cf6]/15 text-white",
-  condition: "border-[#8b5cf6]/40 bg-[#8b5cf6]/15 text-white",
-  retry_wait: "border-[#4ade80]/40 bg-[#4ade80]/15 text-white",
-  human_takeover: "border-[#f87171]/40 bg-[#f87171]/15 text-white",
-  end: "border-white/[0.12] bg-white/[0.05] text-white",
+  start: "border-[#4ade80]/60 bg-[#eefbf0] text-[#172018]",
+  computer_use_task: "border-[#8b5cf6]/45 bg-[#f6f3ff] text-[#211934]",
+  script_task: "border-zinc-300 bg-zinc-50 text-zinc-950",
+  browser_task: "border-[#60a5fa]/50 bg-[#eff6ff] text-[#172033]",
+  cli_agent_task: "border-[#8b5cf6]/45 bg-[#f6f3ff] text-[#211934]",
+  shell_task: "border-zinc-300 bg-zinc-50 text-zinc-950",
+  api_call: "border-[#60a5fa]/50 bg-[#eff6ff] text-[#172033]",
+  otp_email: "border-[#8b5cf6]/45 bg-[#f6f3ff] text-[#211934]",
+  condition: "border-[#8b5cf6]/45 bg-[#f6f3ff] text-[#211934]",
+  retry_wait: "border-[#4ade80]/60 bg-[#eefbf0] text-[#172018]",
+  human_takeover: "border-[#f87171]/55 bg-[#fff1f2] text-[#35191d]",
+  end: "border-zinc-300 bg-zinc-50 text-zinc-950",
 };
 
 const PALETTE: NodeKind[] = [
@@ -78,7 +78,7 @@ function toRfNode(n: WorkflowNode): Node {
     id: n.id,
     position: n.position,
     data: { wnode: n, label: n.name },
-    className: `rounded-[5px] border px-3 py-2 text-xs shadow-sm backdrop-blur ${nodeTone[n.type] ?? "border-white/[0.12] bg-white/[0.06] text-white"}`,
+    className: `rounded-[5px] border px-3 py-2 text-xs font-semibold shadow-sm ${nodeTone[n.type] ?? "border-zinc-300 bg-zinc-50 text-zinc-950"}`,
   };
 }
 
@@ -91,6 +91,11 @@ export function WorkflowCanvas({ workflow, onSave, className = "" }: WorkflowCan
   const [selectedId, setSelectedId] = useState<string>();
   const [status, setStatus] = useState<string>();
   const [nodeType, setNodeType] = useState<NodeKind>("cli_agent_task");
+  const [addOpen, setAddOpen] = useState(false);
+  const [addName, setAddName] = useState("");
+  const [addPrompt, setAddPrompt] = useState("");
+  const [addLabels, setAddLabels] = useState("");
+  const [addTimeoutMs, setAddTimeoutMs] = useState("");
 
   const onConnect = useCallback(
     (c: Connection) =>
@@ -113,12 +118,32 @@ export function WorkflowCanvas({ workflow, onSave, className = "" }: WorkflowCan
     );
   }
 
-  function addNode(type: NodeKind) {
+  function openAddStep() {
+    const defaults = makeNode(nodeType);
+    setAddName(defaults.name);
+    setAddPrompt(defaults.config.prompt ?? "");
+    setAddLabels(defaults.config.requiredLabels?.join(", ") ?? "");
+    setAddTimeoutMs(defaults.config.timeoutMs ? String(defaults.config.timeoutMs) : "");
+    setAddOpen(true);
+  }
+
+  function addNode() {
     // Cascade new nodes so they don't stack exactly on top of each other.
     setNodes((ns) => {
-      const wnode = makeNode(type, { x: 80 + (ns.length % 5) * 40, y: 60 + (ns.length % 7) * 40 });
+      const wnode = makeNode(nodeType, { x: 80 + (ns.length % 5) * 40, y: 60 + (ns.length % 7) * 40 });
+      wnode.name = addName.trim() || wnode.name;
+      wnode.config = {
+        ...wnode.config,
+        prompt: addPrompt.trim() || undefined,
+        requiredLabels: addLabels
+          .split(",")
+          .map((label) => label.trim())
+          .filter(Boolean),
+        timeoutMs: addTimeoutMs ? Number(addTimeoutMs) : undefined,
+      };
       return [...ns, toRfNode(wnode)];
     });
+    setAddOpen(false);
   }
 
   function deleteSelected() {
@@ -169,7 +194,7 @@ export function WorkflowCanvas({ workflow, onSave, className = "" }: WorkflowCan
           </select>
           <button
             type="button"
-            onClick={() => addNode(nodeType)}
+            onClick={openAddStep}
             className="inline-flex h-8 items-center gap-1.5 rounded-[5px] border border-[#8b5cf6]/40 bg-[#8b5cf6]/20 px-3 text-xs font-semibold text-white hover:bg-[#8b5cf6]/30"
           >
             <Plus className="h-4 w-4" aria-hidden="true" />
@@ -256,11 +281,108 @@ export function WorkflowCanvas({ workflow, onSave, className = "" }: WorkflowCan
           ) : (
             <div>
               <div className="font-semibold text-white">No step selected</div>
-              <p className="mt-1 text-white/45">Select a step to edit it. Drag between handles to connect steps.</p>
+              <p className="mt-1 text-white/45">Select a step to edit it, or use Add Step to create a configured workflow node.</p>
             </div>
           )}
         </aside>
       </div>
+
+      {addOpen ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 px-4 py-6">
+          <section className="w-full max-w-xl rounded-[6px] border border-white/[0.12] bg-[#232323] text-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-white/[0.08] px-4 py-3">
+              <div>
+                <h2 className="text-sm font-semibold">Add Workflow Step</h2>
+                <p className="mt-1 text-xs text-white/45">Create a configured node before placing it on the graph.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAddOpen(false)}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-[5px] border border-white/[0.08] text-white/70 hover:bg-white/[0.08]"
+                title="Close"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
+            <div className="grid gap-3 p-4 text-xs">
+              <label className="grid gap-1 font-medium text-white/60">
+                Step Type
+                <select
+                  value={nodeType}
+                  onChange={(e) => {
+                    const nextType = e.target.value as NodeKind;
+                    const defaults = makeNode(nextType);
+                    setNodeType(nextType);
+                    setAddName(defaults.name);
+                    setAddPrompt(defaults.config.prompt ?? "");
+                  }}
+                  className="h-9 rounded-[5px] border border-white/[0.12] bg-[#161616] px-2 text-sm text-white outline-none focus:border-[#8b5cf6]"
+                >
+                  {PALETTE.map((t) => (
+                    <option key={t} value={t}>
+                      {stepTypeLabel(t)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="grid gap-1 font-medium text-white/60">
+                Step Name
+                <input
+                  value={addName}
+                  onChange={(e) => setAddName(e.target.value)}
+                  className="h-9 rounded-[5px] border border-white/[0.12] bg-white/[0.05] px-2 text-sm text-white outline-none focus:border-[#8b5cf6]"
+                />
+              </label>
+              <label className="grid gap-1 font-medium text-white/60">
+                Instruction
+                <textarea
+                  value={addPrompt}
+                  onChange={(e) => setAddPrompt(e.target.value)}
+                  rows={4}
+                  className="rounded-[5px] border border-white/[0.12] bg-white/[0.05] px-2 py-2 text-sm text-white outline-none focus:border-[#8b5cf6]"
+                />
+              </label>
+              <div className="grid gap-3 sm:grid-cols-[1fr_140px]">
+                <label className="grid gap-1 font-medium text-white/60">
+                  Required Labels
+                  <input
+                    value={addLabels}
+                    onChange={(e) => setAddLabels(e.target.value)}
+                    placeholder="browser, profile:bank"
+                    className="h-9 rounded-[5px] border border-white/[0.12] bg-white/[0.05] px-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-[#8b5cf6]"
+                  />
+                </label>
+                <label className="grid gap-1 font-medium text-white/60">
+                  Timeout Ms
+                  <input
+                    value={addTimeoutMs}
+                    onChange={(e) => setAddTimeoutMs(e.target.value.replace(/[^0-9]/g, ""))}
+                    placeholder="300000"
+                    className="h-9 rounded-[5px] border border-white/[0.12] bg-white/[0.05] px-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-[#8b5cf6]"
+                  />
+                </label>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-white/[0.08] px-4 py-3">
+              <button
+                type="button"
+                onClick={() => setAddOpen(false)}
+                className="inline-flex h-9 items-center rounded-[5px] border border-white/[0.08] px-3 text-xs font-semibold text-white/70 hover:bg-white/[0.08]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={addNode}
+                className="perceo-primary inline-flex h-9 items-center gap-1.5 rounded-[5px] px-3 text-xs font-semibold"
+              >
+                <Plus className="h-4 w-4" aria-hidden="true" />
+                Add Step
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </section>
   );
 }

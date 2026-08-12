@@ -779,61 +779,87 @@ export function FleetManager() {
           <div className="grid gap-px bg-white/[0.08] lg:grid-cols-[minmax(0,1fr)_420px]">
             <section className="bg-[#232323]/70">
               <div className="grid gap-3 p-3 text-xs xl:grid-cols-[minmax(420px,1fr)_minmax(280px,0.45fr)]">
-                <div className="grid gap-2 md:grid-cols-[180px_180px_minmax(240px,1fr)]">
-                  <label className="block">
-                    <span className="font-medium text-white/45">Task</span>
-                    <input
-                      value={taskName}
-                      onChange={(e) => setTaskName(e.target.value)}
-                      className="mt-1 h-9 w-full rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 text-sm text-white outline-none focus:border-[#8b5cf6]"
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="font-medium text-white/45">Profile</span>
-                    <input
-                      value={profileName}
-                      onChange={(e) => setProfileName(e.target.value)}
-                      className="mt-1 h-9 w-full rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 text-sm text-white outline-none focus:border-[#8b5cf6]"
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="font-medium text-white/45">Current Objective</span>
-                    <input
-                      value={objective}
-                      onChange={(e) => setObjective(e.target.value)}
-                      className="mt-1 h-9 w-full rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 text-sm text-white outline-none focus:border-[#8b5cf6]"
-                    />
-                  </label>
+                <div className="rounded-[5px] border border-white/[0.08] bg-white/[0.03] p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <div>
+                      <h3 className="text-sm font-semibold text-white">Workspace Draft</h3>
+                      <p className="mt-1 text-xs text-white/45">Edit the task metadata before saving a version.</p>
+                    </div>
+                  </div>
+                  <div className="grid gap-2 md:grid-cols-[180px_180px_minmax(240px,1fr)]">
+                    <label className="block">
+                      <span className="font-medium text-white/45">Task</span>
+                      <input
+                        value={taskName}
+                        onChange={(e) => setTaskName(e.target.value)}
+                        className="mt-1 h-9 w-full rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 text-sm text-white outline-none focus:border-[#8b5cf6]"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="font-medium text-white/45">Profile</span>
+                      <input
+                        value={profileName}
+                        onChange={(e) => setProfileName(e.target.value)}
+                        className="mt-1 h-9 w-full rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 text-sm text-white outline-none focus:border-[#8b5cf6]"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="font-medium text-white/45">Current Objective</span>
+                      <input
+                        value={objective}
+                        onChange={(e) => setObjective(e.target.value)}
+                        className="mt-1 h-9 w-full rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 text-sm text-white outline-none focus:border-[#8b5cf6]"
+                      />
+                    </label>
+                  </div>
                 </div>
-                <div className="grid grid-cols-[1fr_auto] gap-2">
-                  <label className="block">
-                    <span className="font-medium text-white/45">Version Name</span>
-                    <input
-                      value={versionName}
-                      onChange={(e) => setVersionName(e.target.value)}
-                      className="mt-1 h-9 w-full rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 text-sm text-white outline-none focus:border-[#8b5cf6]"
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => void saveVersion()}
-                    className="perceo-primary mt-5 inline-flex h-9 items-center gap-1.5 rounded-[5px] px-3 text-xs font-semibold"
-                  >
-                    <Save className="h-3.5 w-3.5" aria-hidden="true" />
-                    Save
-                  </button>
-                  <div className="col-span-2 flex min-w-0 items-center gap-2 overflow-x-auto">
-                    {saveNote ? <span className="shrink-0 text-white/45">{saveNote}</span> : null}
-                    {versions.map((version) => (
-                      <button
-                        key={version.id}
-                        type="button"
-                        onClick={() => restoreVersion(version)}
-                        className="shrink-0 rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 py-1 text-[11px] text-white/70 hover:bg-white/[0.08]"
-                      >
-                        {version.name}
-                      </button>
-                    ))}
+                <div className="rounded-[5px] border border-white/[0.08] bg-white/[0.03] p-3">
+                  <div className="mb-2">
+                    <h3 className="text-sm font-semibold text-white">Save Version</h3>
+                    <p className="mt-1 text-xs text-white/45">Capture the current chat, objective, and graph metadata.</p>
+                  </div>
+                  <div className="grid grid-cols-[1fr_auto] gap-2">
+                    <label className="block">
+                      <span className="font-medium text-white/45">Version Name</span>
+                      <input
+                        value={versionName}
+                        onChange={(e) => setVersionName(e.target.value)}
+                        className="mt-1 h-9 w-full rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 text-sm text-white outline-none focus:border-[#8b5cf6]"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => void saveVersion()}
+                      className="perceo-primary mt-5 inline-flex h-9 items-center gap-1.5 rounded-[5px] px-3 text-xs font-semibold"
+                    >
+                      <Save className="h-3.5 w-3.5" aria-hidden="true" />
+                      Save Version
+                    </button>
+                  </div>
+                  <div className="mt-3 border-t border-white/[0.08] pt-3">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <span className="font-semibold text-white/70">Version History</span>
+                      {saveNote ? <span className="truncate text-white/45">{saveNote}</span> : null}
+                    </div>
+                    {versions.length ? (
+                      <div className="flex gap-2 overflow-x-auto">
+                        {versions.map((version) => (
+                          <button
+                            key={version.id}
+                            type="button"
+                            onClick={() => restoreVersion(version)}
+                            className="shrink-0 rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 py-1.5 text-left text-[11px] text-white/70 hover:bg-white/[0.08]"
+                          >
+                            <span className="block font-semibold text-white">Restore {version.name}</span>
+                            <span className="block text-white/40">{new Date(version.createdAt).toLocaleString()}</span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-[5px] border border-dashed border-white/[0.12] px-3 py-2 text-white/40">
+                        No saved versions yet.
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
