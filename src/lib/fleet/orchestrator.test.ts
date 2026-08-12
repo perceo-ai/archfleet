@@ -376,6 +376,51 @@ describe("outcome-driven engine", () => {
     expect(run.events.some((e) => e.message.includes("model decision -> failure"))).toBe(true);
   });
 
+  it("condition treats a failed agent execution as failure even with structured success output", async () => {
+    const client = fakeClient({ "dom-vm1": "running" });
+    const daemon = testDaemon(client);
+    const agentExec = vi.fn(async (_cmd: AgentCommand) => {
+      void _cmd;
+      return {
+        code: 1,
+        stdout: '{"type":"result","result":{"outcome":"success","reason":"looks ready"}}',
+        stderr: "agent failed",
+      };
+    });
+    const wf: Workflow = {
+      id: "wf_decide_exec_fail",
+      name: "Decide Exec Fail",
+      description: "",
+      enabled: true,
+      triggerKinds: ["manual"],
+      nodes: [
+        { id: "start", type: "start", name: "S", position: { x: 0, y: 0 }, config: {} },
+        {
+          id: "decide",
+          type: "condition",
+          name: "Ready?",
+          position: { x: 1, y: 0 },
+          config: { prompt: "Is the portal ready to submit?", provider: "claude-code" },
+        },
+        { id: "ok", type: "end", name: "OK", position: { x: 2, y: 0 }, config: {} },
+        { id: "fail", type: "human_takeover", name: "Human", position: { x: 2, y: 1 }, config: {} },
+      ],
+      edges: [
+        { id: "e1", from: "start", to: "decide", condition: "always" },
+        { id: "e2", from: "decide", to: "ok", condition: "success" },
+        { id: "e3", from: "decide", to: "fail", condition: "failure" },
+      ],
+    };
+
+    const run = await runWorkflow(
+      { workflow: wf, secrets, params, runId: "r" },
+      { daemon, exec: async () => ({ code: 0, stdout: "", stderr: "" }), agentExec, now: now() },
+    );
+
+    expect(run.status).toBe("paused");
+    expect(run.events.some((e) => e.message.includes("agent execution failed"))).toBe(true);
+  });
+
   it("retry_wait re-runs the preceding task until it succeeds", async () => {
     const client = fakeClient({ "dom-vm1": "running" });
     const daemon = testDaemon(client);

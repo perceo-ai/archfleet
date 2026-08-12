@@ -300,6 +300,10 @@ export async function runWorkflow(
               deps.agentExec,
               secrets,
             );
+            if (result.status !== "succeeded") {
+              emit("error", `Condition "${node.name}" agent execution failed.`);
+              return "failure";
+            }
             const out = decisionOutcome(result);
             emit("info", `Condition "${node.name}" model decision -> ${out}.`);
             pastWork += `\n${node.name}: ${out}`;
