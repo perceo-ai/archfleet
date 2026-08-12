@@ -112,9 +112,13 @@ function decisionOutcome(result: AgentRunResult): Outcome {
           (result.structuredOutput as Record<string, unknown>).decision ??
           (result.structuredOutput as Record<string, unknown>).result)
       : result.structuredOutput;
+  const decision = typeof raw === "string" ? raw.toLowerCase().trim() : "";
+  if (decision === "success") return "success";
+  if (decision === "failure") return "failure";
+
   const text = `${typeof raw === "string" ? raw : JSON.stringify(raw ?? "")}\n${result.stdout}`.toLowerCase();
-  if (/\b(success|succeed|yes|true|pass|ready)\b/.test(text)) return "success";
   if (/\b(failure|fail|no|false|blocked|not ready)\b/.test(text)) return "failure";
+  if (/\b(success|succeed|yes|true|pass|ready)\b/.test(text)) return "success";
   return result.status === "succeeded" ? "success" : "failure";
 }
 

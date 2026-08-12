@@ -58,9 +58,11 @@ jobs:
           set -euo pipefail
           python -m unittest discover -s virt/agent-runner
           python -m unittest virt/test_clone_domain_xml.py
-          bash -n virt/*.sh virt/ui-tars/*.sh
+          bash -n deploy/*.sh virt/*.sh virt/ui-tars/*.sh
 
       - name: Validate compose files
+        env:
+          GUACAMOLE_ADMIN_PASSWORD: ci-guacamole-password
         run: |
           set -euo pipefail
           docker compose -f deploy/home-server.compose.yml config >/dev/null

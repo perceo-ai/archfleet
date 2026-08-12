@@ -221,8 +221,12 @@ CUF_GUACAMOLE_URL=http://guacamole:8080/guacamole
 CUF_GUACAMOLE_PUBLIC_URL=http://SERVER:8080/guacamole
 CUF_GUACAMOLE_USERNAME=guacadmin
 CUF_GUACAMOLE_PASSWORD=...
+GUACAMOLE_ADMIN_PASSWORD=...
+GUACAMOLE_BIND_HOST=127.0.0.1
 GUACAMOLE_POSTGRES_PASSWORD=...
 ```
+
+Set `GUACAMOLE_ADMIN_PASSWORD` and `CUF_GUACAMOLE_PASSWORD` to the same non-default value. The Guacamole compose stack refuses to start with the upstream `guacadmin` password and rotates the seeded admin account before exposing the web service. Keep the default `GUACAMOLE_BIND_HOST=127.0.0.1` unless Guacamole is behind a trusted network boundary or reverse proxy.
 
 Start the app:
 

@@ -37,16 +37,31 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
+  guacamole-rotate-admin:
+    image: postgres:16
+    restart: "no"
+    depends_on:
+      guacamole-postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_DB: "${GUACAMOLE_POSTGRES_DB:-guacamole}"
+      POSTGRES_USER: "${GUACAMOLE_POSTGRES_USER:-guacamole}"
+      POSTGRES_PASSWORD: "${GUACAMOLE_POSTGRES_PASSWORD:-guacamole-change-me}"
+      GUACAMOLE_ADMIN_PASSWORD: "${GUACAMOLE_ADMIN_PASSWORD:?set GUACAMOLE_ADMIN_PASSWORD to a non-default value}"
+    volumes:
+      - ./guacamole-rotate-admin.sh:/usr/local/bin/guacamole-rotate-admin.sh:ro
+    command: ["/usr/local/bin/guacamole-rotate-admin.sh"]
+
   guacamole:
     image: guacamole/guacamole:1.6.0
     restart: unless-stopped
     depends_on:
-      guacamole-postgres:
-        condition: service_healthy
+      guacamole-rotate-admin:
+        condition: service_completed_successfully
       guacd:
         condition: service_started
     ports:
-      - "${GUACAMOLE_PORT:-8080}:8080"
+      - "${GUACAMOLE_BIND_HOST:-127.0.0.1}:${GUACAMOLE_PORT:-8080}:8080"
     environment:
       GUACD_HOSTNAME: guacd
       POSTGRESQL_HOSTNAME: guacamole-postgres

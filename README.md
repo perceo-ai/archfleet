@@ -108,12 +108,13 @@ AGENT_PASSWORD='…' npm run vm:prepare-profile -- --profile bank --clones 2
 # add CUF_FLEET_JSON_FILE=/keys/bank.fleet.json to .env.local for Docker
 # set CUF_GUEST_HOST=host.docker.internal when running in Docker bridge mode
 # set CUF_GUACAMOLE_URL=http://guacamole:8080/guacamole, CUF_GUACAMOLE_PUBLIC_URL=http://SERVER:8080/guacamole, plus Guacamole credentials
+# set GUACAMOLE_ADMIN_PASSWORD to a non-default value before enabling Guacamole
 docker compose -f deploy/home-server.compose.yml -f deploy/guacamole.compose.yml up -d --build
 ```
 
 Set `CUF_LIBVIRT_URI=qemu:///system` for a system libvirt daemon, or `qemu:///session` if the container can reach your session daemon. In Docker bridge mode, set `CUF_GUEST_HOST=host.docker.internal` so the container can reach libvirt's host-forwarded SSH/XRDP ports. The compose file persists SQLite/artifacts under `./data`, mounts `./virt/.state` read-only for `CUF_SSH_KEY`, and mounts `/var/run/libvirt` so the app can reset and assign VMs.
 
-For browser-based desktop takeover, layer in `deploy/guacamole.compose.yml`, change the default Guacamole/Postgres passwords, and set `CUF_GUACAMOLE_URL`, `CUF_GUACAMOLE_PUBLIC_URL`, `CUF_GUACAMOLE_USERNAME`, and `CUF_GUACAMOLE_PASSWORD`. The dashboard's **Open desktop** button will create the RDP session in Guacamole automatically; if those variables are not set, the same button downloads a `.rdp` file.
+For browser-based desktop takeover, layer in `deploy/guacamole.compose.yml`, set `GUACAMOLE_ADMIN_PASSWORD`/`CUF_GUACAMOLE_PASSWORD` to the same non-default value, change `GUACAMOLE_POSTGRES_PASSWORD`, and set `CUF_GUACAMOLE_URL`, `CUF_GUACAMOLE_PUBLIC_URL`, and `CUF_GUACAMOLE_USERNAME=guacadmin`. Guacamole binds to `127.0.0.1` by default; set `GUACAMOLE_BIND_HOST=0.0.0.0` only when it is behind your trusted network or reverse proxy. The dashboard's **Open desktop** button will create the RDP session in Guacamole automatically; if those variables are not set, the same button downloads a `.rdp` file.
 
 ### Key environment variables
 
@@ -127,6 +128,8 @@ For browser-based desktop takeover, layer in `deploy/guacamole.compose.yml`, cha
 | `CUF_GUEST_HOST` | guest SSH/XRDP host; use `host.docker.internal` from Docker |
 | `CUF_GUACAMOLE_URL` | internal Apache Guacamole API URL for built-in web XRDP takeover |
 | `CUF_GUACAMOLE_PUBLIC_URL` | browser-reachable Apache Guacamole URL |
+| `GUACAMOLE_ADMIN_PASSWORD` | non-default password used to rotate Guacamole's seeded `guacadmin` account |
+| `GUACAMOLE_BIND_HOST` | host interface for Guacamole; defaults to `127.0.0.1` |
 | `GUACAMOLE_POSTGRES_PASSWORD` | password for the bundled Guacamole PostgreSQL service |
 | `CUF_AGENT_BACKEND` | `mock` = model-free full-stack run |
 | `OPENROUTER_API_KEY` / `CUF_PLANNER_MODEL` | planner model |

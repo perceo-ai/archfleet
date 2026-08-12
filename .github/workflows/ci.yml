@@ -95,7 +95,7 @@ jobs:
         run: python -m unittest virt/test_clone_domain_xml.py
 
       - name: Validate shell scripts
-        run: bash -n virt/*.sh virt/ui-tars/*.sh
+        run: bash -n deploy/*.sh virt/*.sh virt/ui-tars/*.sh
 
   deployment-config:
     name: Deployment Config
@@ -113,6 +113,8 @@ jobs:
         run: docker compose -f deploy/home-server.compose.yml config >/dev/null
 
       - name: Validate full compose stack
+        env:
+          GUACAMOLE_ADMIN_PASSWORD: ci-guacamole-password
         run: docker compose -f deploy/home-server.compose.yml -f deploy/guacamole.compose.yml config >/dev/null
 
   docker-build:
