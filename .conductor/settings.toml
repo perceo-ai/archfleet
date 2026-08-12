@@ -1,0 +1,9 @@
+"$schema" = "https://conductor.build/schemas/settings.repo.schema.json"
+
+[scripts]
+run_mode = "nonconcurrent"
+
+[scripts.run.deploy_proxmox]
+available_in = [ "local" ]
+command = "./scripts/deploy-proxmox.sh"
+icon = "server-cog"
