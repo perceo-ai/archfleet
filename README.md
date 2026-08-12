@@ -53,6 +53,35 @@ export CUF_GOLDEN_DOMAIN=cuf-golden CUF_SSH_KEY=$PWD/virt/.state/cuf_id
 
 Then unset `CUF_AGENT_BACKEND` and set `OPENROUTER_API_KEY` + `CUF_GROUNDING_BASE_URL` for LLM-driven computer use, or stick to `script_task` / `browser_task` / `api_call` nodes, which need no model.
 
+### Manual profile VMs for 2FA-heavy sites
+
+For portals that require a human login, MFA, captchas, device trust, browser extensions, or per-customer setup, prepare a VM once and clone it:
+
+```bash
+AGENT_PASSWORD='…' npm run vm:prepare-profile -- --profile bank --clones 2
+```
+
+The script starts the source VM, prints the XRDP connection, waits while you log in and configure the desktop manually, snapshots that live source state, then copies the prepared disk into clone domains with distinct SSH/XRDP ports. It writes `virt/.state/bank.fleet.json` and an env snippet; workflows can target those VMs with `requiredLabels: ["profile:bank"]`.
+
+What is preserved: installed apps, browser profiles/cookies, trusted-device state, downloaded files, and each clone's own warm snapshot after first boot. A live RAM snapshot preserves the exact open desktop only for the domain it was taken on; clones preserve disk-backed login state, and some services may still invalidate cloned sessions when device fingerprints change.
+
+Update and recovery:
+
+```bash
+AGENT_PASSWORD='…' npm run vm:update-profile -- --profile bank --clones 2
+AGENT_PASSWORD='…' npm run vm:recover-profile -- --profile bank --repair
+```
+
+`vm:update-profile` reopens the source task golden, lets you update logins/apps/site state, and rebuilds existing clones with `--replace`. `vm:recover-profile` reverts every clone in `virt/.state/bank.fleet.json` to its warm snapshot, waits for SSH, and runs the guest selftest; `--repair` recreates missing warm snapshots from the current clone state.
+
+To create a draft Agent S setup workflow for a profile:
+
+```bash
+curl -X POST http://localhost:3000/api/profile-setup \
+  -H 'content-type: application/json' \
+  -d '{"profile":"bank","task":"Log into the bank portal and prepare monthly statement download","save":true}'
+```
+
 ### Docker
 
 ```bash
@@ -67,6 +96,22 @@ docker run -p 3000:3000 -v $PWD/data:/data \
 
 The image ships `virsh`/`ssh`; VM control needs the mounted libvirt socket. Health probe: `GET /api/health`.
 
+### Home server deployment
+
+Use the compose file when the home server hosts both archfleet and libvirt:
+
+```bash
+cp .env.example .env.local
+./virt/preflight.sh
+AGENT_PASSWORD='…' ./virt/build-golden.sh
+AGENT_PASSWORD='…' npm run vm:prepare-profile -- --profile bank --clones 2
+# add CUF_FLEET_JSON_FILE=/keys/bank.fleet.json to .env.local for Docker
+# set CUF_GUEST_HOST=host.docker.internal when running in Docker bridge mode
+docker compose -f deploy/home-server.compose.yml up -d --build
+```
+
+Set `CUF_LIBVIRT_URI=qemu:///system` for a system libvirt daemon, or `qemu:///session` if the container can reach your session daemon. In Docker bridge mode, set `CUF_GUEST_HOST=host.docker.internal` so the container can reach libvirt's host-forwarded SSH/XRDP ports. The compose file persists SQLite/artifacts under `./data`, mounts `./virt/.state` read-only for `CUF_SSH_KEY`, and mounts `/var/run/libvirt` so the app can reset and assign VMs.
+
 ### Key environment variables
 
 | var | purpose |
@@ -76,6 +121,7 @@ The image ships `virsh`/`ssh`; VM control needs the mounted libvirt socket. Heal
 | `CUF_GOLDEN_DOMAIN` | libvirt domain to bind as a fleet VM (single-VM shorthand) |
 | `CUF_FLEET_JSON` | `[{domain,sshPort,rdpPort,…}]` — multi-VM fleet |
 | `CUF_SSH_KEY` | controller SSH private key for the guest transport |
+| `CUF_GUEST_HOST` | guest SSH/XRDP host; use `host.docker.internal` from Docker |
 | `CUF_AGENT_BACKEND` | `mock` = model-free full-stack run |
 | `OPENROUTER_API_KEY` / `CUF_PLANNER_MODEL` | planner model |
 | `CUF_GROUNDING_BASE_URL` | UI-TARS grounding endpoint |

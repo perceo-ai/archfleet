@@ -5,6 +5,7 @@
 
 import type { FleetVm, VmStatus, XrdpConnection } from "../types";
 import type { DomainState, VirshClient } from "./virsh";
+import net from "node:net";
 
 export type AcquireInput = {
   requiredLabels: string[];
@@ -16,6 +17,14 @@ export type AcquireResult =
   | { ok: false; reason: "no_matching_vm" | "reset_failed"; detail?: string };
 
 const DEFAULT_WARM_SNAPSHOT = "golden-warm";
+const DEFAULT_READY_TIMEOUT_MS = 30_000;
+const DEFAULT_READY_INTERVAL_MS = 500;
+
+export type VmDaemonOptions = {
+  readyTimeoutMs?: number;
+  readyIntervalMs?: number;
+  waitForTcp?: (host: string, port: number, timeoutMs: number, intervalMs: number) => Promise<void>;
+};
 
 /** Map a libvirt domain state to our fleet-facing VM status. */
 export function mapDomainState(state: DomainState, assigned: boolean): VmStatus {
@@ -38,7 +47,7 @@ export function mapDomainState(state: DomainState, assigned: boolean): VmStatus 
   }
 }
 
-export function createVmDaemon(client: VirshClient, vms: FleetVm[]) {
+export function createVmDaemon(client: VirshClient, vms: FleetVm[], opts: VmDaemonOptions = {}) {
   // Only VMs bound to a real libvirt domain are managed here.
   const managed = vms.filter((vm): vm is FleetVm & { domain: string } => Boolean(vm.domain));
   // domain -> runId currently holding the VM.
@@ -79,6 +88,14 @@ export function createVmDaemon(client: VirshClient, vms: FleetVm[]) {
         }
         try {
           await client.revertSnapshot(vm.domain, warmSnapshotOf(vm));
+          if (vm.ssh) {
+            await (opts.waitForTcp ?? waitForTcp)(
+              vm.ssh.host,
+              vm.ssh.port,
+              opts.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS,
+              opts.readyIntervalMs ?? DEFAULT_READY_INTERVAL_MS,
+            );
+          }
         } catch (e) {
           return { ok: false, reason: "reset_failed", detail: String(e) };
         }
@@ -111,3 +128,38 @@ export function createVmDaemon(client: VirshClient, vms: FleetVm[]) {
 }
 
 export type VmDaemon = ReturnType<typeof createVmDaemon>;
+
+async function waitForTcp(host: string, port: number, timeoutMs: number, intervalMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let lastError = "connection failed";
+  while (Date.now() <= deadline) {
+    try {
+      await connectOnce(host, port, Math.min(intervalMs, 2_000));
+      return;
+    } catch (e) {
+      lastError = e instanceof Error ? e.message : String(e);
+      await sleep(intervalMs);
+    }
+  }
+  throw new Error(`timed out waiting for TCP ${host}:${port}: ${lastError}`);
+}
+
+function connectOnce(host: string, port: number, timeoutMs: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection({ host, port });
+    const done = (err?: Error) => {
+      socket.removeAllListeners();
+      socket.destroy();
+      if (err) reject(err);
+      else resolve();
+    };
+    socket.setTimeout(timeoutMs);
+    socket.once("connect", () => done());
+    socket.once("timeout", () => done(new Error("connect timeout")));
+    socket.once("error", done);
+  });
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}

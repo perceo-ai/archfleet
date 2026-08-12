@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Activity, ShieldCheck } from "lucide-react";
 import { FleetSidebar } from "./FleetSidebar";
+import { ProfileSetupPanel } from "./ProfileSetupPanel";
 import { RunPanel, type RunSummary } from "./RunPanel";
 import { SecretsParamsPanel } from "./SecretsParamsPanel";
 import { WorkflowCanvas } from "./WorkflowCanvas";
@@ -114,7 +115,7 @@ export function FleetManager() {
 
       <div className="grid min-h-0 grid-cols-[320px_minmax(0,1fr)_360px]">
         <FleetSidebar vms={vms} />
-        <div className="grid min-h-0 grid-rows-[1fr_auto]">
+        <div className="grid min-h-0 grid-rows-[1fr_auto_auto]">
           <WorkflowCanvas
             workflow={workflow}
             onSave={async (wf) => {
@@ -128,6 +129,7 @@ export function FleetManager() {
               return { ok: false, errors: body.errors };
             }}
           />
+          <ProfileSetupPanel />
           <SecretsParamsPanel params={state.params} secrets={state.secrets} workflowId={workflow.id} />
         </div>
         <RunPanel

@@ -3,6 +3,7 @@ import { createVmDaemon } from "./vm-daemon/daemon";
 import type { DomainState, VirshClient } from "./vm-daemon/virsh";
 import { runWorkflow, planExecution } from "./orchestrator";
 import type { ExecResult, ExecRunner } from "./computer-use";
+import type { AgentCommand } from "./agent-adapters";
 import type { FleetVm, Secret, Workflow, WorkflowParam } from "./types";
 
 function fakeClient(states: Record<string, DomainState>): VirshClient & { reverts: string[][] } {
@@ -37,6 +38,10 @@ function testVm(): FleetVm {
     domain: "dom-vm1",
     warmSnapshot: "golden-warm",
   };
+}
+
+function testDaemon(client: VirshClient) {
+  return createVmDaemon(client, [testVm()], { waitForTcp: vi.fn(async () => {}) });
 }
 
 function workflow(): Workflow {
@@ -106,7 +111,7 @@ function cliWorkflow(): Workflow {
 describe("cli_agent workflows (no VM)", () => {
   it("runs a CLI-agent node on the controller without acquiring a VM", async () => {
     const client = fakeClient({ "dom-vm1": "running" });
-    const daemon = createVmDaemon(client, [testVm()]);
+    const daemon = testDaemon(client);
     const agentExec = vi.fn(async () => ({
       code: 0,
       stdout: '{"type":"result","result":"summary done"}',
@@ -124,7 +129,7 @@ describe("cli_agent workflows (no VM)", () => {
 
   it("fails a CLI-agent node when no executor is configured", async () => {
     const client = fakeClient({ "dom-vm1": "running" });
-    const daemon = createVmDaemon(client, [testVm()]);
+    const daemon = testDaemon(client);
     const run = await runWorkflow(
       { workflow: cliWorkflow(), secrets, params, runId: "run_cli" },
       { daemon, exec: async () => ({ code: 0, stdout: "", stderr: "" }), now: now() },
@@ -136,7 +141,7 @@ describe("cli_agent workflows (no VM)", () => {
 describe("outcome-driven engine", () => {
   it("follows a failure edge to a recovery node (run recovers to succeeded)", async () => {
     const client = fakeClient({ "dom-vm1": "running" });
-    const daemon = createVmDaemon(client, [testVm()]);
+    const daemon = testDaemon(client);
     const wf: Workflow = {
       id: "wf_recover",
       name: "Recover",
@@ -173,7 +178,7 @@ describe("outcome-driven engine", () => {
 
   it("pauses at a human_takeover node and holds the VM", async () => {
     const client = fakeClient({ "dom-vm1": "running" });
-    const daemon = createVmDaemon(client, [testVm()]);
+    const daemon = testDaemon(client);
     const wf: Workflow = {
       id: "wf_ht",
       name: "HT",
@@ -202,7 +207,7 @@ describe("outcome-driven engine", () => {
 
   it("script_task drives the guest via the desktop_runner (no LLM)", async () => {
     const client = fakeClient({ "dom-vm1": "running" });
-    const daemon = createVmDaemon(client, [testVm()]);
+    const daemon = testDaemon(client);
     let remoteCmd = "";
     const capturingExec: ExecRunner = async (_e, args) => {
       remoteCmd = args[args.length - 1];
@@ -224,7 +229,7 @@ describe("outcome-driven engine", () => {
 
   it("otp_email fetches a code into a param that a later node types", async () => {
     const client = fakeClient({ "dom-vm1": "running" });
-    const daemon = createVmDaemon(client, [testVm()]);
+    const daemon = testDaemon(client);
     const emailOtp = vi.fn(async () => "654321");
     let instruction = "";
     const capturingExec: ExecRunner = async (_e, _a, stdin) => {
@@ -256,7 +261,7 @@ describe("outcome-driven engine", () => {
 
   it("api_call node succeeds on 2xx, fails otherwise (no VM)", async () => {
     const client = fakeClient({ "dom-vm1": "running" });
-    const daemon = createVmDaemon(client, [testVm()]);
+    const daemon = testDaemon(client);
     const httpFetch = vi.fn(async () => new Response("{}", { status: 200 }));
     const wf: Workflow = {
       id: "wf_api", name: "API", description: "", enabled: true, triggerKinds: ["manual"],
@@ -276,9 +281,59 @@ describe("outcome-driven engine", () => {
     expect(httpFetch).toHaveBeenCalledOnce();
   });
 
+  it("condition can ask a CLI model to choose the success branch", async () => {
+    const client = fakeClient({ "dom-vm1": "running" });
+    const daemon = testDaemon(client);
+    const agentExec = vi.fn(async (_cmd: AgentCommand) => {
+      void _cmd;
+      return {
+        code: 0,
+        stdout: '{"type":"result","result":{"outcome":"success","reason":"portal is ready"}}',
+        stderr: "",
+      };
+    });
+    const wf: Workflow = {
+      id: "wf_decide",
+      name: "Decide",
+      description: "",
+      enabled: true,
+      triggerKinds: ["manual"],
+      nodes: [
+        { id: "start", type: "start", name: "S", position: { x: 0, y: 0 }, config: {} },
+        { id: "probe", type: "cli_agent_task", name: "Probe", position: { x: 1, y: 0 }, config: { prompt: "inspect state" } },
+        {
+          id: "decide",
+          type: "condition",
+          name: "Ready?",
+          position: { x: 2, y: 0 },
+          config: { prompt: "Is the portal ready to submit?", provider: "claude-code" },
+        },
+        { id: "ok", type: "end", name: "OK", position: { x: 3, y: 0 }, config: {} },
+        { id: "fail", type: "human_takeover", name: "Human", position: { x: 3, y: 1 }, config: {} },
+      ],
+      edges: [
+        { id: "e1", from: "start", to: "probe", condition: "always" },
+        { id: "e2", from: "probe", to: "decide", condition: "success" },
+        { id: "e3", from: "decide", to: "ok", condition: "success" },
+        { id: "e4", from: "decide", to: "fail", condition: "failure" },
+      ],
+    };
+
+    const run = await runWorkflow(
+      { workflow: wf, secrets, params, runId: "r" },
+      { daemon, exec: async () => ({ code: 0, stdout: "", stderr: "" }), agentExec, now: now() },
+    );
+
+    expect(run.status).toBe("succeeded");
+    expect(agentExec).toHaveBeenCalledTimes(2);
+    const decisionCommand = agentExec.mock.calls.at(1)?.[0];
+    expect(decisionCommand?.stdin ?? "").toContain("Is the portal ready to submit?");
+    expect(decisionCommand?.stdin ?? "").toContain("Probe: done");
+  });
+
   it("retry_wait re-runs the preceding task until it succeeds", async () => {
     const client = fakeClient({ "dom-vm1": "running" });
-    const daemon = createVmDaemon(client, [testVm()]);
+    const daemon = testDaemon(client);
     // shell fails first call, succeeds second — retry_wait (maxAttempts 3) recovers.
     let calls = 0;
     const shellExec = vi.fn(async () => ({ code: calls++ === 0 ? 1 : 0, stdout: "", stderr: "" }));
@@ -311,7 +366,7 @@ describe("outcome-driven engine", () => {
 
   it("runs a shell_task node and branches on exit code", async () => {
     const client = fakeClient({ "dom-vm1": "running" });
-    const daemon = createVmDaemon(client, [testVm()]);
+    const daemon = testDaemon(client);
     const wf: Workflow = {
       id: "wf_sh",
       name: "Sh",
@@ -349,7 +404,7 @@ describe("planExecution", () => {
 describe("runWorkflow", () => {
   it("runs the task, succeeds, and releases the VM", async () => {
     const client = fakeClient({ "dom-vm1": "running" });
-    const daemon = createVmDaemon(client, [testVm()]);
+    const daemon = testDaemon(client);
     const run = await runWorkflow(
       { workflow: workflow(), secrets, params, runId: "run_1" },
       {
@@ -367,7 +422,7 @@ describe("runWorkflow", () => {
 
   it("drives the guest over the SSH port, not the XRDP port", async () => {
     const client = fakeClient({ "dom-vm1": "running" });
-    const daemon = createVmDaemon(client, [testVm()]);
+    const daemon = testDaemon(client);
     let seenArgs: string[] = [];
     const capturingExec: ExecRunner = async (_e, args) => {
       seenArgs = args;
@@ -383,7 +438,7 @@ describe("runWorkflow", () => {
 
   it("templates {{secret.x}} into the guest instruction but redacts it from logs", async () => {
     const client = fakeClient({ "dom-vm1": "running" });
-    const daemon = createVmDaemon(client, [testVm()]);
+    const daemon = testDaemon(client);
     const wf = workflow();
     wf.nodes[1].config.prompt = "log in and type {{secret.portal_password}}";
     let seenStdin = "";
@@ -404,7 +459,7 @@ describe("runWorkflow", () => {
 
   it("redacts secrets that leak into a report reason", async () => {
     const client = fakeClient({ "dom-vm1": "running" });
-    const daemon = createVmDaemon(client, [testVm()]);
+    const daemon = testDaemon(client);
     const run = await runWorkflow(
       { workflow: workflow(), secrets, params, runId: "run_1" },
       {
@@ -420,7 +475,7 @@ describe("runWorkflow", () => {
 
   it("fetches guest artifacts back to the controller when a fetcher is provided", async () => {
     const client = fakeClient({ "dom-vm1": "running" });
-    const daemon = createVmDaemon(client, [testVm()]);
+    const daemon = testDaemon(client);
     const fetchArtifacts = vi.fn(async (_c, paths: string[], runId: string, nodeId: string) =>
       paths.map((p, i) => ({
         id: `art_${i}`,
@@ -447,7 +502,7 @@ describe("runWorkflow", () => {
 
   it("pauses and HOLDS the VM when the guest reports needs_human", async () => {
     const client = fakeClient({ "dom-vm1": "running" });
-    const daemon = createVmDaemon(client, [testVm()]);
+    const daemon = testDaemon(client);
     const run = await runWorkflow(
       { workflow: workflow(), secrets, params, runId: "run_1" },
       {
@@ -476,7 +531,7 @@ describe("runWorkflow", () => {
 
   it("fails the run when the guest transport errors", async () => {
     const client = fakeClient({ "dom-vm1": "running" });
-    const daemon = createVmDaemon(client, [testVm()]);
+    const daemon = testDaemon(client);
     const failingExec: ExecRunner = async () => ({ code: 255, stdout: "", stderr: "connection refused" });
     const run = await runWorkflow(
       { workflow: workflow(), secrets, params, runId: "run_1" },

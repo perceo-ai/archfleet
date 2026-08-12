@@ -9,6 +9,10 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
+    "vm:prepare-profile": "./virt/prepare-profile.sh",
+    "vm:update-profile": "./virt/update-profile.sh",
+    "vm:recover-profile": "./virt/recover-profile.sh",
+    "vm:profile-next": "./virt/profile-next.sh",
     "mcp": "tsx src/mcp/server.ts"
   },
   "dependencies": {
