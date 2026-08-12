@@ -74,6 +74,31 @@ class CloneDomainXmlTest(unittest.TestCase):
             self.assertIn("user,id=unet,hostfwd=tcp:127.0.0.1:11022-:22,hostfwd=tcp:127.0.0.1:14389-:3389", args)
             self.assertIn("virtio-net-pci,netdev=unet,addr=0x10", args)
 
+    def test_allows_binding_to_docker_host_gateway(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source.xml"
+            output = Path(tmp) / "clone.xml"
+            source.write_text(SOURCE_XML)
+
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    str(source),
+                    str(output),
+                    "cuf-bank-1",
+                    "/new/cuf-bank-1.qcow2",
+                    "11022",
+                    "14389",
+                    "172.17.0.1",
+                ],
+                check=True,
+            )
+
+            qemu_ns = "{http://libvirt.org/schemas/domain/qemu/1.0}"
+            args = [arg.get("value") for arg in ET.parse(output).getroot().findall(f"./{qemu_ns}commandline/{qemu_ns}arg")]
+            self.assertIn("user,id=unet,hostfwd=tcp:172.17.0.1:11022-:22,hostfwd=tcp:172.17.0.1:14389-:3389", args)
+
 
 if __name__ == "__main__":
     unittest.main()

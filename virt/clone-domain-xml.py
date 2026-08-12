@@ -23,6 +23,7 @@ def rewrite_domain_xml(
     disk_path: str,
     ssh_port: str,
     rdp_port: str,
+    host_bind: str = "127.0.0.1",
 ) -> None:
     ET.register_namespace("qemu", QEMU_NS)
     tree = ET.parse(source_xml)
@@ -55,7 +56,7 @@ def rewrite_domain_xml(
         mac.attrib.pop("address", None)
 
     args = root.findall(f"./{QEMU}commandline/{QEMU}arg")
-    netdev = f"user,id=unet,hostfwd=tcp:127.0.0.1:{ssh_port}-:22,hostfwd=tcp:127.0.0.1:{rdp_port}-:3389"
+    netdev = f"user,id=unet,hostfwd=tcp:{host_bind}:{ssh_port}-:22,hostfwd=tcp:{host_bind}:{rdp_port}-:3389"
     replaced_netdev = False
     for arg in args:
         value = arg.get("value", "")
@@ -77,9 +78,9 @@ def rewrite_domain_xml(
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 7:
+    if len(argv) not in {7, 8}:
         print(
-            "usage: clone-domain-xml.py SOURCE_XML OUT_XML DOMAIN DISK_PATH SSH_PORT RDP_PORT",
+            "usage: clone-domain-xml.py SOURCE_XML OUT_XML DOMAIN DISK_PATH SSH_PORT RDP_PORT [HOST_BIND]",
             file=sys.stderr,
         )
         return 2

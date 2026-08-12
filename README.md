@@ -106,6 +106,8 @@ Use the compose file when the home server hosts both archfleet and libvirt:
 cp .env.example .env.local
 ./virt/preflight.sh
 AGENT_PASSWORD='…' ./virt/build-golden.sh
+HOST_BIND="$(ip -4 addr show docker0 | awk '/inet / {print $2}' | cut -d/ -f1)" \
+FLEET_HOST=host.docker.internal \
 AGENT_PASSWORD='…' npm run vm:prepare-profile -- --profile bank --clones 2
 # add CUF_FLEET_JSON_FILE=/keys/bank.fleet.json to .env.local for Docker
 # set CUF_GUEST_HOST=host.docker.internal when running in Docker bridge mode
@@ -115,6 +117,8 @@ docker compose --env-file .env.local -f deploy/home-server.compose.yml -f deploy
 ```
 
 Pass `--env-file .env.local` so Compose uses the same configuration for interpolation and container env. `CUF_LIBVIRT_URI` defaults to `qemu:///system` for the mounted host libvirt socket; set `CUF_LIBVIRT_URI=qemu:///session` in `.env.local` only if the container can reach your session daemon. In Docker bridge mode, set `CUF_GUEST_HOST=host.docker.internal` so the container can reach libvirt's host-forwarded SSH/XRDP ports. The compose file persists SQLite/artifacts under `./data`, mounts `./virt/.state` read-only for `CUF_SSH_KEY`, and mounts `/var/run/libvirt` so the app can reset and assign VMs.
+
+VM host-forward ports bind to `127.0.0.1` by default. For Docker bridge deployment, set `HOST_BIND` to the Docker host-gateway address when building/preparing VMs and set `FLEET_HOST=host.docker.internal` so generated profile fleet JSON points the app container at that gateway without exposing clone ports on the LAN.
 
 For browser-based desktop takeover, layer in `deploy/guacamole.compose.yml`, set `GUACAMOLE_ADMIN_PASSWORD`/`CUF_GUACAMOLE_PASSWORD` to the same non-default value, change `GUACAMOLE_POSTGRES_PASSWORD`, and set `CUF_GUACAMOLE_URL`, `CUF_GUACAMOLE_PUBLIC_URL`, and `CUF_GUACAMOLE_USERNAME=guacadmin`. Guacamole binds to `127.0.0.1` by default; set `GUACAMOLE_BIND_HOST=0.0.0.0` only when it is behind your trusted network or reverse proxy. The dashboard's **Open desktop** button will create the RDP session in Guacamole automatically; if those variables are not set, the same button downloads a `.rdp` file.
 

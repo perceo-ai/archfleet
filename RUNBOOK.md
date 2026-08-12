@@ -207,10 +207,12 @@ On the server that owns the VMs:
 ```
 cp .env.example .env.local
 ./virt/preflight.sh
-AGENT_PASSWORD='…' ./virt/build-golden.sh
-AGENT_PASSWORD='…' npm run vm:prepare-profile -- --profile bank --clones 2
+HOST_BIND="$(ip -4 addr show docker0 | awk '/inet / {print $2}' | cut -d/ -f1)" AGENT_PASSWORD='…' ./virt/build-golden.sh
+HOST_BIND="$(ip -4 addr show docker0 | awk '/inet / {print $2}' | cut -d/ -f1)" FLEET_HOST=host.docker.internal AGENT_PASSWORD='…' npm run vm:prepare-profile -- --profile bank --clones 2
 AGENT_PASSWORD='…' npm run vm:recover-profile -- --profile bank
 ```
+
+Use `HOST_BIND=127.0.0.1` for host-only development. Use the Docker host-gateway address for Docker bridge deployment; this keeps forwarded guest ports off the LAN while allowing the app container to connect through `host.docker.internal`.
 
 Set `CUF_SECRET_KEY`, model/notification variables, and the generated fleet file.
 For Docker Compose, use the container path mounted from `virt/.state`. Pass `--env-file .env.local` to Compose so values set here also affect compose interpolation:

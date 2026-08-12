@@ -33,6 +33,7 @@ RAM_MB="${RAM_MB:-4096}"
 VCPUS="${VCPUS:-2}"
 HOST_SSH_PORT="${HOST_SSH_PORT:-10022}"
 HOST_RDP_PORT="${HOST_RDP_PORT:-13389}"
+HOST_BIND="${HOST_BIND:-127.0.0.1}"
 AGENT_USER="${AGENT_USER:-agent}"
 AGENT_PASSWORD="${AGENT_PASSWORD:-changeme}"
 GUI_AGENTS_VERSION="${GUI_AGENTS_VERSION:-0.3.2}"
@@ -158,7 +159,7 @@ stage_boot() {
   </devices>
   <qemu:commandline>
     <qemu:arg value='-netdev'/>
-    <qemu:arg value='user,id=unet,hostfwd=tcp::${HOST_SSH_PORT}-:22,hostfwd=tcp::${HOST_RDP_PORT}-:3389'/>
+    <qemu:arg value='user,id=unet,hostfwd=tcp:${HOST_BIND}:${HOST_SSH_PORT}-:22,hostfwd=tcp:${HOST_BIND}:${HOST_RDP_PORT}-:3389'/>
     <qemu:arg value='-device'/>
     <qemu:arg value='virtio-net-pci,netdev=unet,addr=0x10'/>
   </qemu:commandline>
@@ -268,7 +269,7 @@ cat <<EOF
 
 Golden VM ready: ${VM_NAME}
   warm reset  : ${VIRSH} snapshot-revert ${VM_NAME} golden-warm
-  XRDP (human): 127.0.0.1:${HOST_RDP_PORT}  user=${AGENT_USER}
-  SSH (control): ssh -p ${HOST_SSH_PORT} ${AGENT_USER}@127.0.0.1
+  XRDP (human): ${HOST_BIND}:${HOST_RDP_PORT}  user=${AGENT_USER}
+  SSH (control): ssh -p ${HOST_SSH_PORT} ${AGENT_USER}@${HOST_BIND}
   bind to fleet: export CUF_GOLDEN_DOMAIN=${VM_NAME} CUF_SSH_KEY=${SSH_KEY}
 EOF

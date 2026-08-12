@@ -21,6 +21,8 @@ CLONES="${CLONES:-1}"
 DOMAIN_PREFIX=""
 BASE_SSH_PORT="${BASE_SSH_PORT:-11022}"
 BASE_RDP_PORT="${BASE_RDP_PORT:-14389}"
+HOST_BIND="${HOST_BIND:-127.0.0.1}"
+FLEET_HOST="${FLEET_HOST:-}"
 SOURCE_SSH_PORT="${SOURCE_SSH_PORT:-10022}"
 SOURCE_RDP_PORT="${SOURCE_RDP_PORT:-13389}"
 AGENT_USER="${AGENT_USER:-agent}"
@@ -53,6 +55,8 @@ Options:
   --domain-prefix PFX  Clone domain prefix. Default: cuf-PROFILE.
   --base-ssh-port N    First clone SSH host port. Default: 11022.
   --base-rdp-port N    First clone XRDP host port. Default: 14389.
+  --host-bind ADDR     Host address QEMU forwards bind. Default: 127.0.0.1.
+  --fleet-host HOST    Host written to fleet JSON. Default: omitted.
   --source-ssh-port N  Source SSH host port to print for --clones 0. Default: 10022.
   --source-rdp-port N  Source XRDP host port to show. Default: 13389.
   --snapshot NAME      Per-clone warm snapshot name. Default: golden-warm.
@@ -74,6 +78,8 @@ while [ $# -gt 0 ]; do
     --domain-prefix) DOMAIN_PREFIX="$2"; shift 2;;
     --base-ssh-port) BASE_SSH_PORT="$2"; shift 2;;
     --base-rdp-port) BASE_RDP_PORT="$2"; shift 2;;
+    --host-bind) HOST_BIND="$2"; shift 2;;
+    --fleet-host) FLEET_HOST="$2"; shift 2;;
     --source-ssh-port) SOURCE_SSH_PORT="$2"; shift 2;;
     --source-rdp-port) SOURCE_RDP_PORT="$2"; shift 2;;
     --snapshot) SNAPSHOT_NAME="$2"; shift 2;;
@@ -146,7 +152,7 @@ define_clone() {
   source_xml="$(mktemp)"
   xml="$(mktemp)"
   $VIRSH dumpxml --inactive "${SOURCE_DOMAIN}" > "${source_xml}"
-  python3 "${SCRIPT_DIR}/clone-domain-xml.py" "${source_xml}" "${xml}" "${domain}" "${disk}" "${ssh_port}" "${rdp_port}"
+  python3 "${SCRIPT_DIR}/clone-domain-xml.py" "${source_xml}" "${xml}" "${domain}" "${disk}" "${ssh_port}" "${rdp_port}" "${HOST_BIND}"
   $VIRSH define "${xml}" >/dev/null || { rm -f "${source_xml}" "${xml}"; die "virsh define failed for ${domain}"; }
   rm -f "${source_xml}" "${xml}"
 }
@@ -236,7 +242,9 @@ for i in $(seq 1 "${CLONES}"); do
     >/dev/null
 
   [ "${i}" -gt 1 ] && json="${json},"
-  json="${json}{\"domain\":\"${domain}\",\"sshPort\":${ssh_port},\"rdpPort\":${rdp_port},\"snapshot\":\"${SNAPSHOT_NAME}\",\"profile\":\"${PROFILE}\"}"
+  host_json=""
+  [ -n "${FLEET_HOST}" ] && host_json="\"host\":\"${FLEET_HOST}\","
+  json="${json}{\"domain\":\"${domain}\",${host_json}\"sshPort\":${ssh_port},\"rdpPort\":${rdp_port},\"snapshot\":\"${SNAPSHOT_NAME}\",\"profile\":\"${PROFILE}\"}"
 done
 json="${json}]"
 printf '%s\n' "${json}" > "${FLEET_JSON_FILE}"
