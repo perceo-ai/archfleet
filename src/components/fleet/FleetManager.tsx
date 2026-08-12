@@ -462,7 +462,7 @@ export function FleetManager() {
   }
 
   return (
-    <main className="grid-lines flex min-h-screen flex-col bg-[#312F2F] text-white">
+    <main className="grid-lines flex min-h-screen flex-col bg-[#312F2F] text-white xl:h-screen xl:overflow-hidden">
       <header className="border-b border-white/[0.08] bg-[#312f2f]/70 backdrop-blur-xl">
         <div className="flex min-h-14 flex-wrap items-center justify-between gap-3 px-4 py-2">
           <div className="flex min-w-0 items-center gap-3">
@@ -510,7 +510,15 @@ export function FleetManager() {
         </div>
       </header>
 
-      <div className="grid min-h-[620px] flex-1 gap-px bg-white/[0.08] xl:grid-cols-[minmax(240px,0.9fr)_minmax(440px,1.45fr)_minmax(420px,1.35fr)]">
+      <div
+        className="grid min-h-[620px] flex-1 bg-white/[0.08] [grid-template-columns:1fr] xl:min-h-0 xl:[grid-template-columns:minmax(220px,var(--chat-width))_6px_minmax(380px,var(--graph-width))_6px_minmax(340px,1fr)]"
+        style={
+          {
+            "--chat-width": `${chatWidth}px`,
+            "--graph-width": `${graphWidth}px`,
+          } as React.CSSProperties
+        }
+      >
         <section className="grid min-h-0 grid-rows-[48px_minmax(0,1fr)_56px] bg-[#232323]/70">
           <div className="flex items-center justify-between border-b border-white/[0.08] px-3">
             <div>
@@ -558,6 +566,15 @@ export function FleetManager() {
           </div>
         </section>
 
+        <button
+          type="button"
+          aria-label="Resize chat and graph panels"
+          onPointerDown={(event) => startColumnResize("chat", event)}
+          className="group hidden cursor-col-resize bg-white/[0.08] transition hover:bg-[#8b5cf6]/35 focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/60 xl:block"
+        >
+          <span className="mx-auto block h-full w-px bg-white/10 transition group-hover:bg-white/45" />
+        </button>
+
         <div className="min-h-0 bg-[#232323]/70">
           <WorkflowCanvas
             workflow={workflow}
@@ -574,6 +591,15 @@ export function FleetManager() {
             }}
           />
         </div>
+
+        <button
+          type="button"
+          aria-label="Resize graph and desktop panels"
+          onPointerDown={(event) => startColumnResize("graph", event)}
+          className="group hidden cursor-col-resize bg-white/[0.08] transition hover:bg-[#8b5cf6]/35 focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/60 xl:block"
+        >
+          <span className="mx-auto block h-full w-px bg-white/10 transition group-hover:bg-white/45" />
+        </button>
 
         <section className="grid min-h-[420px] grid-rows-[48px_minmax(0,1fr)] bg-[#161616] text-white xl:min-h-0">
           <div className="flex items-center justify-between border-b border-white/10 px-3">
@@ -643,7 +669,19 @@ export function FleetManager() {
         </section>
       </div>
 
-      <div className="border-t border-white/[0.08] bg-[#232323]/70">
+      <button
+        type="button"
+        aria-label="Resize workbench"
+        onPointerDown={startWorkbenchResize}
+        className="group hidden h-2 cursor-row-resize border-y border-white/[0.08] bg-[#161616] transition hover:bg-[#8b5cf6]/35 focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/60 xl:block"
+      >
+        <span className="mx-auto block h-px w-16 bg-white/15 transition group-hover:bg-white/55" />
+      </button>
+
+      <div
+        className="border-t border-white/[0.08] bg-[#232323]/70 xl:h-[var(--workbench-height)] xl:min-h-0 xl:overflow-hidden"
+        style={{ "--workbench-height": `${workbenchHeight}px` } as React.CSSProperties}
+      >
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.08] px-4 py-2">
           <div className="flex items-center gap-2">
             <CheckCircle2 className="h-4 w-4 text-[#8add84]" aria-hidden="true" />
