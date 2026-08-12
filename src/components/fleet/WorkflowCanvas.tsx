@@ -52,6 +52,27 @@ const PALETTE: NodeKind[] = [
   "end",
 ];
 
+const STEP_TYPE_LABELS: Partial<Record<NodeKind, string>> = {
+  start: "Start",
+  agent_planner: "Agent Planner",
+  computer_use_task: "Runner VM Step",
+  script_task: "Desktop Script",
+  browser_task: "Browser Step",
+  cli_agent_task: "Model Reasoning",
+  shell_task: "Shell Step",
+  api_call: "API Call",
+  otp_email: "OTP Email",
+  condition: "Decision",
+  retry_wait: "Retry Wait",
+  human_takeover: "Human Takeover",
+  artifact: "Collect Artifact",
+  end: "Complete",
+};
+
+function stepTypeLabel(type: NodeKind): string {
+  return STEP_TYPE_LABELS[type] ?? type.replaceAll("_", " ");
+}
+
 function toRfNode(n: WorkflowNode): Node {
   return {
     id: n.id,
@@ -125,39 +146,43 @@ export function WorkflowCanvas({ workflow, onSave, className = "" }: WorkflowCan
         <div>
           <div className="flex items-center gap-2">
             <GitBranchPlus className="h-4 w-4 text-[#8b5cf6]" aria-hidden="true" />
-            <h2 className="text-sm font-semibold text-white">Graph editor</h2>
+            <h2 className="text-sm font-semibold text-white">Graph Editor</h2>
           </div>
-          <p className="mt-0.5 truncate text-xs text-white/45">{status ?? `${nodes.length} steps / ${edges.length} links`}</p>
+          <p className="mt-0.5 truncate text-xs text-white/45">{status ?? `${nodes.length} Steps / ${edges.length} Links`}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="sr-only" htmlFor="workflow-step-type">
+            Step Type
+          </label>
           <select
+            id="workflow-step-type"
             value={nodeType}
             onChange={(e) => setNodeType(e.target.value as NodeKind)}
-            aria-label="Step type"
-            className="h-8 w-40 rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 text-xs text-white outline-none focus:border-[#8b5cf6]"
+            aria-label="Step Type"
+            className="h-8 w-44 rounded-[5px] border border-white/[0.12] bg-[#161616] px-2 text-xs font-medium text-white outline-none focus:border-[#8b5cf6]"
           >
             {PALETTE.map((t) => (
               <option key={t} value={t}>
-                {t.replaceAll("_", " ")}
+                {stepTypeLabel(t)}
               </option>
             ))}
           </select>
           <button
             type="button"
             onClick={() => addNode(nodeType)}
-            title="Add step"
-            className="inline-flex h-8 w-8 items-center justify-center rounded-[5px] border border-white/[0.08] bg-white/[0.05] text-white/70 hover:bg-white/[0.08]"
+            className="inline-flex h-8 items-center gap-1.5 rounded-[5px] border border-[#8b5cf6]/40 bg-[#8b5cf6]/20 px-3 text-xs font-semibold text-white hover:bg-[#8b5cf6]/30"
           >
             <Plus className="h-4 w-4" aria-hidden="true" />
+            Add Step
           </button>
           {onSave ? (
             <button
               type="button"
               onClick={save}
-              title="Save graph"
-              className="perceo-primary inline-flex h-8 w-8 items-center justify-center rounded-[5px]"
+              className="perceo-primary inline-flex h-8 items-center gap-1.5 rounded-[5px] px-3 text-xs font-semibold"
             >
               <Save className="h-4 w-4" aria-hidden="true" />
+              Save Graph
             </button>
           ) : null}
         </div>
@@ -184,7 +209,7 @@ export function WorkflowCanvas({ workflow, onSave, className = "" }: WorkflowCan
           {selectedNode ? (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="font-semibold uppercase text-white/45">Selected step</span>
+                <span className="font-semibold uppercase text-white/45">Selected Step</span>
                 <button
                   type="button"
                   onClick={deleteSelected}
@@ -208,11 +233,11 @@ export function WorkflowCanvas({ workflow, onSave, className = "" }: WorkflowCan
                   <select
                     value={selectedNode.type}
                     onChange={(e) => patchSelected({ type: e.target.value as NodeKind })}
-                    className="mt-0.5 h-8 w-full rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 text-white outline-none focus:border-[#8b5cf6]"
+                    className="mt-0.5 h-8 w-full rounded-[5px] border border-white/[0.12] bg-[#161616] px-2 text-white outline-none focus:border-[#8b5cf6]"
                   >
                     {["start", ...PALETTE].map((t) => (
                       <option key={t} value={t}>
-                        {t}
+                        {stepTypeLabel(t as NodeKind)}
                       </option>
                     ))}
                   </select>

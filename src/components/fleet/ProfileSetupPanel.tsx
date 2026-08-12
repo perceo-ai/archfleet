@@ -43,6 +43,23 @@ const statusTone: Record<ProfileOperation["status"], string> = {
   failed: "border-[#f87171]/30 bg-[#f87171]/20 text-[#fca5a5]",
 };
 
+const nodeTypeLabels: Record<string, string> = {
+  start: "Start",
+  agent_planner: "Agent Planner",
+  computer_use_task: "Runner VM Step",
+  script_task: "Desktop Script",
+  browser_task: "Browser Step",
+  cli_agent_task: "Model Reasoning",
+  shell_task: "Shell Step",
+  api_call: "API Call",
+  otp_email: "OTP Email",
+  condition: "Decision",
+  retry_wait: "Retry Wait",
+  human_takeover: "Human Takeover",
+  artifact: "Collect Artifact",
+  end: "Complete",
+};
+
 export function ProfileSetupPanel() {
   const [profile, setProfile] = useState("");
   const [task, setTask] = useState("");
@@ -77,7 +94,7 @@ export function ProfileSetupPanel() {
     try {
       const prompt = [
         `Task profile: ${profile.trim() || "default"}`,
-        "Design the repeatable task workflow that should run after the golden VM is prepared.",
+        "Design the repeatable task workflow that should run after the Golden VM is prepared.",
         "Use CLI-agent condition nodes when a model needs to decide whether to continue, retry, or ask for takeover.",
         "Include human_takeover only for login, 2FA, captcha, device trust, or other human-only steps.",
         "",
@@ -165,7 +182,7 @@ export function ProfileSetupPanel() {
       window.open(body.mode === "guacamole" ? body.launchUrl : body.downloadUrl, "_blank", "noopener,noreferrer");
       if (body.mode === "rdp_file" && body.reason) setMessage(`Downloaded .rdp: ${body.reason}`);
     } catch (e) {
-      setMessage(e instanceof Error ? e.message : "Could not open source desktop.");
+      setMessage(e instanceof Error ? e.message : "Could not open the Golden VM.");
     } finally {
       setBusy(null);
     }
@@ -199,9 +216,9 @@ export function ProfileSetupPanel() {
             <div>
               <div className="flex items-center gap-2">
                 <Sparkles className="h-4 w-4 text-[#8b5cf6]" aria-hidden="true" />
-                <h2 className="text-sm font-semibold text-white">LLM setup flow</h2>
+                <h2 className="text-sm font-semibold text-white">LLM Setup Flow</h2>
               </div>
-              <p className="mt-1 text-xs text-white/45">Describe the task, draft the run graph, then prepare and capture the golden VM.</p>
+              <p className="mt-1 text-xs text-white/45">Describe the task, draft the run graph, then prepare and capture the Golden VM.</p>
             </div>
             {message ? <span className="max-w-sm truncate text-xs font-medium text-white/60">{message}</span> : null}
           </div>
@@ -228,7 +245,7 @@ export function ProfileSetupPanel() {
               />
             </label>
             <label className="grid gap-1 text-xs font-medium text-white/60 sm:col-span-2 xl:col-span-1">
-              Agent password
+              Agent Password
               <input
                 type="password"
                 value={agentPassword}
@@ -238,7 +255,7 @@ export function ProfileSetupPanel() {
               />
             </label>
             <label className="grid gap-1 text-xs font-medium text-white/60 sm:col-span-2 xl:col-span-1">
-              Task brief for the model
+              Task Brief for the Model
               <textarea
                 value={task}
                 onChange={(e) => setTask(e.target.value)}
@@ -266,7 +283,7 @@ export function ProfileSetupPanel() {
               className="inline-flex h-8 items-center gap-1.5 rounded-[5px] border border-white/[0.08] px-3 text-xs font-semibold text-white/75 hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:text-white/30"
             >
               <Play className="h-3.5 w-3.5" aria-hidden="true" />
-              Prepare golden VM
+              Prepare Golden VM
             </button>
           </div>
 
@@ -274,14 +291,14 @@ export function ProfileSetupPanel() {
             <div className="rounded-[5px] border border-white/[0.08] bg-white/[0.04] p-3">
               <div className="flex items-center gap-2 text-xs font-semibold text-white">
                 <Route className="h-3.5 w-3.5 text-[#8add84]" aria-hidden="true" />
-                Setup path
+                Setup Path
               </div>
               <div className="mt-3 space-y-2 text-xs">
                 {[
-                  ["brief", "Write task brief"],
-                  ["ready", "Review LLM graph"],
-                  ["running", "Agent prepares VM"],
-                  ["capture", "Manual login, then capture"],
+                  ["brief", "Write Task Brief"],
+                  ["ready", "Review LLM Graph"],
+                  ["running", "Agent Prepares VM"],
+                  ["capture", "Manual Login, Then Capture"],
                 ].map(([id, label], index) => {
                   const active =
                     setupStage === id ||
@@ -305,7 +322,7 @@ export function ProfileSetupPanel() {
 
             <div className="rounded-[5px] border border-white/[0.08] bg-white/[0.04] p-3">
               <div className="flex items-center justify-between gap-3">
-                <h3 className="text-xs font-semibold uppercase text-white/45">LLM graph draft</h3>
+                <h3 className="text-xs font-semibold uppercase text-white/45">LLM Graph Draft</h3>
                 {plannedWorkflow ? <span className="truncate text-xs text-white/60">{plannedWorkflow.name}</span> : null}
               </div>
               {plannedWorkflow ? (
@@ -319,7 +336,7 @@ export function ProfileSetupPanel() {
                     {plannedWorkflow.nodes.map((node) => (
                       <div key={node.id} className="rounded-[5px] border border-white/[0.08] bg-[#161616]/60 px-2 py-1.5">
                         <div className="truncate text-xs font-medium text-white">{node.name}</div>
-                        <div className="mt-0.5 truncate text-[11px] text-white/40">{node.type.replaceAll("_", " ")}</div>
+                        <div className="mt-0.5 truncate text-[11px] text-white/40">{nodeTypeLabels[node.type] ?? node.type}</div>
                       </div>
                     ))}
                   </div>

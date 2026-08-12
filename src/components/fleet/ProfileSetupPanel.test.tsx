@@ -38,7 +38,7 @@ describe("ProfileSetupPanel", () => {
 
     render(<ProfileSetupPanel />);
     fireEvent.change(screen.getByLabelText("Profile"), { target: { value: "bank" } });
-    fireEvent.change(screen.getByLabelText("Task brief for the model"), {
+    fireEvent.change(screen.getByLabelText("Task Brief for the Model"), {
       target: { value: "Log into the bank portal and prepare statements" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Draft with LLM" }));
@@ -80,10 +80,10 @@ describe("ProfileSetupPanel", () => {
 
     render(<ProfileSetupPanel />);
     fireEvent.change(screen.getByLabelText("Profile"), { target: { value: "bank" } });
-    fireEvent.change(screen.getByLabelText("Task brief for the model"), {
+    fireEvent.change(screen.getByLabelText("Task Brief for the Model"), {
       target: { value: "Log into the bank portal and prepare statements" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Prepare golden VM" }));
+    fireEvent.click(screen.getByRole("button", { name: "Prepare Golden VM" }));
 
     await waitFor(() => expect(screen.getByText("waiting for capture")).toBeInTheDocument());
     expect(fetchMock).toHaveBeenCalledWith("/api/profile-setup", expect.objectContaining({ method: "POST" }));

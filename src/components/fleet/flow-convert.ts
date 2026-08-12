@@ -47,8 +47,8 @@ const NODE_DEFAULTS: Partial<Record<WorkflowNode["type"], { name: string; prompt
     prompt: "Review the task state and produce the next workflow step or decision.",
   },
   computer_use_task: {
-    name: "Use golden VM",
-    prompt: "Use the prepared desktop profile to complete this task step. Stop and report if human input is required.",
+    name: "Use Runner VM",
+    prompt: "Use the runner VM restored from the prepared golden profile to complete this task step. Stop and report if human input is required.",
   },
   browser_task: {
     name: "Browser step",

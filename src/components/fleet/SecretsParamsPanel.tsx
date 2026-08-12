@@ -60,7 +60,7 @@ export function SecretsParamsPanel({ params, secrets, workflowId }: SecretsParam
           <div className="mb-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <SlidersHorizontal className="h-4 w-4 text-[#8b5cf6]" aria-hidden="true" />
-              <h2 className="text-sm font-semibold text-white">Params &amp; Triggers</h2>
+              <h2 className="text-sm font-semibold text-white">Parameters &amp; Triggers</h2>
             </div>
             <button
               type="button"
@@ -106,7 +106,7 @@ export function SecretsParamsPanel({ params, secrets, workflowId }: SecretsParam
                 >
                   <span className="font-medium text-white">{name}</span>
                   <span className="font-mono text-white/60">[REDACTED]</span>
-                  <span className="text-right text-white/35">workflow</span>
+                  <span className="text-right text-white/35">Workflow</span>
                 </div>
               ))
             ) : (

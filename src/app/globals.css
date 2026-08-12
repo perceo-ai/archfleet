@@ -49,22 +49,29 @@ button {
 }
 
 .react-flow__controls-button {
-  color: rgba(255, 255, 255, 0.75);
-  background: rgba(35, 35, 35, 0.85);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.82) !important;
+  background: rgba(35, 35, 35, 0.92) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
 }
 
 .react-flow__controls-button:hover {
-  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff !important;
+  background: rgba(139, 92, 246, 0.24) !important;
 }
 
 .react-flow__controls-button svg {
-  fill: currentColor;
+  fill: currentColor !important;
+  stroke: currentColor !important;
+}
+
+.react-flow__controls-button path {
+  fill: currentColor !important;
+  stroke: currentColor !important;
 }
 
 select option {
-  color: #ffffff;
-  background: #232323;
+  color: #ffffff !important;
+  background: #232323 !important;
 }
 
 .font-serif {

@@ -187,7 +187,7 @@ export function FleetManager() {
   async function runWorkflow() {
     setRunning(true);
     setActionMessage(undefined);
-    void openDesktop(primaryVm, "Attaching live desktop for this run...");
+    void openDesktop(primaryVm, "Attaching Runner VM for this run...");
     try {
       const res = await fetch("/api/runs", { method: "POST" });
       const queued = (await res.json()) as WorkflowRun;
@@ -222,8 +222,8 @@ export function FleetManager() {
   const healthyVms = vms.filter((vm) => vm.status !== "unhealthy" && vm.status !== "stopped").length;
   const vmCapacity = vms.reduce((sum, vm) => sum + vm.cpu, 0);
   const workspaceStats = [
-    { label: "Golden ready", value: idleVms },
-    { label: "VMs online", value: healthyVms },
+    { label: "Runner Ready", value: idleVms },
+    { label: "VMs Online", value: healthyVms },
     { label: "Steps", value: workflow.nodes.length },
     { label: "vCPU", value: vmCapacity },
   ];
@@ -328,7 +328,7 @@ export function FleetManager() {
     setSaveNote(`Restored ${version.name}`);
   }
 
-  async function openDesktop(vm?: FleetVm, pendingMessage = "Connecting to the golden VM...") {
+  async function openDesktop(vm?: FleetVm, pendingMessage = "Connecting to the Runner VM...") {
     if (!vm) return;
     if (desktopUrl) return;
     setDesktopBusy(true);
@@ -340,7 +340,7 @@ export function FleetManager() {
       if (!("mode" in body)) throw new Error("Invalid desktop launch response.");
       if (body.mode === "guacamole") {
         setDesktopUrl(body.launchUrl);
-        setDesktopMessage("Live desktop attached");
+        setDesktopMessage("Runner VM attached");
         return;
       }
       setDesktopMessage(body.reason ? `RDP file ready: ${body.reason}` : "RDP file downloaded.");
@@ -375,7 +375,7 @@ export function FleetManager() {
 
   function statusLabel(vm?: FleetVm) {
     if (!vm) return "No VM";
-    if (vm.status === "idle") return "Golden ready";
+    if (vm.status === "idle") return "Runner Ready";
     return vm.status.replaceAll("_", " ");
   }
 
@@ -391,7 +391,7 @@ export function FleetManager() {
               </span>
               <div>
                 <div className="font-serif text-xl font-bold italic tracking-tight text-white">Perceo Archfleet</div>
-                <div className="text-xs text-white/50">Computer-use runs on isolated golden VMs</div>
+                <div className="text-xs text-white/50">Computer-use runs on isolated Runner VMs</div>
               </div>
             </div>
             <div className="flex items-center gap-2 text-xs text-white/60">
@@ -401,7 +401,7 @@ export function FleetManager() {
               >
                 Users
               </Link>
-              <span className="rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-3 py-2">{activeRuns} active run</span>
+              <span className="rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-3 py-2">{activeRuns} Active Run</span>
             </div>
           </div>
         </header>
@@ -409,10 +409,10 @@ export function FleetManager() {
         <section className="relative z-10 mx-auto grid max-w-7xl gap-5 px-5 py-6 md:px-12">
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-white/40">Task launcher</p>
-              <h1 className="mt-2 text-2xl font-semibold tracking-tight text-white md:text-3xl">Run browser workflows on golden desktops.</h1>
+              <p className="text-xs font-semibold uppercase tracking-wide text-white/40">Task Launcher</p>
+              <h1 className="mt-2 text-2xl font-semibold tracking-tight text-white md:text-3xl">Run browser workflows on Runner VMs.</h1>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
-                Choose a task, attach the VM when human login is needed, edit the workflow graph, then run it and keep the trace.
+                Choose a task, attach the Runner VM when human login is needed, edit the workflow graph, then run it and keep the trace.
               </p>
             </div>
             <button
@@ -421,7 +421,7 @@ export function FleetManager() {
               className="perceo-primary inline-flex h-10 items-center gap-2 rounded-[5px] px-4 text-sm font-semibold"
             >
               <Play className="h-4 w-4" aria-hidden="true" />
-              Open workspace
+              Open Workspace
             </button>
           </div>
 
@@ -478,7 +478,7 @@ export function FleetManager() {
               <section className="glass rounded-[5px] p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <h2 className="text-sm font-semibold text-white">Primary VM</h2>
+                    <h2 className="text-sm font-semibold text-white">Runner VM</h2>
                     <p className="mt-1 text-xs text-white/45">{primaryVm?.name ?? "No VM available"}</p>
                   </div>
                   <span className="rounded-[5px] bg-[#4ade80]/20 px-2 py-1 text-xs font-semibold text-[#8add84]">
@@ -504,9 +504,9 @@ export function FleetManager() {
               </section>
 
               <section className="glass rounded-[5px] p-4">
-                <h2 className="text-sm font-semibold text-white">Next setup action</h2>
+                <h2 className="text-sm font-semibold text-white">Next Setup Action</h2>
                 <p className="mt-2 text-sm leading-6 text-zinc-400">
-                  Prepare or refresh a golden profile when credentials, MFA trust, or browser state expires.
+                  Prepare or refresh the Golden Profile when credentials, MFA trust, or browser state expires.
                 </p>
                 <button
                   type="button"
@@ -516,7 +516,7 @@ export function FleetManager() {
                   }}
                   className="mt-4 inline-flex h-9 w-full items-center justify-center rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-3 text-xs font-semibold text-white hover:bg-white/[0.08]"
                 >
-                  Open profile setup
+                  Open Profile Setup
                 </button>
               </section>
             </aside>
@@ -560,7 +560,7 @@ export function FleetManager() {
               className="inline-flex h-8 items-center gap-1.5 rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-3 text-xs font-semibold text-white hover:bg-white/[0.08] disabled:opacity-50"
             >
               <Monitor className="h-3.5 w-3.5" aria-hidden="true" />
-              {desktopBusy ? "Connecting" : "Connect XRDP"}
+              {desktopBusy ? "Connecting" : "Connect Runner VM"}
             </button>
             <button
               type="button"
@@ -662,7 +662,7 @@ export function FleetManager() {
 
         <button
           type="button"
-          aria-label="Resize graph and desktop panels"
+          aria-label="Resize graph and Runner VM panels"
           onPointerDown={(event) => startColumnResize("graph", event)}
           className="group hidden cursor-col-resize bg-white/[0.08] transition hover:bg-[#8b5cf6]/35 focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/60 xl:block"
         >
@@ -672,7 +672,7 @@ export function FleetManager() {
         <section className="grid min-h-[420px] grid-rows-[48px_minmax(0,1fr)] bg-[#161616] text-white xl:min-h-0">
           <div className="flex items-center justify-between border-b border-white/10 px-3">
             <div>
-              <h2 className="text-sm font-semibold">XRDP viewer</h2>
+              <h2 className="text-sm font-semibold">Runner VM</h2>
               <p className="text-xs text-zinc-400">
                 {desktopMessage ?? (desktopUrl ? "Connected" : "Opens automatically when you run")}
               </p>
@@ -700,7 +700,7 @@ export function FleetManager() {
                 type="button"
                 onClick={() => void openDesktop(primaryVm)}
                 disabled={desktopBusy || !primaryVm}
-                title="Open desktop"
+                title="Open Runner VM"
                 className="inline-flex h-8 w-8 items-center justify-center rounded-[5px] border border-white/10 text-zinc-200 hover:bg-white/10 disabled:opacity-50"
               >
                 <ExternalLink className="h-4 w-4" aria-hidden="true" />
@@ -709,7 +709,7 @@ export function FleetManager() {
           </div>
           {desktopUrl ? (
             <iframe
-              title="XRDP desktop"
+              title="Runner VM desktop"
               src={desktopUrl}
               className="h-full w-full border-0 bg-zinc-900"
               allow="clipboard-read; clipboard-write; fullscreen"
@@ -718,7 +718,7 @@ export function FleetManager() {
             <div className="grid place-items-center p-6 text-center">
               <div>
                 <Monitor className="mx-auto h-8 w-8 text-zinc-500" aria-hidden="true" />
-                <p className="mt-3 text-sm font-medium">Connect to the golden VM</p>
+                <p className="mt-3 text-sm font-medium">Connect to the Runner VM</p>
                 <p className="mt-1 max-w-xs text-xs leading-5 text-zinc-400">
                   This viewer attaches automatically when a run starts. You can take over here at any time.
                 </p>
@@ -729,7 +729,7 @@ export function FleetManager() {
                   className="perceo-primary mt-4 inline-flex h-9 items-center gap-2 rounded-[5px] px-3 text-xs font-semibold disabled:opacity-50"
                 >
                   <Monitor className="h-4 w-4" aria-hidden="true" />
-                  {desktopBusy ? "Connecting" : "Connect XRDP"}
+                  {desktopBusy ? "Connecting" : "Connect Runner VM"}
                 </button>
               </div>
             </div>
@@ -758,8 +758,8 @@ export function FleetManager() {
           <div className="flex rounded-[5px] border border-white/[0.08] bg-white/[0.05] p-0.5 text-xs">
             {[
               ["versions", "Versions"],
-              ["profile", "Profile setup"],
-              ["inputs", "Params & triggers"],
+              ["profile", "Profile Setup"],
+              ["inputs", "Parameters & Triggers"],
             ].map(([id, label]) => (
               <button
                 key={id}
@@ -797,7 +797,7 @@ export function FleetManager() {
                     />
                   </label>
                   <label className="block">
-                    <span className="font-medium text-white/45">Current objective</span>
+                    <span className="font-medium text-white/45">Current Objective</span>
                     <input
                       value={objective}
                       onChange={(e) => setObjective(e.target.value)}
@@ -807,7 +807,7 @@ export function FleetManager() {
                 </div>
                 <div className="grid grid-cols-[1fr_auto] gap-2">
                   <label className="block">
-                    <span className="font-medium text-white/45">Version name</span>
+                    <span className="font-medium text-white/45">Version Name</span>
                     <input
                       value={versionName}
                       onChange={(e) => setVersionName(e.target.value)}

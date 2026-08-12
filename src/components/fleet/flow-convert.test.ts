@@ -27,8 +27,8 @@ describe("flow-convert", () => {
     const a = makeNode("computer_use_task");
     const b = makeNode("computer_use_task");
     expect(a.type).toBe("computer_use_task");
-    expect(a.name).toBe("Use golden VM");
-    expect(a.config.prompt).toContain("prepared desktop profile");
+    expect(a.name).toBe("Use Runner VM");
+    expect(a.config.prompt).toContain("golden profile");
     expect(a.id).not.toBe(b.id);
   });
 });
