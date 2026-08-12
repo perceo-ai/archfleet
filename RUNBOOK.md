@@ -97,6 +97,11 @@ All of these resolve at execution time and are redacted from persisted logs.
 
 ## Preparing reusable logged-in VM profiles
 
+Preferred path: use the dashboard's **Task Profile** panel. Enter the profile,
+task, clone count, and agent password, then use **Draft workflow**, **Start
+setup**, **Open source**, and **Capture**. The panel runs the same host scripts
+below and streams their logs.
+
 For sites where the right answer is "a person logs in once, completes MFA, trusts
 the device, installs extensions, and leaves the browser ready", create a manual
 profile fleet:

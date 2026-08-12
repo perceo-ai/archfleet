@@ -53,9 +53,11 @@ export CUF_GOLDEN_DOMAIN=cuf-golden CUF_SSH_KEY=$PWD/virt/.state/cuf_id
 
 Then unset `CUF_AGENT_BACKEND` and set `OPENROUTER_API_KEY` + `CUF_GROUNDING_BASE_URL` for LLM-driven computer use, or stick to `script_task` / `browser_task` / `api_call` nodes, which need no model.
 
-### Manual profile VMs for 2FA-heavy sites
+### Task profile VMs for 2FA-heavy sites
 
-For portals that require a human login, MFA, captchas, device trust, browser extensions, or per-customer setup, prepare a VM once and clone it:
+For portals that require a human login, MFA, captchas, device trust, browser extensions, or per-customer setup, use the dashboard's **Task Profile** panel. It drafts the setup workflow, starts the source VM, opens XRDP through the browser, waits for you to finish login, then captures and clones the prepared state. Update and recovery run from the same panel.
+
+The underlying host command is still available:
 
 ```bash
 AGENT_PASSWORD='…' npm run vm:prepare-profile -- --profile bank --clones 2
@@ -141,13 +143,14 @@ See `.env.example` for the full list.
 
 ## How it works
 
-1. **Author.** Build a workflow on the React Flow canvas (`Start → tasks → End`), or draft one from a plain-language task with the planner (`plan_workflow`). Workflows are validated before they save.
-2. **Trigger.** Run manually (Run button / `POST /api/runs`), on a cron schedule, or via webhook (`POST /api/webhooks/:token`, whose JSON body becomes run params).
-3. **Enqueue.** `POST /api/runs` returns `202` with a `queued` run. A worker drains the queue — the always-on server does it via the `instrumentation` loop; serverless/multi-instance hosts POST `/api/runs/process` on a cron. Claims are atomic, so multiple workers are safe.
-4. **Acquire & reset.** The vm-daemon shells out to `virsh` to acquire an idle VM and restore its warm memory snapshot (~1–3s), giving each run a clean desktop.
-5. **Execute.** The orchestrator dispatches each node: computer-use tasks run Agent S on the guest `:0` desktop over SSH; browser/script tasks run deterministic step lists; CLI-agent/shell/api tasks run on the controller. Every task resolves `{{secret.x}}` / `{{param.x}}` / `{{totp.x}}` at runtime, and all values are redacted from persisted logs.
-6. **Pause for a human.** On a `human_takeover` node — or a task failing into one — the run pauses, the VM is held (no reset), and archfleet pages `CUF_NOTIFY_WEBHOOK`. Take over on the same live desktop via `.rdp` download (`GET /api/vms/:id/rdp`), `./virt/connect-xrdp.sh`, or the copyable connection block in the sidebar.
-7. **Resume & review.** `POST /api/runs/:id/action` with `retry` / `resume` / `cancel`. Every step's screenshot is captured on the guest and scp-fetched to `data/artifacts/<runId>/`, shown as thumbnails and downloadable at `GET /api/runs/:id/artifacts/:name`.
+1. **Author.** Build a workflow on the React Flow canvas, draft one from a plain-language task with the planner (`plan_workflow`), or use Task Profile to create the setup workflow for a logged-in golden profile.
+2. **Prepare.** Task Profile starts the source VM, opens its desktop, waits for manual login/2FA, captures the source, clones it, and writes fleet JSON for labels such as `profile:bank`.
+3. **Trigger.** Run manually (Run button / `POST /api/runs`), on a cron schedule, or via webhook (`POST /api/webhooks/:token`, whose JSON body becomes run params).
+4. **Enqueue.** `POST /api/runs` returns `202` with a `queued` run. A worker drains the queue — the always-on server does it via the `instrumentation` loop; serverless/multi-instance hosts POST `/api/runs/process` on a cron. Claims are atomic, so multiple workers are safe.
+5. **Acquire & reset.** The vm-daemon shells out to `virsh` to acquire an idle VM and restore its warm memory snapshot (~1–3s), giving each run a clean desktop.
+6. **Execute.** The orchestrator dispatches each node: computer-use tasks run Agent S on the guest `:0` desktop over SSH; browser/script tasks run deterministic step lists; CLI-agent/shell/api tasks run on the controller. Every task resolves `{{secret.x}}` / `{{param.x}}` / `{{totp.x}}` at runtime, and all values are redacted from persisted logs.
+7. **Pause for a human.** On a `human_takeover` node — or a task failing into one — the run pauses, the VM is held (no reset), and archfleet pages `CUF_NOTIFY_WEBHOOK`. Take over on the same live desktop with **Open desktop** in the sidebar.
+8. **Resume & review.** `POST /api/runs/:id/action` with `retry` / `resume` / `cancel`. Every step's screenshot is captured on the guest and scp-fetched to `data/artifacts/<runId>/`, shown as thumbnails and downloadable at `GET /api/runs/:id/artifacts/:name`.
 
 See `RUNBOOK.md` for the full human-in-the-loop and 2FA playbook, and `ARCHITECTURE.md` for the layer/deploy topology.
 
@@ -160,9 +163,10 @@ See `RUNBOOK.md` for the full human-in-the-loop and 2FA playbook, and `ARCHITECT
 - ✅ **Encrypted secrets & params** — AES-256-GCM at rest (key derived from `CUF_SECRET_KEY`, kept out of the DB), redacted from all persisted events.
 - ✅ **Runtime 2FA** — RFC 6238 `{{totp.seed}}` codes generated per run, plus an `otp_email` node that reads an IMAP inbox and extracts the code.
 - ✅ **XRDP human-takeover** — pause + hold VM + page operator; land on the same `:0` desktop the agent was driving.
+- ✅ **Task profile operations** — browser-first setup, update, and recovery for logged-in task goldens.
 - ✅ **Model-free demo backend** — `CUF_AGENT_BACKEND=mock` proves the whole stack end to end.
 - ✅ **MCP server** — `npm run mcp` exposes every fleet op as stdio tools (`list_workflows`, `run_workflow`, `get_run`, `create_trigger`, `create_secret`, `list_vms`, …). Register it with any MCP client; see `mcp.json.example`.
-- 🚧 **Real VM fleet (libvirt/QEMU)** — the vm-daemon, `virsh` control, and guest runners are implemented and tested; provisioning is scripted (`virt/build-golden.sh`), but standing up a live golden image requires libvirt/qemu/guestfs-tools on the host and remains the least turnkey path.
+- 🚧 **Real VM fleet (libvirt/QEMU)** — the vm-daemon, `virsh` control, and guest runners are implemented and tested; the initial base golden image still requires libvirt/qemu/guestfs-tools on the host.
 - 🚧 **Multi-VM / scale-out** — safe by construction (atomic queue claim, `CUF_FLEET_JSON` fleet definition); exercised in unit tests, not yet run at scale.
 - 🚧 **Operator UI polish** — the dashboard is functional (live fleet health, run history, secrets/triggers, XRDP copy) but not branded/marketing-grade; spacing, empty states, theming, and mobile are unpolished by design.
 
