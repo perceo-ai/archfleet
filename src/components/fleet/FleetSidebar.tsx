@@ -1,6 +1,7 @@
 "use client";
 
-import { Copy, Monitor, Network, Server } from "lucide-react";
+import { useState } from "react";
+import { Copy, Download, ExternalLink, Monitor, Network, Server } from "lucide-react";
 import type { FleetVm } from "@/lib/fleet/types";
 
 type FleetSidebarProps = {
@@ -19,6 +20,33 @@ const statusTone: Record<FleetVm["status"], string> = {
 };
 
 export function FleetSidebar({ vms }: FleetSidebarProps) {
+  const [busyVmId, setBusyVmId] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function openDesktop(vm: FleetVm) {
+    setBusyVmId(vm.id);
+    setMessage(null);
+    try {
+      const res = await fetch(`/api/vms/${encodeURIComponent(vm.id)}/takeover`, { method: "POST" });
+      const body = (await res.json()) as
+        | { mode: "guacamole"; launchUrl: string }
+        | { mode: "rdp_file"; downloadUrl: string; reason?: string }
+        | { error?: string };
+      if ("error" in body && body.error) throw new Error(body.error);
+      if (!("mode" in body)) throw new Error("Invalid takeover response.");
+      if (body.mode === "guacamole") {
+        window.open(body.launchUrl, "_blank", "noopener,noreferrer");
+        return;
+      }
+      window.open(body.downloadUrl, "_blank", "noopener,noreferrer");
+      setMessage(body.reason ? `Downloaded .rdp: ${body.reason}` : "Downloaded .rdp file.");
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Could not open desktop.");
+    } finally {
+      setBusyVmId(null);
+    }
+  }
+
   return (
     <aside className="min-h-0 border-r border-zinc-200 bg-white">
       <div className="flex h-14 items-center gap-2 border-b border-zinc-200 px-4">
@@ -27,6 +55,11 @@ export function FleetSidebar({ vms }: FleetSidebarProps) {
       </div>
 
       <div className="space-y-3 overflow-y-auto p-3">
+        {message ? (
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            {message}
+          </div>
+        ) : null}
         {vms.map((vm) => (
           <section key={vm.id} className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
             <div className="flex items-start justify-between gap-3">
@@ -87,6 +120,24 @@ export function FleetSidebar({ vms }: FleetSidebarProps) {
                 <dt className="text-zinc-500">Cred</dt>
                 <dd className="truncate font-mono text-zinc-800">{vm.xrdp.credentialSource}</dd>
               </dl>
+              <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
+                <button
+                  type="button"
+                  onClick={() => void openDesktop(vm)}
+                  disabled={busyVmId === vm.id}
+                  className="inline-flex h-8 items-center justify-center gap-1.5 rounded border border-zinc-900 bg-zinc-950 px-2 text-xs font-medium text-white hover:bg-zinc-800 disabled:cursor-wait disabled:opacity-60"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                  {busyVmId === vm.id ? "Opening" : "Open desktop"}
+                </button>
+                <a
+                  href={`/api/vms/${encodeURIComponent(vm.id)}/rdp`}
+                  title="Download .rdp file"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-100"
+                >
+                  <Download className="h-3.5 w-3.5" aria-hidden="true" />
+                </a>
+              </div>
             </div>
           </section>
         ))}

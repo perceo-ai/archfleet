@@ -216,12 +216,18 @@ CUF_SSH_KEY=/keys/cuf_id
 CUF_FLEET_JSON_FILE=/keys/bank.fleet.json
 # Docker bridge mode: use the host gateway for QEMU host-forwarded guest ports.
 CUF_GUEST_HOST=host.docker.internal
+# Optional browser-based XRDP takeover through Apache Guacamole + QuickConnect.
+CUF_GUACAMOLE_URL=http://guacamole:8080/guacamole
+CUF_GUACAMOLE_PUBLIC_URL=http://SERVER:8080/guacamole
+CUF_GUACAMOLE_USERNAME=guacadmin
+CUF_GUACAMOLE_PASSWORD=...
+GUACAMOLE_POSTGRES_PASSWORD=...
 ```
 
 Start the app:
 
 ```
-docker compose -f deploy/home-server.compose.yml up -d --build
+docker compose -f deploy/home-server.compose.yml -f deploy/guacamole.compose.yml up -d --build
 docker compose -f deploy/home-server.compose.yml logs -f archfleet
 ```
 
@@ -229,6 +235,7 @@ The compose file persists:
 - SQLite DB and artifacts: `./data`
 - VM controller key mounted read-only in the container: `./virt/.state/cuf_id`
 - libvirt access through `/var/run/libvirt`
+- Guacamole PostgreSQL state and one-time init SQL: `./data/guacamole`
 
 Quick checks:
 ```
@@ -236,6 +243,10 @@ curl -H "Authorization: Bearer $CUF_AUTH_TOKEN" http://127.0.0.1:3000/api/health
 curl -H "Authorization: Bearer $CUF_AUTH_TOKEN" http://127.0.0.1:3000/api/profile-status
 docker compose -f deploy/home-server.compose.yml ps
 ```
+
+When Guacamole is configured, click **Open desktop** in the VM sidebar to launch
+the selected XRDP desktop in the browser. If Guacamole is unavailable, the button
+falls back to the `.rdp` download route.
 
 ## Choosing an executor per step
 

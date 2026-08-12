@@ -1,0 +1,56 @@
+services:
+  guacamole-init:
+    image: guacamole/guacamole:1.6.0
+    restart: "no"
+    user: "0:0"
+    command: >
+      /bin/sh -lc
+      "mkdir -p /initdb &&
+       if [ ! -s /initdb/001-guacamole.sql ]; then
+         /opt/guacamole/bin/initdb.sh --postgresql > /initdb/001-guacamole.sql;
+       fi"
+    volumes:
+      - ../data/guacamole/initdb:/initdb
+
+  guacamole-postgres:
+    image: postgres:16
+    restart: unless-stopped
+    depends_on:
+      guacamole-init:
+        condition: service_completed_successfully
+    environment:
+      POSTGRES_DB: "${GUACAMOLE_POSTGRES_DB:-guacamole}"
+      POSTGRES_USER: "${GUACAMOLE_POSTGRES_USER:-guacamole}"
+      POSTGRES_PASSWORD: "${GUACAMOLE_POSTGRES_PASSWORD:-guacamole-change-me}"
+    volumes:
+      - ../data/guacamole/postgres:/var/lib/postgresql/data
+      - ../data/guacamole/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  guacd:
+    image: guacamole/guacd:1.6.0
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  guacamole:
+    image: guacamole/guacamole:1.6.0
+    restart: unless-stopped
+    depends_on:
+      guacamole-postgres:
+        condition: service_healthy
+      guacd:
+        condition: service_started
+    ports:
+      - "${GUACAMOLE_PORT:-8080}:8080"
+    environment:
+      GUACD_HOSTNAME: guacd
+      POSTGRESQL_HOSTNAME: guacamole-postgres
+      POSTGRESQL_DATABASE: "${GUACAMOLE_POSTGRES_DB:-guacamole}"
+      POSTGRESQL_USER: "${GUACAMOLE_POSTGRES_USER:-guacamole}"
+      POSTGRESQL_PASSWORD: "${GUACAMOLE_POSTGRES_PASSWORD:-guacamole-change-me}"
+      QUICKCONNECT_ENABLED: "true"
