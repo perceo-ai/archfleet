@@ -12,7 +12,7 @@ describe("FleetManager", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /portal login check/i }));
 
-    expect(screen.getByText("Chat editor")).toBeInTheDocument();
+    expect(screen.getByText("Chat")).toBeInTheDocument();
     expect(screen.getByText("Graph editor")).toBeInTheDocument();
     expect(screen.getByText("XRDP viewer")).toBeInTheDocument();
     expect(screen.getByText("Profile")).toBeInTheDocument();

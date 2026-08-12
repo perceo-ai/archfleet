@@ -7,12 +7,13 @@ import {
   CircleDot,
   ExternalLink,
   History,
+  MessageSquare,
   Monitor,
   Pause,
   Play,
   RotateCcw,
+  Save,
   Send,
-  Settings2,
   Square,
   TerminalSquare,
 } from "lucide-react";
@@ -38,6 +39,32 @@ type TaskCard = {
   workflow: Workflow;
 };
 
+type ChatMessage = {
+  id: string;
+  role: "operator" | "system";
+  text: string;
+  createdAt: string;
+};
+
+type WorkspaceVersion = {
+  id: string;
+  name: string;
+  createdAt: string;
+  taskName: string;
+  profileName: string;
+  objective: string;
+  messages: ChatMessage[];
+};
+
+const STORAGE_KEY = "archfleet.workspace.v1";
+
+const initialMessage = (description: string): ChatMessage => ({
+  id: "msg_initial",
+  role: "system",
+  text: description,
+  createdAt: new Date(0).toISOString(),
+});
+
 export function FleetManager() {
   const state = useMemo(() => seedFleetState(), []);
   const workflow = state.workflows[0];
@@ -46,7 +73,15 @@ export function FleetManager() {
   const [running, setRunning] = useState(false);
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [vms, setVms] = useState<FleetVm[]>(state.vms);
-  const [chatDraft, setChatDraft] = useState(workflow.description);
+  const [taskName, setTaskName] = useState("Portal login check");
+  const [profileName, setProfileName] = useState("default");
+  const [objective, setObjective] = useState(workflow.description);
+  const [messages, setMessages] = useState<ChatMessage[]>([initialMessage(workflow.description)]);
+  const [chatDraft, setChatDraft] = useState("");
+  const [versions, setVersions] = useState<WorkspaceVersion[]>([]);
+  const [versionName, setVersionName] = useState("Initial setup");
+  const [saveNote, setSaveNote] = useState<string>();
+  const [storageLoaded, setStorageLoaded] = useState(false);
   const [desktopUrl, setDesktopUrl] = useState<string>();
   const [desktopMessage, setDesktopMessage] = useState<string>();
   const [desktopBusy, setDesktopBusy] = useState(false);
@@ -81,6 +116,47 @@ export function FleetManager() {
     const t = setInterval(() => void refreshVms(), 8000);
     return () => clearInterval(t);
   }, [refreshRuns, refreshVms]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        if (typeof window.localStorage?.getItem !== "function") return;
+        const raw = window.localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const saved = JSON.parse(raw) as {
+            taskName?: string;
+            profileName?: string;
+            objective?: string;
+            messages?: ChatMessage[];
+            versions?: WorkspaceVersion[];
+          };
+          if (saved.taskName) setTaskName(saved.taskName);
+          if (saved.profileName) setProfileName(saved.profileName);
+          if (saved.objective) setObjective(saved.objective);
+          if (saved.messages?.length) setMessages(saved.messages);
+          if (saved.versions?.length) setVersions(saved.versions);
+        }
+      } catch {
+        // local persistence is best-effort
+      } finally {
+        setStorageLoaded(true);
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!storageLoaded) return;
+    if (typeof window.localStorage?.setItem !== "function") return;
+    try {
+      window.localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ taskName, profileName, objective, messages, versions }),
+      );
+    } catch {
+      // local persistence is best-effort
+    }
+  }, [messages, objective, profileName, storageLoaded, taskName, versions]);
 
   const loadRun = useCallback(async (id: string) => {
     try {
@@ -120,12 +196,59 @@ export function FleetManager() {
   const taskCards: TaskCard[] = [
     {
       id: workflow.id,
-      name: "Portal login check",
-      description: "Use the task golden VM, verify the target site, and collect a run artifact.",
+      name: taskName,
+      description: objective,
       vm: primaryVm,
       workflow,
     },
   ];
+
+  function sendChat() {
+    const text = chatDraft.trim();
+    if (!text) return;
+    const now = new Date().toISOString();
+    setMessages((prev) => [
+      ...prev,
+      { id: `msg_${now}_operator`, role: "operator", text, createdAt: now },
+      {
+        id: `msg_${now}_system`,
+        role: "system",
+        text: "Saved to this workspace. Update the task fields or save a version when this should become a restore point.",
+        createdAt: now,
+      },
+    ]);
+    setObjective(text);
+    setChatDraft("");
+  }
+
+  async function saveVersion() {
+    const now = new Date().toISOString();
+    const version: WorkspaceVersion = {
+      id: `ver_${now}`,
+      name: versionName.trim() || `Version ${versions.length + 1}`,
+      createdAt: now,
+      taskName,
+      profileName,
+      objective,
+      messages,
+    };
+    setVersions((prev) => [version, ...prev]);
+    setSaveNote("Saving...");
+    const res = await fetch("/api/workflows", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...workflow, name: taskName, description: objective }),
+    });
+    setSaveNote(res.ok ? `Saved ${version.name}` : "Version saved locally; graph save failed.");
+  }
+
+  function restoreVersion(version: WorkspaceVersion) {
+    setTaskName(version.taskName);
+    setProfileName(version.profileName);
+    setObjective(version.objective);
+    setMessages(version.messages);
+    setSaveNote(`Restored ${version.name}`);
+  }
 
   async function openDesktop(vm?: FleetVm, pendingMessage = "Connecting to the golden VM...") {
     if (!vm) return;
@@ -266,10 +389,10 @@ export function FleetManager() {
               <ArrowLeft className="h-4 w-4" aria-hidden="true" />
             </button>
             <div>
-              <h1 className="truncate text-[15px] font-semibold leading-tight">
-                Portal login check
-              </h1>
-              <p className="text-xs text-zinc-500">{primaryVm?.name ?? "No VM"} · {statusLabel(primaryVm)}</p>
+              <h1 className="truncate text-[15px] font-semibold leading-tight">{taskName}</h1>
+              <p className="text-xs text-zinc-500">
+                {profileName} · {primaryVm?.name ?? "No VM"} · {statusLabel(primaryVm)}
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -295,28 +418,31 @@ export function FleetManager() {
         </div>
       </header>
 
-      <div className="grid min-h-0 gap-px bg-stone-200 lg:grid-cols-[minmax(420px,0.38fr)_minmax(520px,0.62fr)_420px]">
+      <div className="grid min-h-0 gap-px bg-stone-200 lg:grid-cols-[minmax(160px,1fr)_minmax(420px,3fr)_minmax(420px,3fr)]">
         <section className="grid min-h-0 grid-rows-[48px_minmax(0,1fr)_56px] bg-white">
           <div className="flex items-center justify-between border-b border-stone-200 px-3">
             <div>
-              <h2 className="text-sm font-semibold">Chat editor</h2>
-              <p className="text-xs text-zinc-500">Tell the agent what this task should do.</p>
+              <h2 className="text-sm font-semibold">Chat</h2>
+              <p className="text-xs text-zinc-500">Actual task notes and instructions.</p>
             </div>
-            <Settings2 className="h-4 w-4 text-zinc-400" aria-hidden="true" />
+            <MessageSquare className="h-4 w-4 text-zinc-400" aria-hidden="true" />
           </div>
-          <div className="min-h-0 overflow-y-auto p-4">
-            <div className="rounded-md border border-stone-200 bg-[#fbfaf7] p-3 text-sm leading-6 text-zinc-700">
-              Open the prepared VM, confirm the site is already logged in, then run the workflow
-              against a fresh clone. Ask for human takeover when the desktop state needs repair.
-            </div>
-            <label className="mt-4 block">
-              <span className="text-xs font-semibold uppercase text-zinc-500">Task instruction</span>
-              <textarea
-                value={chatDraft}
-                onChange={(e) => setChatDraft(e.target.value)}
-                className="mt-2 h-52 w-full resize-none rounded-md border border-stone-200 bg-white p-3 text-sm leading-6 text-zinc-900 outline-none focus:border-zinc-500"
-              />
-            </label>
+          <div className="min-h-0 space-y-3 overflow-y-auto p-3">
+            {messages.map((message) => (
+              <div
+                key={message.id}
+                className={`rounded-md border px-3 py-2 text-xs leading-5 ${
+                  message.role === "operator"
+                    ? "border-zinc-900 bg-zinc-950 text-white"
+                    : "border-stone-200 bg-[#fbfaf7] text-zinc-700"
+                }`}
+              >
+                <div className={message.role === "operator" ? "text-zinc-400" : "text-zinc-500"}>
+                  {message.role === "operator" ? "You" : "Archfleet"}
+                </div>
+                <div className="mt-1 whitespace-pre-wrap">{message.text}</div>
+              </div>
+            ))}
           </div>
           <div className="flex items-center gap-2 border-t border-stone-200 px-3">
             <input
@@ -324,10 +450,14 @@ export function FleetManager() {
               onChange={(e) => setChatDraft(e.target.value)}
               aria-label="Message"
               className="h-9 min-w-0 flex-1 rounded-md border border-stone-200 bg-white px-3 text-sm outline-none focus:border-zinc-500"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") sendChat();
+              }}
             />
             <button
               type="button"
               title="Send"
+              onClick={sendChat}
               className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-zinc-950 text-white hover:bg-zinc-800"
             >
               <Send className="h-4 w-4" aria-hidden="true" />
@@ -425,22 +555,67 @@ export function FleetManager() {
           <div className="flex items-center justify-between border-b border-stone-200 px-4">
             <div className="flex items-center gap-2">
               <CheckCircle2 className="h-4 w-4 text-[#b45f36]" aria-hidden="true" />
-              <h2 className="text-sm font-semibold">Profile</h2>
+              <h2 className="text-sm font-semibold">Profile and versions</h2>
             </div>
             <div className="text-xs text-zinc-500">{primaryVm?.xrdp.username ?? "agent"} · {primaryVm?.xrdp.host}:{primaryVm?.xrdp.port}</div>
           </div>
-          <div className="grid grid-cols-3 gap-3 overflow-hidden p-3 text-xs">
-            <div className="rounded-md border border-stone-200 bg-white p-3">
-              <div className="text-zinc-500">Golden VM</div>
-              <div className="mt-1 truncate font-medium text-zinc-950">{primaryVm?.name ?? "Not configured"}</div>
+          <div className="grid grid-cols-[minmax(360px,1fr)_minmax(260px,0.45fr)] gap-3 overflow-hidden p-3 text-xs">
+            <div className="grid grid-cols-[180px_180px_minmax(240px,1fr)] gap-2">
+              <label className="block">
+                <span className="font-medium text-zinc-500">Task</span>
+                <input
+                  value={taskName}
+                  onChange={(e) => setTaskName(e.target.value)}
+                  className="mt-1 h-9 w-full rounded-md border border-stone-200 bg-white px-2 text-sm text-zinc-950 outline-none focus:border-zinc-500"
+                />
+              </label>
+              <label className="block">
+                <span className="font-medium text-zinc-500">Profile</span>
+                <input
+                  value={profileName}
+                  onChange={(e) => setProfileName(e.target.value)}
+                  className="mt-1 h-9 w-full rounded-md border border-stone-200 bg-white px-2 text-sm text-zinc-950 outline-none focus:border-zinc-500"
+                />
+              </label>
+              <label className="block">
+                <span className="font-medium text-zinc-500">Current objective</span>
+                <input
+                  value={objective}
+                  onChange={(e) => setObjective(e.target.value)}
+                  className="mt-1 h-9 w-full rounded-md border border-stone-200 bg-white px-2 text-sm text-zinc-950 outline-none focus:border-zinc-500"
+                />
+              </label>
             </div>
-            <div className="rounded-md border border-stone-200 bg-white p-3">
-              <div className="text-zinc-500">State</div>
-              <div className="mt-1 font-medium text-zinc-950">{statusLabel(primaryVm)}</div>
-            </div>
-            <div className="rounded-md border border-stone-200 bg-white p-3">
-              <div className="text-zinc-500">Workflow</div>
-              <div className="mt-1 font-medium text-zinc-950">{workflow.nodes.length} steps</div>
+            <div className="grid grid-cols-[1fr_auto] gap-2">
+              <label className="block">
+                <span className="font-medium text-zinc-500">Version name</span>
+                <input
+                  value={versionName}
+                  onChange={(e) => setVersionName(e.target.value)}
+                  className="mt-1 h-9 w-full rounded-md border border-stone-200 bg-white px-2 text-sm text-zinc-950 outline-none focus:border-zinc-500"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => void saveVersion()}
+                className="mt-5 inline-flex h-9 items-center gap-1.5 rounded-md bg-zinc-950 px-3 text-xs font-semibold text-white hover:bg-zinc-800"
+              >
+                <Save className="h-3.5 w-3.5" aria-hidden="true" />
+                Save
+              </button>
+              <div className="col-span-2 flex min-w-0 items-center gap-2 overflow-x-auto">
+                {saveNote ? <span className="shrink-0 text-zinc-500">{saveNote}</span> : null}
+                {versions.map((version) => (
+                  <button
+                    key={version.id}
+                    type="button"
+                    onClick={() => restoreVersion(version)}
+                    className="shrink-0 rounded-sm border border-stone-200 bg-white px-2 py-1 text-[11px] text-zinc-700 hover:bg-stone-50"
+                  >
+                    {version.name}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </section>
