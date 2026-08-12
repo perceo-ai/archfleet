@@ -23,11 +23,12 @@ describe("flow-convert", () => {
     expect(back.edges.some((e) => e.id === "e_new" && e.condition === "always")).toBe(true);
   });
 
-  it("makeNode builds a typed node with empty config + unique id", () => {
+  it("makeNode builds a typed node with useful defaults + unique id", () => {
     const a = makeNode("computer_use_task");
     const b = makeNode("computer_use_task");
     expect(a.type).toBe("computer_use_task");
-    expect(a.config).toEqual({});
+    expect(a.name).toBe("Use Runner VM");
+    expect(a.config.prompt).toContain("golden profile");
     expect(a.id).not.toBe(b.id);
   });
 });

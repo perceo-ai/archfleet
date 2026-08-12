@@ -1,15 +1,21 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { FleetManager } from "./FleetManager";
 
 describe("FleetManager", () => {
-  it("renders the workflow, XRDP fleet, and CLI provider order", () => {
+  it("renders a task home and opens the simplified task workspace", () => {
     render(<FleetManager />);
 
-    expect(screen.getByText("Computer Use Fleet")).toBeInTheDocument();
-    expect(screen.getByText("Portal Login Check")).toBeInTheDocument();
-    expect(screen.getAllByText("XRDP").length).toBeGreaterThan(0);
-    expect(screen.getByText("Claude Code")).toBeInTheDocument();
-    expect(screen.getByText("Codex")).toBeInTheDocument();
+    expect(screen.getByText("Perceo Archfleet")).toBeInTheDocument();
+    expect(screen.getByText("Run browser workflows on Runner VMs.")).toBeInTheDocument();
+    expect(screen.getByText("Portal login check")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /portal login check/i }));
+
+    expect(screen.getByText("Chat")).toBeInTheDocument();
+    expect(screen.getByText("Graph Editor")).toBeInTheDocument();
+    expect(screen.getByText("Runner VM")).toBeInTheDocument();
+    expect(screen.getByText("Profile")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Run" })).toBeInTheDocument();
   });
 });

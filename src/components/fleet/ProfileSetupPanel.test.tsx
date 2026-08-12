@@ -9,9 +9,26 @@ describe("ProfileSetupPanel", () => {
     vi.unstubAllGlobals();
   });
 
-  it("posts a task profile setup request and reports the workflow id", async () => {
+  it("asks the LLM planner for a task workflow draft", async () => {
+    const planned = {
+      id: "wf_draft_bank",
+      name: "Bank statement download",
+      description: "Drafted by the agent planner.",
+      enabled: false,
+      triggerKinds: ["manual"],
+      nodes: [
+        { id: "start", type: "start", name: "Start", position: { x: 0, y: 0 }, config: {} },
+        { id: "login", type: "computer_use_task", name: "Open portal", position: { x: 1, y: 0 }, config: { prompt: "open portal" } },
+        { id: "end", type: "end", name: "Complete", position: { x: 2, y: 0 }, config: {} },
+      ],
+      edges: [
+        { id: "e1", from: "start", to: "login", condition: "always" },
+        { id: "e2", from: "login", to: "end", condition: "success" },
+      ],
+    };
     const fetchMock = vi.fn(async (url: string) => {
       if (url === "/api/profile-ops") return { ok: true, json: async () => ({ operations: [] }) };
+      if (url === "/api/plan") return { ok: true, json: async () => ({ workflow: planned, errors: [] }) };
       return {
         ok: true,
         json: async () => ({ workflow: { id: "wf_profile_setup_bank", name: "Prepare bank profile" } }),
@@ -21,21 +38,18 @@ describe("ProfileSetupPanel", () => {
 
     render(<ProfileSetupPanel />);
     fireEvent.change(screen.getByLabelText("Profile"), { target: { value: "bank" } });
-    fireEvent.change(screen.getByLabelText("Task"), {
+    fireEvent.change(screen.getByLabelText("Task Brief for the Model"), {
       target: { value: "Log into the bank portal and prepare statements" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Draft workflow" }));
+    fireEvent.click(screen.getByRole("button", { name: "Draft with LLM" }));
 
-    await waitFor(() => expect(screen.getByText("Drafted wf_profile_setup_bank")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("LLM drafted Bank statement download")).toBeInTheDocument());
+    expect(screen.getByText("Open portal")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/profile-setup",
+      "/api/plan",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({
-          profile: "bank",
-          task: "Log into the bank portal and prepare statements",
-          save: true,
-        }),
+        body: expect.stringContaining("Log into the bank portal and prepare statements"),
       }),
     );
   });
@@ -66,10 +80,10 @@ describe("ProfileSetupPanel", () => {
 
     render(<ProfileSetupPanel />);
     fireEvent.change(screen.getByLabelText("Profile"), { target: { value: "bank" } });
-    fireEvent.change(screen.getByLabelText("Task"), {
+    fireEvent.change(screen.getByLabelText("Task Brief for the Model"), {
       target: { value: "Log into the bank portal and prepare statements" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Start setup" }));
+    fireEvent.click(screen.getByRole("button", { name: "Prepare Golden VM" }));
 
     await waitFor(() => expect(screen.getByText("waiting for capture")).toBeInTheDocument());
     expect(fetchMock).toHaveBeenCalledWith("/api/profile-setup", expect.objectContaining({ method: "POST" }));
