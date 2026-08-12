@@ -112,6 +112,18 @@ set -euo pipefail
 cd "$REMOTE_DIR"
 printf 'commit='
 git rev-parse --short HEAD
+for i in {1..30}; do
+  container_health=\$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' deploy-archfleet-1 2>/dev/null || true)
+  if [ "\$container_health" = "healthy" ]; then
+    break
+  fi
+  sleep 2
+done
+printf 'archfleet_container_health=%s\n' "\$container_health"
+if [ "\$container_health" != "healthy" ]; then
+  docker inspect -f '{{json .State.Health}}' deploy-archfleet-1 || true
+  exit 1
+fi
 docker compose -p deploy --env-file .env.local $COMPOSE_FILES ps --status running
 set -a
 . ./.env.local
