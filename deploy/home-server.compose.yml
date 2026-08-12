@@ -16,6 +16,7 @@ services:
       NODE_ENV: production
       CUF_DB_PATH: /data/fleet.db
       CUF_ARTIFACT_DIR: /data/artifacts
+      CUF_LIBVIRT_URI: "${CUF_LIBVIRT_URI:-qemu:///system}"
       CUF_SSH_KEY: /keys/cuf_id
     volumes:
       - ../data:/data

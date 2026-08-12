@@ -208,7 +208,7 @@ AGENT_PASSWORD='…' npm run vm:recover-profile -- --profile bank
 ```
 
 Set `CUF_SECRET_KEY`, model/notification variables, and the generated fleet file.
-For Docker Compose, use the container path mounted from `virt/.state`:
+For Docker Compose, use the container path mounted from `virt/.state`. Pass `--env-file .env.local` to Compose so values set here also affect compose interpolation:
 
 ```
 CUF_LIBVIRT_URI=qemu:///system
@@ -231,8 +231,8 @@ Set `GUACAMOLE_ADMIN_PASSWORD` and `CUF_GUACAMOLE_PASSWORD` to the same non-defa
 Start the app:
 
 ```
-docker compose -f deploy/home-server.compose.yml -f deploy/guacamole.compose.yml up -d --build
-docker compose -f deploy/home-server.compose.yml logs -f archfleet
+docker compose --env-file .env.local -f deploy/home-server.compose.yml -f deploy/guacamole.compose.yml up -d --build
+docker compose --env-file .env.local -f deploy/home-server.compose.yml logs -f archfleet
 ```
 
 The compose file persists:
