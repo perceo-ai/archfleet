@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { planWorkflow, extractGraph, normalizeWorkflow } from "./planner";
+import { planWorkflow, extractGraph, normalizeWorkflow, PLANNER_SYSTEM } from "./planner";
 import type { AgentExec } from "./cli-agent-runner";
 
 const GRAPH = {
@@ -37,6 +37,11 @@ describe("normalizeWorkflow", () => {
 });
 
 describe("planWorkflow", () => {
+  it("teaches the planner how to emit agent-backed decision nodes", () => {
+    expect(PLANNER_SYSTEM).toContain("condition with config.provider");
+    expect(PLANNER_SYSTEM).toContain("success/failure");
+  });
+
   it("drafts + validates a workflow from an agent's graph JSON", async () => {
     const exec: AgentExec = async () => ({
       code: 0,

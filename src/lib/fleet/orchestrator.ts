@@ -105,6 +105,23 @@ function secretEnv(secrets: Secret[]): Record<string, string> {
   );
 }
 
+function decisionOutcome(result: AgentRunResult): Outcome {
+  const raw =
+    typeof result.structuredOutput === "object" && result.structuredOutput
+      ? ((result.structuredOutput as Record<string, unknown>).outcome ??
+          (result.structuredOutput as Record<string, unknown>).decision ??
+          (result.structuredOutput as Record<string, unknown>).result)
+      : result.structuredOutput;
+  const decision = typeof raw === "string" ? raw.toLowerCase().trim() : "";
+  if (decision === "success") return "success";
+  if (decision === "failure") return "failure";
+
+  const text = `${typeof raw === "string" ? raw : JSON.stringify(raw ?? "")}\n${result.stdout}`.toLowerCase();
+  if (/\b(failure|fail|no|false|blocked|not ready)\b/.test(text)) return "failure";
+  if (/\b(success|succeed|yes|true|pass|ready)\b/.test(text)) return "success";
+  return "failure";
+}
+
 export async function runWorkflow(
   input: RunWorkflowInput,
   deps: OrchestratorDeps,
@@ -259,6 +276,43 @@ export async function runWorkflow(
         emit("warn", `Node "${node.name}": paused for human takeover.`);
         return "paused";
       case "condition": {
+        if (node.config.provider) {
+          if (!deps.agentExec) {
+            emit("error", `Condition "${node.name}": no CLI-agent executor configured.`);
+            return "failure";
+          }
+          const prompt = [
+            "Decide whether this workflow should follow the success or failure edge.",
+            'Return ONLY JSON: {"outcome":"success"|"failure","reason":"..."}',
+            "",
+            `Decision question: ${fillPrompt(node.config.prompt ?? node.name)}`,
+            "",
+            `Prior workflow context:\n${pastWork || "(none)"}`,
+          ].join("\n");
+          try {
+            const result = await runCliAgent(
+              {
+                provider: node.config.provider,
+                prompt,
+                secrets: secretMap,
+                allowApiFallback: false,
+              },
+              deps.agentExec,
+              secrets,
+            );
+            if (result.status !== "succeeded") {
+              emit("error", `Condition "${node.name}" agent execution failed.`);
+              return "failure";
+            }
+            const out = decisionOutcome(result);
+            emit("info", `Condition "${node.name}" model decision -> ${out}.`);
+            pastWork += `\n${node.name}: ${out}`;
+            return out;
+          } catch (e) {
+            emit("error", `Condition "${node.name}" agent error: ${String(e)}`);
+            return "failure";
+          }
+        }
         // MVP: succeed if prior output contains config.prompt (else success when unset).
         const needle = node.config.prompt;
         const ok = !needle || pastWork.includes(needle);

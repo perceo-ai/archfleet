@@ -1,0 +1,34 @@
+services:
+  archfleet:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: archfleet:local
+    restart: unless-stopped
+    ports:
+      - "${ARCHFLEET_PORT:-3000}:3000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    env_file:
+      - path: ../.env.local
+        required: false
+    environment:
+      NODE_ENV: production
+      CUF_DB_PATH: /data/fleet.db
+      CUF_ARTIFACT_DIR: /data/artifacts
+      CUF_LIBVIRT_URI: "${CUF_LIBVIRT_URI:-qemu:///system}"
+      CUF_SSH_KEY: /keys/cuf_id
+    volumes:
+      - ../data:/data
+      - ../virt/.state:/keys:ro
+      - /var/run/libvirt:/var/run/libvirt
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:3000/api/health',{headers:process.env.CUF_AUTH_TOKEN?{Authorization:'Bearer '+process.env.CUF_AUTH_TOKEN}:{}}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s

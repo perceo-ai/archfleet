@@ -10,6 +10,7 @@ export const PLANNER_SYSTEM = `You design automation workflows for a computer-us
 Given a task, output ONLY a JSON object (no prose) of the form:
 {"name": string, "nodes": [{"id","type","name","config":{"prompt"?,"requiredLabels"?,"provider"?}}], "edges": [{"from","to","condition"}]}
 Node types: start, computer_use_task, cli_agent_task, shell_task, condition, human_takeover, retry_wait, end.
+Use condition nodes for branches. A condition with config.provider asks a CLI model to return success/failure from prior context; without provider it does simple text matching against prior output.
 Rules: exactly one start and one end; every node reachable from start; edge condition is "success"|"failure"|"always".`;
 
 type RawGraph = {

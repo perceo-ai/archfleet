@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { realVmsFromEnv } from "./fleet-config";
 
 describe("realVmsFromEnv", () => {
@@ -40,6 +43,27 @@ describe("realVmsFromEnv", () => {
     expect(vms[1].labels).toEqual(["gpu", "office"]);
   });
 
+  it("labels manually prepared profile clones for workflow targeting", () => {
+    const vms = realVmsFromEnv({
+      CUF_FLEET_JSON: JSON.stringify([
+        { domain: "cuf-bank-1", profile: "bank", sshPort: 11022, rdpPort: 14389 },
+      ]),
+    });
+
+    expect(vms[0].name).toBe("bank / cuf-bank-1");
+    expect(vms[0].labels).toEqual(["linux-desktop", "browser", "profile:bank"]);
+  });
+
+  it("does not duplicate an explicit profile label", () => {
+    const vms = realVmsFromEnv({
+      CUF_FLEET_JSON: JSON.stringify([
+        { domain: "cuf-bank-1", profile: "bank", labels: ["browser", "profile:bank"] },
+      ]),
+    });
+
+    expect(vms[0].labels).toEqual(["browser", "profile:bank"]);
+  });
+
   it("de-dupes overlapping shorthand + JSON by domain", () => {
     const vms = realVmsFromEnv({
       CUF_GOLDEN_DOMAIN: "cuf-golden",
@@ -50,5 +74,25 @@ describe("realVmsFromEnv", () => {
 
   it("ignores malformed CUF_FLEET_JSON", () => {
     expect(realVmsFromEnv({ CUF_FLEET_JSON: "not json" })).toEqual([]);
+  });
+
+  it("loads a prepared profile fleet from CUF_FLEET_JSON_FILE", () => {
+    const dir = mkdtempSync(join(tmpdir(), "archfleet-fleet-"));
+    try {
+      const file = join(dir, "bank.fleet.json");
+      writeFileSync(file, JSON.stringify([{ domain: "cuf-bank-1", profile: "bank", sshPort: 11022 }]));
+
+      const vms = realVmsFromEnv({ CUF_FLEET_JSON_FILE: file });
+
+      expect(vms).toHaveLength(1);
+      expect(vms[0].domain).toBe("cuf-bank-1");
+      expect(vms[0].labels).toContain("profile:bank");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("ignores a missing CUF_FLEET_JSON_FILE", () => {
+    expect(realVmsFromEnv({ CUF_FLEET_JSON_FILE: "/does/not/exist.json" })).toEqual([]);
   });
 });

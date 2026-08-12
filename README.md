@@ -53,6 +53,37 @@ export CUF_GOLDEN_DOMAIN=cuf-golden CUF_SSH_KEY=$PWD/virt/.state/cuf_id
 
 Then unset `CUF_AGENT_BACKEND` and set `OPENROUTER_API_KEY` + `CUF_GROUNDING_BASE_URL` for LLM-driven computer use, or stick to `script_task` / `browser_task` / `api_call` nodes, which need no model.
 
+### Task profile VMs for 2FA-heavy sites
+
+For portals that require a human login, MFA, captchas, device trust, browser extensions, or per-customer setup, use the dashboard's **Task Profile** panel. It drafts the setup workflow, starts the source VM, opens XRDP through the browser, waits for you to finish login, then captures and clones the prepared state. Update and recovery run from the same panel.
+
+The underlying host command is still available:
+
+```bash
+AGENT_PASSWORD='…' npm run vm:prepare-profile -- --profile bank --clones 2
+```
+
+The script starts the source VM, prints the XRDP connection, waits while you log in and configure the desktop manually, snapshots that live source state, then copies the prepared disk into clone domains with distinct SSH/XRDP ports. It writes `virt/.state/bank.fleet.json` and an env snippet; workflows can target those VMs with `requiredLabels: ["profile:bank"]`.
+
+What is preserved: installed apps, browser profiles/cookies, trusted-device state, downloaded files, and each clone's own warm snapshot after first boot. A live RAM snapshot preserves the exact open desktop only for the domain it was taken on; clones preserve disk-backed login state, and some services may still invalidate cloned sessions when device fingerprints change.
+
+Update and recovery:
+
+```bash
+AGENT_PASSWORD='…' npm run vm:update-profile -- --profile bank --clones 2
+AGENT_PASSWORD='…' npm run vm:recover-profile -- --profile bank --repair
+```
+
+`vm:update-profile` reopens the source task golden, lets you update logins/apps/site state, and rebuilds existing clones with `--replace`. `vm:recover-profile` reverts every clone in `virt/.state/bank.fleet.json` to its warm snapshot, waits for SSH, and runs the guest selftest; `--repair` recreates missing warm snapshots from the current clone state.
+
+To create a draft Agent S setup workflow for a profile:
+
+```bash
+curl -X POST http://localhost:3000/api/profile-setup \
+  -H 'content-type: application/json' \
+  -d '{"profile":"bank","task":"Log into the bank portal and prepare monthly statement download","save":true}'
+```
+
 ### Docker
 
 ```bash
@@ -67,6 +98,30 @@ docker run -p 3000:3000 -v $PWD/data:/data \
 
 The image ships `virsh`/`ssh`; VM control needs the mounted libvirt socket. Health probe: `GET /api/health`.
 
+### Home server deployment
+
+Use the compose file when the home server hosts both archfleet and libvirt:
+
+```bash
+cp .env.example .env.local
+./virt/preflight.sh
+AGENT_PASSWORD='…' ./virt/build-golden.sh
+HOST_BIND="$(ip -4 addr show docker0 | awk '/inet / {print $2}' | cut -d/ -f1)" \
+FLEET_HOST=host.docker.internal \
+AGENT_PASSWORD='…' npm run vm:prepare-profile -- --profile bank --clones 2
+# add CUF_FLEET_JSON_FILE=/keys/bank.fleet.json to .env.local for Docker
+# set CUF_GUEST_HOST=host.docker.internal when running in Docker bridge mode
+# set CUF_GUACAMOLE_URL=http://guacamole:8080/guacamole, CUF_GUACAMOLE_PUBLIC_URL=http://SERVER:8080/guacamole, plus Guacamole credentials
+# set GUACAMOLE_ADMIN_PASSWORD to a non-default value before enabling Guacamole
+docker compose --env-file .env.local -f deploy/home-server.compose.yml -f deploy/guacamole.compose.yml up -d --build
+```
+
+Pass `--env-file .env.local` so Compose uses the same configuration for interpolation and container env. `CUF_LIBVIRT_URI` defaults to `qemu:///system` for the mounted host libvirt socket; set `CUF_LIBVIRT_URI=qemu:///session` in `.env.local` only if the container can reach your session daemon. In Docker bridge mode, set `CUF_GUEST_HOST=host.docker.internal` so the container can reach libvirt's host-forwarded SSH/XRDP ports. The compose file persists SQLite/artifacts under `./data`, mounts `./virt/.state` read-only for `CUF_SSH_KEY`, and mounts `/var/run/libvirt` so the app can reset and assign VMs.
+
+VM host-forward ports bind to `127.0.0.1` by default. For Docker bridge deployment, set `HOST_BIND` to the Docker host-gateway address when building/preparing VMs and set `FLEET_HOST=host.docker.internal` so generated profile fleet JSON points the app container at that gateway without exposing clone ports on the LAN.
+
+For browser-based desktop takeover, layer in `deploy/guacamole.compose.yml`, set `GUACAMOLE_ADMIN_PASSWORD`/`CUF_GUACAMOLE_PASSWORD` to the same non-default value, change `GUACAMOLE_POSTGRES_PASSWORD`, and set `CUF_GUACAMOLE_URL`, `CUF_GUACAMOLE_PUBLIC_URL`, and `CUF_GUACAMOLE_USERNAME=guacadmin`. Guacamole binds to `127.0.0.1` by default; set `GUACAMOLE_BIND_HOST=0.0.0.0` only when it is behind your trusted network or reverse proxy. The dashboard's **Open desktop** button will create the RDP session in Guacamole automatically; if those variables are not set, the same button downloads a `.rdp` file.
+
 ### Key environment variables
 
 | var | purpose |
@@ -76,6 +131,12 @@ The image ships `virsh`/`ssh`; VM control needs the mounted libvirt socket. Heal
 | `CUF_GOLDEN_DOMAIN` | libvirt domain to bind as a fleet VM (single-VM shorthand) |
 | `CUF_FLEET_JSON` | `[{domain,sshPort,rdpPort,…}]` — multi-VM fleet |
 | `CUF_SSH_KEY` | controller SSH private key for the guest transport |
+| `CUF_GUEST_HOST` | guest SSH/XRDP host; use `host.docker.internal` from Docker |
+| `CUF_GUACAMOLE_URL` | internal Apache Guacamole API URL for built-in web XRDP takeover |
+| `CUF_GUACAMOLE_PUBLIC_URL` | browser-reachable Apache Guacamole URL |
+| `GUACAMOLE_ADMIN_PASSWORD` | non-default password used to rotate Guacamole's seeded `guacadmin` account |
+| `GUACAMOLE_BIND_HOST` | host interface for Guacamole; defaults to `127.0.0.1` |
+| `GUACAMOLE_POSTGRES_PASSWORD` | password for the bundled Guacamole PostgreSQL service |
 | `CUF_AGENT_BACKEND` | `mock` = model-free full-stack run |
 | `OPENROUTER_API_KEY` / `CUF_PLANNER_MODEL` | planner model |
 | `CUF_GROUNDING_BASE_URL` | UI-TARS grounding endpoint |
@@ -86,13 +147,14 @@ See `.env.example` for the full list.
 
 ## How it works
 
-1. **Author.** Build a workflow on the React Flow canvas (`Start → tasks → End`), or draft one from a plain-language task with the planner (`plan_workflow`). Workflows are validated before they save.
-2. **Trigger.** Run manually (Run button / `POST /api/runs`), on a cron schedule, or via webhook (`POST /api/webhooks/:token`, whose JSON body becomes run params).
-3. **Enqueue.** `POST /api/runs` returns `202` with a `queued` run. A worker drains the queue — the always-on server does it via the `instrumentation` loop; serverless/multi-instance hosts POST `/api/runs/process` on a cron. Claims are atomic, so multiple workers are safe.
-4. **Acquire & reset.** The vm-daemon shells out to `virsh` to acquire an idle VM and restore its warm memory snapshot (~1–3s), giving each run a clean desktop.
-5. **Execute.** The orchestrator dispatches each node: computer-use tasks run Agent S on the guest `:0` desktop over SSH; browser/script tasks run deterministic step lists; CLI-agent/shell/api tasks run on the controller. Every task resolves `{{secret.x}}` / `{{param.x}}` / `{{totp.x}}` at runtime, and all values are redacted from persisted logs.
-6. **Pause for a human.** On a `human_takeover` node — or a task failing into one — the run pauses, the VM is held (no reset), and archfleet pages `CUF_NOTIFY_WEBHOOK`. Take over on the same live desktop via `.rdp` download (`GET /api/vms/:id/rdp`), `./virt/connect-xrdp.sh`, or the copyable connection block in the sidebar.
-7. **Resume & review.** `POST /api/runs/:id/action` with `retry` / `resume` / `cancel`. Every step's screenshot is captured on the guest and scp-fetched to `data/artifacts/<runId>/`, shown as thumbnails and downloadable at `GET /api/runs/:id/artifacts/:name`.
+1. **Author.** Build a workflow on the React Flow canvas, draft one from a plain-language task with the planner (`plan_workflow`), or use Task Profile to create the setup workflow for a logged-in golden profile.
+2. **Prepare.** Task Profile starts the source VM, opens its desktop, waits for manual login/2FA, captures the source, clones it, and writes fleet JSON for labels such as `profile:bank`.
+3. **Trigger.** Run manually (Run button / `POST /api/runs`), on a cron schedule, or via webhook (`POST /api/webhooks/:token`, whose JSON body becomes run params).
+4. **Enqueue.** `POST /api/runs` returns `202` with a `queued` run. A worker drains the queue — the always-on server does it via the `instrumentation` loop; serverless/multi-instance hosts POST `/api/runs/process` on a cron. Claims are atomic, so multiple workers are safe.
+5. **Acquire & reset.** The vm-daemon shells out to `virsh` to acquire an idle VM and restore its warm memory snapshot (~1–3s), giving each run a clean desktop.
+6. **Execute.** The orchestrator dispatches each node: computer-use tasks run Agent S on the guest `:0` desktop over SSH; browser/script tasks run deterministic step lists; CLI-agent/shell/api tasks run on the controller. Every task resolves `{{secret.x}}` / `{{param.x}}` / `{{totp.x}}` at runtime, and all values are redacted from persisted logs.
+7. **Pause for a human.** On a `human_takeover` node — or a task failing into one — the run pauses, the VM is held (no reset), and archfleet pages `CUF_NOTIFY_WEBHOOK`. Take over on the same live desktop with **Open desktop** in the sidebar.
+8. **Resume & review.** `POST /api/runs/:id/action` with `retry` / `resume` / `cancel`. Every step's screenshot is captured on the guest and scp-fetched to `data/artifacts/<runId>/`, shown as thumbnails and downloadable at `GET /api/runs/:id/artifacts/:name`.
 
 See `RUNBOOK.md` for the full human-in-the-loop and 2FA playbook, and `ARCHITECTURE.md` for the layer/deploy topology.
 
@@ -105,9 +167,10 @@ See `RUNBOOK.md` for the full human-in-the-loop and 2FA playbook, and `ARCHITECT
 - ✅ **Encrypted secrets & params** — AES-256-GCM at rest (key derived from `CUF_SECRET_KEY`, kept out of the DB), redacted from all persisted events.
 - ✅ **Runtime 2FA** — RFC 6238 `{{totp.seed}}` codes generated per run, plus an `otp_email` node that reads an IMAP inbox and extracts the code.
 - ✅ **XRDP human-takeover** — pause + hold VM + page operator; land on the same `:0` desktop the agent was driving.
+- ✅ **Task profile operations** — browser-first setup, update, and recovery for logged-in task goldens.
 - ✅ **Model-free demo backend** — `CUF_AGENT_BACKEND=mock` proves the whole stack end to end.
 - ✅ **MCP server** — `npm run mcp` exposes every fleet op as stdio tools (`list_workflows`, `run_workflow`, `get_run`, `create_trigger`, `create_secret`, `list_vms`, …). Register it with any MCP client; see `mcp.json.example`.
-- 🚧 **Real VM fleet (libvirt/QEMU)** — the vm-daemon, `virsh` control, and guest runners are implemented and tested; provisioning is scripted (`virt/build-golden.sh`), but standing up a live golden image requires libvirt/qemu/guestfs-tools on the host and remains the least turnkey path.
+- 🚧 **Real VM fleet (libvirt/QEMU)** — the vm-daemon, `virsh` control, and guest runners are implemented and tested; the initial base golden image still requires libvirt/qemu/guestfs-tools on the host.
 - 🚧 **Multi-VM / scale-out** — safe by construction (atomic queue claim, `CUF_FLEET_JSON` fleet definition); exercised in unit tests, not yet run at scale.
 - 🚧 **Operator UI polish** — the dashboard is functional (live fleet health, run history, secrets/triggers, XRDP copy) but not branded/marketing-grade; spacing, empty states, theming, and mobile are unpolished by design.
 

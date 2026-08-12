@@ -64,6 +64,34 @@ describe("vm daemon acquire", () => {
     expect(client.reverts).toEqual([["dom-a", "golden-warm"]]);
   });
 
+  it("waits for SSH readiness before assigning a real VM", async () => {
+    const client = fakeClient({ "dom-a": "running" });
+    const waitForTcp = vi.fn(async () => {});
+    const daemon = createVmDaemon(
+      client,
+      [vm("a", { ssh: { host: "127.0.0.1", port: 10022, username: "agent" } })],
+      { waitForTcp, readyTimeoutMs: 1234, readyIntervalMs: 25 },
+    );
+
+    const res = await daemon.acquire({ requiredLabels: [], runId: "run_1" });
+
+    expect(res.ok).toBe(true);
+    expect(waitForTcp).toHaveBeenCalledWith("127.0.0.1", 10022, 1234, 25);
+  });
+
+  it("returns reset_failed when SSH readiness times out", async () => {
+    const client = fakeClient({ "dom-a": "running" });
+    const daemon = createVmDaemon(
+      client,
+      [vm("a", { ssh: { host: "127.0.0.1", port: 10022, username: "agent" } })],
+      { waitForTcp: vi.fn(async () => { throw new Error("not ready"); }) },
+    );
+
+    const res = await daemon.acquire({ requiredLabels: [], runId: "run_1" });
+
+    expect(res).toEqual({ ok: false, reason: "reset_failed", detail: "Error: not ready" });
+  });
+
   it("returns no_matching_vm when labels do not match", async () => {
     const client = fakeClient({ "dom-a": "running" });
     const daemon = createVmDaemon(client, [vm("a", { labels: ["linux-desktop"] })]);

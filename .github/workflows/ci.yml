@@ -1,29 +1,161 @@
 name: CI
 
 on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize, ready_for_review, converted_to_draft]
   push:
     branches: [main]
-  pull_request:
+  schedule:
+    - cron: "17 10 * * 1"
+  workflow_dispatch:
+    inputs:
+      target_ref:
+        description: Optional branch, tag, or commit SHA to validate instead of the workflow ref
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.event_name == 'workflow_dispatch' && format('{0}-manual-{1}', github.workflow, github.run_id) || (github.event_name == 'pull_request' && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number) || format('{0}-{1}', github.workflow, github.ref)) }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
-  web:
-    runs-on: ubuntu-latest
+  preflight:
+    name: Preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      checkout_ref: ${{ steps.checkout-ref.outputs.ref }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Resolve checkout ref
+        id: checkout-ref
+        env:
+          TARGET_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.target_ref || '' }}
+        run: |
+          set -euo pipefail
+          ref="${TARGET_REF:-$GITHUB_SHA}"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+  web:
+    name: Web App
+    needs: [preflight]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.preflight.outputs.checkout_ref }}
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
         with:
           node-version: "24"
           cache: npm
-      - run: npm ci
-      - run: npm run lint
-      - run: npm run test
-      - run: npm run build
 
-  guest-runner:
-    runs-on: ubuntu-latest
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm run test
+
+      - name: Build
+        run: npm run build
+
+  virt:
+    name: VM Tooling
+    needs: [preflight]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.preflight.outputs.checkout_ref }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python -m unittest discover -s virt/agent-runner
+
+      - name: Run agent runner tests
+        run: python -m unittest discover -s virt/agent-runner
+
+      - name: Run VM XML tests
+        run: python -m unittest virt/test_clone_domain_xml.py
+
+      - name: Validate shell scripts
+        run: bash -n deploy/*.sh virt/*.sh virt/ui-tars/*.sh
+
+  deployment-config:
+    name: Deployment Config
+    needs: [preflight]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.preflight.outputs.checkout_ref }}
+          persist-credentials: false
+
+      - name: Validate home-server compose
+        run: docker compose -f deploy/home-server.compose.yml config >/dev/null
+
+      - name: Validate full compose stack
+        env:
+          GUACAMOLE_ADMIN_PASSWORD: ci-guacamole-password
+        run: docker compose -f deploy/home-server.compose.yml -f deploy/guacamole.compose.yml config >/dev/null
+
+  docker-build:
+    name: Docker Build
+    needs: [preflight]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.preflight.outputs.checkout_ref }}
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          push: false
+          tags: archfleet:ci
+          cache-from: type=gha,scope=archfleet-ci
+          cache-to: type=gha,mode=max,scope=archfleet-ci
+
+  ci-status:
+    name: CI Status
+    if: always()
+    needs: [web, virt, deployment-config, docker-build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check required jobs
+        env:
+          FAILED: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: |
+          set -euo pipefail
+          if [ "$FAILED" = "true" ]; then
+            echo "One or more required CI jobs failed or were cancelled." >&2
+            exit 1
+          fi

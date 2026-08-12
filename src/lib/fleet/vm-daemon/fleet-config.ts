@@ -3,13 +3,15 @@
 //
 //   CUF_GOLDEN_DOMAIN=cuf-golden        single-VM shorthand (uses CUF_GUEST_* + AGENT_USER)
 //   CUF_FLEET_JSON=[{domain,...}, ...]  full multi-VM fleet
+//   CUF_FLEET_JSON_FILE=/path/fleet.json profile fleet file emitted by prepare-profile.sh
 //
 // A fleet spec: { domain, name?, labels?(csv or []), host?, sshPort?, rdpPort?,
-//   user?, snapshot?, memGb?, diskGb? }.
+//   user?, snapshot?, memGb?, diskGb?, profile? }.
 //
 // With neither set this returns [] and the daemon has nothing to acquire.
 
 import type { FleetVm } from "../types";
+import { readFileSync } from "node:fs";
 
 type VmSpec = {
   domain: string;
@@ -22,6 +24,7 @@ type VmSpec = {
   snapshot?: string;
   memGb?: number;
   diskGb?: number;
+  profile?: string;
 };
 
 function toLabels(labels: string[] | string | undefined, fallback: string): string[] {
@@ -37,11 +40,15 @@ function buildVm(spec: VmSpec): FleetVm {
   const user = spec.user ?? "agent";
   const sshPort = spec.sshPort ?? 10022;
   const rdpPort = spec.rdpPort ?? 13389;
+  const labels = toLabels(spec.labels, "linux-desktop,browser");
+  const profile = spec.profile?.trim();
+  const profileLabel = profile ? `profile:${profile}` : "";
+  if (profileLabel && !labels.includes(profileLabel)) labels.push(profileLabel);
   return {
     id: `vm_${spec.domain}`,
-    name: spec.name ?? spec.domain,
+    name: spec.name ?? (profile ? `${profile} / ${spec.domain}` : spec.domain),
     status: "idle",
-    labels: toLabels(spec.labels, "linux-desktop,browser"),
+    labels,
     cpu: 0,
     memoryGb: spec.memGb ?? 4,
     diskGb: spec.diskGb ?? 25,
@@ -76,6 +83,15 @@ export function realVmsFromEnv(env: Record<string, string | undefined> = process
       for (const s of parsed) if (s && s.domain) specs.push(s);
     } catch {
       // ignore malformed fleet config
+    }
+  }
+
+  if (env.CUF_FLEET_JSON_FILE) {
+    try {
+      const parsed = JSON.parse(readFileSync(env.CUF_FLEET_JSON_FILE, "utf8")) as VmSpec[];
+      for (const s of parsed) if (s && s.domain) specs.push(s);
+    } catch {
+      // ignore missing/malformed fleet config files
     }
   }
 
