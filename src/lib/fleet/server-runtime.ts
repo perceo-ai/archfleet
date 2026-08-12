@@ -80,8 +80,10 @@ function resolveSecrets(db: Db, state: FleetState): FleetState["secrets"] {
 function buildRunDeps(state: FleetState, now: () => string): OrchestratorDeps {
   const uri = process.env.CUF_LIBVIRT_URI ?? "qemu:///session";
   const client = createVirshClient(execVirshRunner(), uri);
-  // Real domain-bound VMs (from env) first, then mock seed VMs for display.
-  const daemon = createVmDaemon(client, [...realVmsFromEnv(), ...state.vms]);
+  // Production execution should only see configured/persisted real VMs. The
+  // demo seed VMs have no libvirt domain and must not show up as capacity.
+  const configuredVms = realVmsFromEnv();
+  const daemon = createVmDaemon(client, configuredVms.length ? configuredVms : state.vms);
   return {
     daemon,
     exec: spawnExecRunner,
