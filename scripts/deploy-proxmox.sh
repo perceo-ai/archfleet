@@ -56,6 +56,7 @@ if [[ "$DEPLOY_PUSH" == "1" ]]; then
 fi
 
 ssh_proxmox() {
+  local remote_command="$1"
   local expect_script
   expect_script="$(mktemp)"
   cat >"$expect_script" <<'EXPECT'
@@ -63,7 +64,8 @@ ssh_proxmox() {
     set password $env(PROXMOX_PASSWORD)
     set host $env(PROXMOX_HOST)
     set user $env(PROXMOX_USER)
-    spawn ssh -o StrictHostKeyChecking=accept-new "$user@$host" {*}$argv
+    set remote_command $env(PROXMOX_REMOTE_COMMAND)
+    spawn ssh -o StrictHostKeyChecking=accept-new "$user@$host" $remote_command
     expect {
       -re "(?i)password:" {
         send "$password\r"
@@ -74,7 +76,7 @@ ssh_proxmox() {
     set result [wait]
     exit [lindex $result 3]
 EXPECT
-  expect "$expect_script" "$@"
+  PROXMOX_REMOTE_COMMAND="$remote_command" expect "$expect_script"
   local status=$?
   rm -f "$expect_script"
   return "$status"
@@ -94,8 +96,16 @@ docker compose -p deploy --env-file .env.local $COMPOSE_FILES ps
 EOF
 )
 
+guest_exec_script() {
+  local timeout="$1"
+  local script="$2"
+  local encoded
+  encoded="$(printf '%s' "$script" | base64 | tr -d '\n')"
+  ssh_proxmox "qm guest exec $PROXMOX_VMID --timeout $timeout -- bash -lc 'printf %s $encoded | base64 -d | bash'"
+}
+
 echo "Deploying $BRANCH@$COMMIT to $PROXMOX_HOST VM $PROXMOX_VMID..."
-ssh_proxmox qm guest exec "$PROXMOX_VMID" --timeout 0 -- bash -lc "$DEPLOY_CMD"
+guest_exec_script 0 "$DEPLOY_CMD"
 
 VERIFY_CMD=$(cat <<EOF
 set -euo pipefail
@@ -113,7 +123,7 @@ EOF
 )
 
 echo "Verifying containers and internal health..."
-ssh_proxmox qm guest exec "$PROXMOX_VMID" --timeout 120 -- bash -lc "$VERIFY_CMD"
+guest_exec_script 120 "$VERIFY_CMD"
 
 echo "Verifying public routes..."
 if curl -sS -o /tmp/archfleet-login.html -w 'login_http=%{http_code}\n' "https://$PUBLIC_HOST/login" &&
