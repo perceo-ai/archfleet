@@ -3,6 +3,16 @@
 [scripts]
 run_mode = "nonconcurrent"
 
+[scripts.run.quick_run]
+command = "npm run lint && npm test && npm run build"
+default = true
+icon = "test-tube"
+
+[scripts.run.quick_deploy]
+available_in = [ "local" ]
+command = "npm run lint && npm test && npm run build && ./scripts/deploy-proxmox.sh"
+icon = "rocket"
+
 [scripts.run.deploy_proxmox]
 available_in = [ "local" ]
 command = "./scripts/deploy-proxmox.sh"
