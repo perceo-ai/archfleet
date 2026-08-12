@@ -20,21 +20,22 @@ import { flowToWorkflow, makeNode, type FlowEdge, type FlowNode } from "./flow-c
 type WorkflowCanvasProps = {
   workflow: Workflow;
   onSave?: (wf: Workflow) => Promise<{ ok: boolean; errors?: string[] }>;
+  className?: string;
 };
 
 const nodeTone: Record<string, string> = {
-  start: "border-emerald-400 bg-emerald-50",
-  computer_use_task: "border-violet-400 bg-violet-50",
-  script_task: "border-fuchsia-400 bg-fuchsia-50",
-  browser_task: "border-cyan-400 bg-cyan-50",
-  cli_agent_task: "border-blue-400 bg-blue-50",
-  shell_task: "border-slate-400 bg-slate-50",
-  api_call: "border-teal-400 bg-teal-50",
-  otp_email: "border-orange-400 bg-orange-50",
-  condition: "border-yellow-400 bg-yellow-50",
-  retry_wait: "border-lime-400 bg-lime-50",
-  human_takeover: "border-amber-400 bg-amber-50",
-  end: "border-zinc-400 bg-zinc-50",
+  start: "border-emerald-300 bg-emerald-50",
+  computer_use_task: "border-stone-300 bg-stone-50",
+  script_task: "border-stone-300 bg-stone-50",
+  browser_task: "border-sky-300 bg-sky-50",
+  cli_agent_task: "border-stone-300 bg-stone-50",
+  shell_task: "border-stone-300 bg-stone-50",
+  api_call: "border-cyan-300 bg-cyan-50",
+  otp_email: "border-amber-300 bg-amber-50",
+  condition: "border-yellow-300 bg-yellow-50",
+  retry_wait: "border-lime-300 bg-lime-50",
+  human_takeover: "border-orange-300 bg-orange-50",
+  end: "border-zinc-300 bg-white",
 };
 
 const PALETTE: NodeKind[] = [
@@ -56,11 +57,11 @@ function toRfNode(n: WorkflowNode): Node {
     id: n.id,
     position: n.position,
     data: { wnode: n, label: n.name },
-    className: `rounded border px-3 py-2 text-xs shadow-sm ${nodeTone[n.type] ?? "border-zinc-300 bg-white"}`,
+    className: `rounded-md border px-3 py-2 text-xs shadow-sm shadow-stone-200/60 ${nodeTone[n.type] ?? "border-zinc-300 bg-white"}`,
   };
 }
 
-export function WorkflowCanvas({ workflow, onSave }: WorkflowCanvasProps) {
+export function WorkflowCanvas({ workflow, onSave, className = "" }: WorkflowCanvasProps) {
   const initial = useMemo(() => workflow, [workflow]);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>(initial.nodes.map(toRfNode));
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(
@@ -68,6 +69,7 @@ export function WorkflowCanvas({ workflow, onSave }: WorkflowCanvasProps) {
   );
   const [selectedId, setSelectedId] = useState<string>();
   const [status, setStatus] = useState<string>();
+  const [nodeType, setNodeType] = useState<NodeKind>("cli_agent_task");
 
   const onConnect = useCallback(
     (c: Connection) =>
@@ -118,40 +120,48 @@ export function WorkflowCanvas({ workflow, onSave }: WorkflowCanvasProps) {
   }
 
   return (
-    <section className="min-h-0 bg-zinc-100">
-      <div className="flex h-14 items-center justify-between border-b border-zinc-200 bg-white px-4">
+    <section className={`grid min-h-0 grid-rows-[48px_minmax(0,1fr)] bg-[#f7f4ef] ${className}`}>
+      <div className="flex min-w-0 items-center justify-between border-b border-stone-200 bg-white px-3">
         <div>
-          <h2 className="text-sm font-semibold text-zinc-950">{workflow.name}</h2>
-          <p className="text-xs text-zinc-500">{status ?? workflow.description}</p>
+          <h2 className="text-sm font-semibold text-zinc-950">Graph editor</h2>
+          <p className="truncate text-xs text-zinc-500">{status ?? workflow.name}</p>
         </div>
-        <div className="flex items-center gap-1">
-          {PALETTE.map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => addNode(t)}
-              title={`Add ${t}`}
-              className="inline-flex items-center gap-1 rounded border border-zinc-200 px-1.5 py-1 text-[10px] text-zinc-600 hover:bg-zinc-50"
-            >
-              <Plus className="h-3 w-3" aria-hidden="true" />
-              {t.replaceAll("_", " ")}
-            </button>
-          ))}
+        <div className="flex items-center gap-2">
+          <select
+            value={nodeType}
+            onChange={(e) => setNodeType(e.target.value as NodeKind)}
+            aria-label="Step type"
+            className="h-8 w-36 rounded-md border border-stone-200 bg-white px-2 text-xs text-zinc-700 outline-none focus:border-zinc-500"
+          >
+            {PALETTE.map((t) => (
+              <option key={t} value={t}>
+                {t.replaceAll("_", " ")}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => addNode(nodeType)}
+            title="Add step"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-stone-200 text-zinc-700 hover:bg-stone-50"
+          >
+            <Plus className="h-4 w-4" aria-hidden="true" />
+          </button>
           {onSave ? (
             <button
               type="button"
               onClick={save}
-              className="ml-1 inline-flex items-center gap-1 rounded bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-emerald-700"
+              title="Save graph"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-zinc-950 text-white hover:bg-zinc-800"
             >
-              <Save className="h-3 w-3" aria-hidden="true" />
-              Save
+              <Save className="h-4 w-4" aria-hidden="true" />
             </button>
           ) : null}
         </div>
       </div>
 
-      <div className="grid grid-cols-[1fr_220px]">
-        <div className="h-[420px]">
+      <div className="relative min-h-0">
+        <div className="h-full min-h-[320px]">
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -162,54 +172,56 @@ export function WorkflowCanvas({ workflow, onSave }: WorkflowCanvasProps) {
             onPaneClick={() => setSelectedId(undefined)}
             fitView
           >
-            <Background />
+            <Background color="#d8d0c4" gap={24} />
             <Controls showInteractive={false} />
           </ReactFlow>
         </div>
 
-        <aside className="h-[420px] overflow-y-auto border-l border-zinc-200 bg-white p-3 text-xs">
+        <aside className="absolute bottom-3 left-3 w-[min(440px,calc(100%-24px))] rounded-md border border-stone-200 bg-white/95 p-3 text-xs shadow-sm backdrop-blur">
           {selectedNode ? (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="font-semibold uppercase text-zinc-500">Node</span>
+                <span className="font-semibold uppercase text-zinc-500">Selected step</span>
                 <button type="button" onClick={deleteSelected} className="text-red-600 hover:text-red-700">
                   <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                 </button>
               </div>
+              <div className="grid grid-cols-[1fr_150px] gap-2">
+                <label className="block">
+                  <span className="text-zinc-500">Name</span>
+                  <input
+                    value={selectedNode.name}
+                    onChange={(e) => patchSelected({ name: e.target.value })}
+                    className="mt-0.5 h-8 w-full rounded-md border border-stone-200 px-2 text-zinc-900 outline-none focus:border-zinc-500"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-zinc-500">Type</span>
+                  <select
+                    value={selectedNode.type}
+                    onChange={(e) => patchSelected({ type: e.target.value as NodeKind })}
+                    className="mt-0.5 h-8 w-full rounded-md border border-stone-200 px-2 text-zinc-900 outline-none focus:border-zinc-500"
+                  >
+                    {["start", ...PALETTE].map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
               <label className="block">
-                <span className="text-zinc-500">Name</span>
-                <input
-                  value={selectedNode.name}
-                  onChange={(e) => patchSelected({ name: e.target.value })}
-                  className="mt-0.5 w-full rounded border border-zinc-200 px-1.5 py-1"
-                />
-              </label>
-              <label className="block">
-                <span className="text-zinc-500">Type</span>
-                <select
-                  value={selectedNode.type}
-                  onChange={(e) => patchSelected({ type: e.target.value as NodeKind })}
-                  className="mt-0.5 w-full rounded border border-zinc-200 px-1.5 py-1"
-                >
-                  {["start", ...PALETTE].map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block">
-                <span className="text-zinc-500">Prompt / command</span>
+                <span className="text-zinc-500">Instruction</span>
                 <textarea
                   value={selectedNode.config.prompt ?? ""}
                   onChange={(e) => patchSelected({ config: { ...selectedNode.config, prompt: e.target.value } })}
-                  rows={4}
-                  className="mt-0.5 w-full rounded border border-zinc-200 px-1.5 py-1"
+                  rows={3}
+                  className="mt-0.5 w-full rounded-md border border-stone-200 px-2 py-1.5 text-zinc-900 outline-none focus:border-zinc-500"
                 />
               </label>
             </div>
           ) : (
-            <p className="text-zinc-500">Click a node to edit. Drag between handles to connect. Add nodes above.</p>
+            <p className="text-zinc-500">Select a step to edit it. Drag between handles to connect steps.</p>
           )}
         </aside>
       </div>
