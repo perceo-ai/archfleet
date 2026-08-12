@@ -56,7 +56,9 @@ if [[ "$DEPLOY_PUSH" == "1" ]]; then
 fi
 
 ssh_proxmox() {
-  expect -c '
+  local expect_script
+  expect_script="$(mktemp)"
+  cat >"$expect_script" <<'EXPECT'
     set timeout -1
     set password $env(PROXMOX_PASSWORD)
     set host $env(PROXMOX_HOST)
@@ -71,7 +73,11 @@ ssh_proxmox() {
     }
     set result [wait]
     exit [lindex $result 3]
-  ' -- "$@"
+EXPECT
+  expect "$expect_script" "$@"
+  local status=$?
+  rm -f "$expect_script"
+  return "$status"
 }
 
 export PROXMOX_HOST PROXMOX_USER PROXMOX_PASSWORD
