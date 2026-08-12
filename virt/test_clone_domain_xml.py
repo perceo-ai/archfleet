@@ -71,7 +71,7 @@ class CloneDomainXmlTest(unittest.TestCase):
             self.assertIsNone(root.find("./devices/interface/mac").get("address"))
 
             args = [arg.get("value") for arg in root.findall(f"./{qemu_ns}commandline/{qemu_ns}arg")]
-            self.assertIn("user,id=unet,hostfwd=tcp::11022-:22,hostfwd=tcp::14389-:3389", args)
+            self.assertIn("user,id=unet,hostfwd=tcp:127.0.0.1:11022-:22,hostfwd=tcp:127.0.0.1:14389-:3389", args)
             self.assertIn("virtio-net-pci,netdev=unet,addr=0x10", args)
 
 

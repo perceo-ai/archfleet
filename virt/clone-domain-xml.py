@@ -55,11 +55,11 @@ def rewrite_domain_xml(
         mac.attrib.pop("address", None)
 
     args = root.findall(f"./{QEMU}commandline/{QEMU}arg")
-    netdev = f"user,id=unet,hostfwd=tcp::{ssh_port}-:22,hostfwd=tcp::{rdp_port}-:3389"
+    netdev = f"user,id=unet,hostfwd=tcp:127.0.0.1:{ssh_port}-:22,hostfwd=tcp:127.0.0.1:{rdp_port}-:3389"
     replaced_netdev = False
     for arg in args:
         value = arg.get("value", "")
-        if value.startswith("user,id=") and "hostfwd=tcp::" in value:
+        if value.startswith("user,id=") and "hostfwd=tcp:" in value:
             arg.set("value", netdev)
             replaced_netdev = True
             break
