@@ -71,7 +71,7 @@ ssh_proxmox() {
     }
     set result [wait]
     exit [lindex $result 3]
-  ' "$@"
+  ' -- "$@"
 }
 
 export PROXMOX_HOST PROXMOX_USER PROXMOX_PASSWORD
