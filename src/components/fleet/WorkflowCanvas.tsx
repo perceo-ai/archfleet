@@ -69,8 +69,106 @@ const STEP_TYPE_LABELS: Partial<Record<NodeKind, string>> = {
   end: "Complete",
 };
 
+const STEP_TEMPLATES: Partial<
+  Record<NodeKind, { label: string; description: string; name: string; prompt?: string; labels?: string; timeoutMs?: string }>
+> = {
+  computer_use_task: {
+    label: "Runner VM Step",
+    description: "Use the cloned desktop with browser/app state.",
+    name: "Use Runner VM",
+    prompt:
+      "Use the runner VM restored from the prepared golden profile to complete this task step. Stop and report if human input is required.",
+    labels: "runner, golden-profile",
+    timeoutMs: "300000",
+  },
+  browser_task: {
+    label: "Browser Step",
+    description: "Navigate, inspect, and operate a website.",
+    name: "Browser step",
+    prompt: "Run the browser automation step and return structured success or failure.",
+    labels: "browser",
+    timeoutMs: "180000",
+  },
+  cli_agent_task: {
+    label: "Model Reasoning",
+    description: "Let the agent decide, summarize, or branch.",
+    name: "Model reasoning step",
+    prompt: "Inspect the current run context and decide the next action.",
+    timeoutMs: "120000",
+  },
+  condition: {
+    label: "Decision",
+    description: "Branch the run by success, failure, or always.",
+    name: "Model decision",
+    prompt: "Return success when the workflow can continue, otherwise return failure with the reason.",
+    timeoutMs: "60000",
+  },
+  human_takeover: {
+    label: "Human Takeover",
+    description: "Pause for login, 2FA, captcha, or review.",
+    name: "Human takeover",
+    prompt: "Pause for manual login, 2FA, captcha, device trust, or review.",
+    timeoutMs: "900000",
+  },
+  shell_task: {
+    label: "Shell Step",
+    description: "Run a command inside the controlled environment.",
+    name: "Shell step",
+    prompt: "Run the required shell command and summarize the result.",
+    timeoutMs: "120000",
+  },
+  api_call: {
+    label: "API Call",
+    description: "Call an external service and validate output.",
+    name: "API step",
+    prompt: "Call the required API and validate the response.",
+    timeoutMs: "120000",
+  },
+  otp_email: {
+    label: "OTP Email",
+    description: "Fetch a code from a connected inbox.",
+    name: "Read OTP email",
+    prompt: "Fetch the latest OTP email and return the code if available.",
+    labels: "email, otp",
+    timeoutMs: "120000",
+  },
+  retry_wait: {
+    label: "Retry Wait",
+    description: "Wait before retrying a failed step.",
+    name: "Retry wait",
+    prompt: "Wait before retrying the previous step.",
+    timeoutMs: "60000",
+  },
+  script_task: {
+    label: "Desktop Script",
+    description: "Run a prepared desktop automation script.",
+    name: "Desktop script",
+    prompt: "Run the desktop script against the current VM session.",
+    labels: "desktop",
+    timeoutMs: "180000",
+  },
+  end: {
+    label: "Complete",
+    description: "Mark the workflow finished.",
+    name: "Complete",
+  },
+};
+
 function stepTypeLabel(type: NodeKind): string {
   return STEP_TYPE_LABELS[type] ?? type.replaceAll("_", " ");
+}
+
+function stepTemplate(type: NodeKind) {
+  return (
+    STEP_TEMPLATES[type] ?? {
+      label: stepTypeLabel(type),
+      description: "Add a configured workflow step.",
+      name: stepTypeLabel(type),
+      prompt: "",
+      labels: "",
+      timeoutMs: "",
+    }
+  );
 }
 
 function toRfNode(n: WorkflowNode): Node {
@@ -118,12 +216,17 @@ export function WorkflowCanvas({ workflow, onSave, className = "" }: WorkflowCan
     );
   }
 
+  function setAddTemplate(type: NodeKind) {
+    const template = stepTemplate(type);
+    setNodeType(type);
+    setAddName(template.name);
+    setAddPrompt(template.prompt ?? "");
+    setAddLabels(template.labels ?? "");
+    setAddTimeoutMs(template.timeoutMs ?? "");
+  }
+
   function openAddStep() {
-    const defaults = makeNode(nodeType);
-    setAddName(defaults.name);
-    setAddPrompt(defaults.config.prompt ?? "");
-    setAddLabels(defaults.config.requiredLabels?.join(", ") ?? "");
-    setAddTimeoutMs(defaults.config.timeoutMs ? String(defaults.config.timeoutMs) : "");
+    setAddTemplate(nodeType);
     setAddOpen(true);
   }
 
@@ -198,7 +301,7 @@ export function WorkflowCanvas({ workflow, onSave, className = "" }: WorkflowCan
             className="inline-flex h-8 items-center gap-1.5 rounded-[5px] border border-[#8b5cf6]/40 bg-[#8b5cf6]/20 px-3 text-xs font-semibold text-white hover:bg-[#8b5cf6]/30"
           >
             <Plus className="h-4 w-4" aria-hidden="true" />
-            Add Step
+            Configure Step
           </button>
           {onSave ? (
             <button
@@ -207,7 +310,7 @@ export function WorkflowCanvas({ workflow, onSave, className = "" }: WorkflowCan
               className="perceo-primary inline-flex h-8 items-center gap-1.5 rounded-[5px] px-3 text-xs font-semibold"
             >
               <Save className="h-4 w-4" aria-hidden="true" />
-              Save Graph
+              Save Graph Draft
             </button>
           ) : null}
         </div>
@@ -281,7 +384,7 @@ export function WorkflowCanvas({ workflow, onSave, className = "" }: WorkflowCan
           ) : (
             <div>
               <div className="font-semibold text-white">No step selected</div>
-              <p className="mt-1 text-white/45">Select a step to edit it, or use Add Step to create a configured workflow node.</p>
+              <p className="mt-1 text-white/45">Select a step to edit it, or use Configure Step to create a workflow node.</p>
             </div>
           )}
         </aside>
@@ -289,11 +392,11 @@ export function WorkflowCanvas({ workflow, onSave, className = "" }: WorkflowCan
 
       {addOpen ? (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 px-4 py-6">
-          <section className="w-full max-w-xl rounded-[6px] border border-white/[0.12] bg-[#232323] text-white shadow-2xl">
+          <section className="w-full max-w-4xl rounded-[6px] border border-white/[0.12] bg-[#232323] text-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-white/[0.08] px-4 py-3">
               <div>
-                <h2 className="text-sm font-semibold">Add Workflow Step</h2>
-                <p className="mt-1 text-xs text-white/45">Create a configured node before placing it on the graph.</p>
+                <h2 className="text-sm font-semibold">Configure Workflow Step</h2>
+                <p className="mt-1 text-xs text-white/45">Pick a step template, fill the required fields, then place it on the graph.</p>
               </div>
               <button
                 type="button"
@@ -304,63 +407,72 @@ export function WorkflowCanvas({ workflow, onSave, className = "" }: WorkflowCan
                 <X className="h-4 w-4" aria-hidden="true" />
               </button>
             </div>
-            <div className="grid gap-3 p-4 text-xs">
-              <label className="grid gap-1 font-medium text-white/60">
-                Step Type
-                <select
-                  value={nodeType}
-                  onChange={(e) => {
-                    const nextType = e.target.value as NodeKind;
-                    const defaults = makeNode(nextType);
-                    setNodeType(nextType);
-                    setAddName(defaults.name);
-                    setAddPrompt(defaults.config.prompt ?? "");
-                  }}
-                  className="h-9 rounded-[5px] border border-white/[0.12] bg-[#161616] px-2 text-sm text-white outline-none focus:border-[#8b5cf6]"
-                >
-                  {PALETTE.map((t) => (
-                    <option key={t} value={t}>
-                      {stepTypeLabel(t)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="grid gap-1 font-medium text-white/60">
-                Step Name
-                <input
-                  value={addName}
-                  onChange={(e) => setAddName(e.target.value)}
-                  className="h-9 rounded-[5px] border border-white/[0.12] bg-white/[0.05] px-2 text-sm text-white outline-none focus:border-[#8b5cf6]"
-                />
-              </label>
-              <label className="grid gap-1 font-medium text-white/60">
-                Instruction
-                <textarea
-                  value={addPrompt}
-                  onChange={(e) => setAddPrompt(e.target.value)}
-                  rows={4}
-                  className="rounded-[5px] border border-white/[0.12] bg-white/[0.05] px-2 py-2 text-sm text-white outline-none focus:border-[#8b5cf6]"
-                />
-              </label>
-              <div className="grid gap-3 sm:grid-cols-[1fr_140px]">
+            <div className="grid gap-px bg-white/[0.08] text-xs md:grid-cols-[280px_minmax(0,1fr)]">
+              <div className="max-h-[560px] overflow-y-auto bg-[#1d1d1d] p-3">
+                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-white/45">Step Templates</div>
+                <div className="grid gap-2">
+                  {PALETTE.map((type) => {
+                    const template = stepTemplate(type);
+                    const active = nodeType === type;
+                    return (
+                      <button
+                        key={type}
+                        type="button"
+                        onClick={() => setAddTemplate(type)}
+                        className={`rounded-[5px] border px-3 py-2 text-left transition ${
+                          active
+                            ? "border-[#8b5cf6]/50 bg-[#8b5cf6]/20 text-white"
+                            : "border-white/[0.08] bg-white/[0.04] text-white/70 hover:bg-white/[0.07]"
+                        }`}
+                      >
+                        <span className="block font-semibold">{template.label}</span>
+                        <span className="mt-1 block text-[11px] leading-4 text-white/45">{template.description}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="grid gap-3 bg-[#232323] p-4">
                 <label className="grid gap-1 font-medium text-white/60">
-                  Required Labels
+                  Step Name
                   <input
-                    value={addLabels}
-                    onChange={(e) => setAddLabels(e.target.value)}
-                    placeholder="browser, profile:bank"
-                    className="h-9 rounded-[5px] border border-white/[0.12] bg-white/[0.05] px-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-[#8b5cf6]"
+                    value={addName}
+                    onChange={(e) => setAddName(e.target.value)}
+                    className="h-9 rounded-[5px] border border-white/[0.12] bg-white/[0.05] px-2 text-sm text-white outline-none focus:border-[#8b5cf6]"
                   />
                 </label>
                 <label className="grid gap-1 font-medium text-white/60">
-                  Timeout Ms
-                  <input
-                    value={addTimeoutMs}
-                    onChange={(e) => setAddTimeoutMs(e.target.value.replace(/[^0-9]/g, ""))}
-                    placeholder="300000"
-                    className="h-9 rounded-[5px] border border-white/[0.12] bg-white/[0.05] px-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-[#8b5cf6]"
+                  Instruction For The Agent
+                  <textarea
+                    value={addPrompt}
+                    onChange={(e) => setAddPrompt(e.target.value)}
+                    rows={8}
+                    className="rounded-[5px] border border-white/[0.12] bg-white/[0.05] px-2 py-2 text-sm text-white outline-none focus:border-[#8b5cf6]"
                   />
                 </label>
+                <div className="grid gap-3 sm:grid-cols-[1fr_160px]">
+                  <label className="grid gap-1 font-medium text-white/60">
+                    Required Runner Labels
+                    <input
+                      value={addLabels}
+                      onChange={(e) => setAddLabels(e.target.value)}
+                      placeholder="browser, profile:bank"
+                      className="h-9 rounded-[5px] border border-white/[0.12] bg-white/[0.05] px-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-[#8b5cf6]"
+                    />
+                  </label>
+                  <label className="grid gap-1 font-medium text-white/60">
+                    Timeout Ms
+                    <input
+                      value={addTimeoutMs}
+                      onChange={(e) => setAddTimeoutMs(e.target.value.replace(/[^0-9]/g, ""))}
+                      placeholder="300000"
+                      className="h-9 rounded-[5px] border border-white/[0.12] bg-white/[0.05] px-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-[#8b5cf6]"
+                    />
+                  </label>
+                </div>
+                <div className="rounded-[5px] border border-[#8b5cf6]/20 bg-[#8b5cf6]/10 px-3 py-2 text-[11px] leading-4 text-white/55">
+                  After adding the step, connect it by dragging from one node handle to another. Save Graph Draft stores the graph; Save Version captures the broader task draft.
+                </div>
               </div>
             </div>
             <div className="flex items-center justify-end gap-2 border-t border-white/[0.08] px-4 py-3">

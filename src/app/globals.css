@@ -4,6 +4,9 @@
 :root {
   --background: #161616;
   --foreground: #ffffff;
+  --font-system-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-system-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --font-system-serif: Georgia, "Times New Roman", serif;
   --purple: #8b5cf6;
   --green: #4ade80;
   --red: #f87171;
@@ -15,9 +18,9 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-instrument);
-  --font-mono: var(--font-geist-mono);
-  --font-serif: var(--font-playfair);
+  --font-sans: var(--font-system-sans);
+  --font-mono: var(--font-system-mono);
+  --font-serif: var(--font-system-serif);
 }
 
 html {
@@ -27,12 +30,7 @@ html {
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family:
-    var(--font-instrument),
-    "Instrument Sans",
-    -apple-system,
-    BlinkMacSystemFont,
-    sans-serif;
+  font-family: var(--font-system-sans);
 }
 
 button {
@@ -69,13 +67,23 @@ button {
   stroke: currentColor !important;
 }
 
+.react-flow__node {
+  color: #18181b;
+}
+
+.react-flow__node-default,
+.react-flow__node-input,
+.react-flow__node-output {
+  color: #18181b !important;
+}
+
 select option {
   color: #ffffff !important;
   background: #232323 !important;
 }
 
 .font-serif {
-  font-family: var(--font-playfair), "Playfair Display", Georgia, serif;
+  font-family: var(--font-system-serif);
 }
 
 .grid-lines {
