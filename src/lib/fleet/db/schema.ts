@@ -102,6 +102,17 @@ CREATE TABLE IF NOT EXISTS cuf_params (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS cuf_users (
+  id            TEXT PRIMARY KEY,
+  username      TEXT NOT NULL UNIQUE,
+  display_name  TEXT NOT NULL DEFAULT '',
+  role          TEXT NOT NULL DEFAULT 'viewer',
+  password_hash TEXT NOT NULL,
+  created_at    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS cuf_users_username ON cuf_users(username);
 `;
 
 /** Table names created by the schema — used by tests to assert migration. */
@@ -114,4 +125,5 @@ export const CUF_TABLES = [
   "cuf_vms",
   "cuf_secrets",
   "cuf_params",
+  "cuf_users",
 ] as const;

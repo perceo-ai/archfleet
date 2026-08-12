@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -18,6 +19,8 @@ import {
   TerminalSquare,
 } from "lucide-react";
 import type { RunSummary } from "./RunPanel";
+import { ProfileSetupPanel } from "./ProfileSetupPanel";
+import { SecretsParamsPanel } from "./SecretsParamsPanel";
 import { WorkflowCanvas } from "./WorkflowCanvas";
 import { getRunTimeline } from "@/lib/fleet/runtime";
 import { seedFleetState } from "@/lib/fleet/seed";
@@ -25,6 +28,7 @@ import { runStatusTone } from "./status-colors";
 import type { FleetVm, Workflow, WorkflowRun } from "@/lib/fleet/types";
 
 type TaskMode = "home" | "workspace";
+type WorkbenchTab = "versions" | "profile" | "inputs";
 
 type LaunchResponse =
   | { mode: "guacamole"; launchUrl: string }
@@ -86,6 +90,7 @@ export function FleetManager() {
   const [desktopMessage, setDesktopMessage] = useState<string>();
   const [desktopBusy, setDesktopBusy] = useState(false);
   const [actionMessage, setActionMessage] = useState<string>();
+  const [workbenchTab, setWorkbenchTab] = useState<WorkbenchTab>("versions");
 
   const refreshRuns = useCallback(async () => {
     try {
@@ -202,6 +207,7 @@ export function FleetManager() {
       workflow,
     },
   ];
+  const healthyVms = vms.filter((vm) => vm.status !== "unhealthy" && vm.status !== "stopped").length;
 
   function sendChat() {
     const text = chatDraft.trim();
@@ -303,35 +309,50 @@ export function FleetManager() {
 
   if (mode === "home") {
     return (
-      <main className="min-h-screen bg-[#f7f4ef] text-zinc-950">
-        <header className="border-b border-stone-200 bg-[#fbfaf7]/90">
-          <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
+      <main className="grid-lines relative min-h-screen overflow-hidden bg-[#312F2F] text-white">
+        <div className="dot-pattern dot-pattern-fade z-0" aria-hidden="true" />
+        <header className="relative z-10 border-b border-white/[0.08] bg-[#312f2f]/70 backdrop-blur-xl">
+          <div className="mx-auto flex min-h-16 max-w-6xl flex-wrap items-center justify-between gap-3 px-5 py-3 md:px-12">
             <div className="flex items-center gap-3">
-              <span className="grid h-8 w-8 place-items-center rounded-sm bg-zinc-950 text-[11px] font-semibold uppercase text-white">
+              <span className="grid h-8 w-8 place-items-center rounded-[6px] bg-gradient-to-b from-[#8b5cf6] to-[#7848e6] text-[11px] font-semibold uppercase text-white shadow-sm">
                 pe
               </span>
               <div>
-                <div className="text-sm font-semibold">Perceo Archfleet</div>
-                <div className="text-xs text-zinc-500">Task golden VMs and repeatable browser workflows</div>
+                <div className="font-serif text-xl font-bold italic tracking-tight text-white">Perceo Archfleet</div>
+                <div className="text-xs text-white/50">Task golden VMs and repeatable browser workflows</div>
               </div>
             </div>
-            <div className="flex items-center gap-5 text-xs text-zinc-600">
-              <span>{idleVms} golden ready</span>
-              <span>{activeRuns} active run</span>
+            <div className="flex items-center gap-2 text-xs text-white/60">
+              <span className="rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 py-1">{idleVms} golden ready</span>
+              <span className="rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 py-1">{activeRuns} active run</span>
             </div>
           </div>
         </header>
 
-        <section className="mx-auto grid max-w-6xl gap-8 px-6 py-10 lg:grid-cols-[360px_minmax(0,1fr)]">
-          <div className="pt-4">
-            <p className="text-xs font-semibold uppercase text-zinc-500">Home</p>
-            <h1 className="mt-3 max-w-sm text-4xl font-semibold leading-tight text-zinc-950">
+        <section className="relative z-10 mx-auto grid max-w-6xl gap-8 px-5 py-10 md:px-12 lg:grid-cols-[340px_minmax(0,1fr)]">
+          <div className="pt-2">
+            <p className="text-xs font-semibold uppercase text-white/40">Home</p>
+            <h1 className="mt-3 max-w-sm text-4xl font-bold leading-tight text-white sm:text-5xl">
               Pick a task, work in its golden VM, run it again.
             </h1>
-            <p className="mt-4 max-w-sm text-sm leading-6 text-zinc-600">
+            <p className="mt-4 max-w-sm text-sm leading-6 text-zinc-400">
               The main path is intentionally small: open the task, use the desktop when human login
               is needed, edit the graph, then trigger a run.
             </p>
+            <div className="mt-6 grid grid-cols-3 gap-2 text-xs">
+              <div className="glass rounded-[5px] p-3">
+                <div className="text-2xl font-semibold">{taskCards.length}</div>
+                <div className="mt-1 text-white/45">task</div>
+              </div>
+              <div className="glass rounded-[5px] p-3">
+                <div className="text-2xl font-semibold">{healthyVms}</div>
+                <div className="mt-1 text-white/45">VMs online</div>
+              </div>
+              <div className="glass rounded-[5px] p-3">
+                <div className="text-2xl font-semibold">{workflow.triggerKinds.length}</div>
+                <div className="mt-1 text-white/45">triggers</div>
+              </div>
+            </div>
           </div>
 
           <div className="grid content-start gap-3">
@@ -340,34 +361,49 @@ export function FleetManager() {
                 key={task.id}
                 type="button"
                 onClick={() => setMode("workspace")}
-                className="group grid min-h-36 grid-cols-[1fr_auto] gap-4 rounded-md border border-stone-200 bg-white p-5 text-left shadow-sm shadow-stone-200/70 transition hover:border-zinc-400"
+                className="glass glass-border group grid min-h-36 grid-cols-[1fr_auto] gap-4 rounded-[5px] p-5 text-left transition hover:-translate-y-0.5 hover:bg-white/[0.07] focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/50"
               >
                 <div>
                   <div className="flex items-center gap-2">
-                    <CircleDot className="h-4 w-4 text-[#b45f36]" aria-hidden="true" />
-                    <h2 className="text-base font-semibold">{task.name}</h2>
+                    <CircleDot className="h-4 w-4 text-[#8add84]" aria-hidden="true" />
+                    <h2 className="text-base font-semibold text-white">{task.name}</h2>
                   </div>
-                  <p className="mt-2 max-w-xl text-sm leading-6 text-zinc-600">{task.description}</p>
+                  <p className="mt-2 max-w-xl text-sm leading-6 text-zinc-400">{task.description}</p>
                   <div className="mt-5 flex flex-wrap gap-2 text-xs">
-                    <span className="rounded-sm border border-stone-200 bg-[#f7f4ef] px-2 py-1 text-zinc-700">
+                    <span className="rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 py-1 text-white/70">
                       {statusLabel(task.vm)}
                     </span>
-                    <span className="rounded-sm border border-stone-200 bg-[#f7f4ef] px-2 py-1 text-zinc-700">
+                    <span className="rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 py-1 text-white/70">
                       {task.workflow.nodes.length} steps
                     </span>
-                    <span className="rounded-sm border border-stone-200 bg-[#f7f4ef] px-2 py-1 text-zinc-700">
+                    <span className="rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 py-1 text-white/70">
                       XRDP ready
                     </span>
                   </div>
                 </div>
-                <span className="self-start rounded-sm bg-zinc-950 px-3 py-2 text-xs font-semibold text-white group-hover:bg-zinc-800">
+                <span className="perceo-primary self-start rounded-[5px] px-3 py-2 text-xs font-semibold shadow-sm">
                   Open
                 </span>
               </button>
             ))}
 
-            <div className="rounded-md border border-dashed border-stone-300 bg-[#fbfaf7] p-5 text-sm text-zinc-500">
-              More tasks will appear here as profiles are prepared.
+            <div className="glass grid gap-3 rounded-[5px] border-dashed p-5 sm:grid-cols-[1fr_auto] sm:items-center">
+              <div>
+                <h2 className="text-sm font-semibold text-white">Prepare another golden profile</h2>
+                <p className="mt-1 text-sm leading-6 text-zinc-400">
+                  Open the workspace and use Profile setup to draft a login flow, capture source state, and clone it.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setMode("workspace");
+                  setWorkbenchTab("profile");
+                }}
+                className="inline-flex h-9 items-center justify-center rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-3 text-xs font-semibold text-white hover:bg-white/[0.08]"
+              >
+                Profile setup
+              </button>
             </div>
           </div>
         </section>
@@ -376,31 +412,37 @@ export function FleetManager() {
   }
 
   return (
-    <main className="grid h-screen min-h-[760px] grid-rows-[56px_minmax(0,1fr)_180px] bg-[#f7f4ef] text-zinc-950">
-      <header className="border-b border-stone-200 bg-[#fbfaf7]">
-        <div className="flex h-full items-center justify-between px-4">
+    <main className="grid-lines flex min-h-screen flex-col bg-[#312F2F] text-white">
+      <header className="border-b border-white/[0.08] bg-[#312f2f]/70 backdrop-blur-xl">
+        <div className="flex min-h-14 flex-wrap items-center justify-between gap-3 px-4 py-2">
           <div className="flex min-w-0 items-center gap-3">
             <button
               type="button"
               onClick={() => setMode("home")}
               title="Back to tasks"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-stone-200 bg-white text-zinc-700 hover:bg-stone-50"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-[5px] border border-white/[0.08] bg-white/[0.05] text-white/70 hover:bg-white/[0.08]"
             >
               <ArrowLeft className="h-4 w-4" aria-hidden="true" />
             </button>
             <div>
               <h1 className="truncate text-[15px] font-semibold leading-tight">{taskName}</h1>
-              <p className="text-xs text-zinc-500">
+              <p className="text-xs text-white/45">
                 {profileName} · {primaryVm?.name ?? "No VM"} · {statusLabel(primaryVm)}
               </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Link
+              href="/users"
+              className="inline-flex h-8 items-center rounded-md border border-stone-200 bg-white px-3 text-xs font-semibold text-zinc-800 hover:bg-stone-50"
+            >
+              Users
+            </Link>
             <button
               type="button"
               onClick={() => void openDesktop(primaryVm)}
               disabled={desktopBusy || !primaryVm}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-stone-200 bg-white px-3 text-xs font-semibold text-zinc-800 hover:bg-stone-50 disabled:opacity-50"
+              className="inline-flex h-8 items-center gap-1.5 rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-3 text-xs font-semibold text-white hover:bg-white/[0.08] disabled:opacity-50"
             >
               <Monitor className="h-3.5 w-3.5" aria-hidden="true" />
               {desktopBusy ? "Connecting" : "Connect XRDP"}
@@ -409,7 +451,7 @@ export function FleetManager() {
               type="button"
               onClick={runWorkflow}
               disabled={running}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-zinc-950 px-3 text-xs font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+              className="perceo-primary inline-flex h-8 items-center gap-1.5 rounded-[5px] px-3 text-xs font-semibold disabled:opacity-60"
             >
               <Play className="h-3.5 w-3.5" aria-hidden="true" />
               {running ? "Running" : "Run"}
@@ -418,14 +460,14 @@ export function FleetManager() {
         </div>
       </header>
 
-      <div className="grid min-h-0 gap-px bg-stone-200 lg:grid-cols-[minmax(160px,1fr)_minmax(420px,3fr)_minmax(420px,3fr)]">
-        <section className="grid min-h-0 grid-rows-[48px_minmax(0,1fr)_56px] bg-white">
-          <div className="flex items-center justify-between border-b border-stone-200 px-3">
+      <div className="grid min-h-[620px] flex-1 gap-px bg-white/[0.08] xl:grid-cols-[minmax(240px,0.9fr)_minmax(440px,1.45fr)_minmax(420px,1.35fr)]">
+        <section className="grid min-h-0 grid-rows-[48px_minmax(0,1fr)_56px] bg-[#232323]/70">
+          <div className="flex items-center justify-between border-b border-white/[0.08] px-3">
             <div>
               <h2 className="text-sm font-semibold">Chat</h2>
-              <p className="text-xs text-zinc-500">Actual task notes and instructions.</p>
+              <p className="text-xs text-white/45">Actual task notes and instructions.</p>
             </div>
-            <MessageSquare className="h-4 w-4 text-zinc-400" aria-hidden="true" />
+            <MessageSquare className="h-4 w-4 text-white/35" aria-hidden="true" />
           </div>
           <div className="min-h-0 space-y-3 overflow-y-auto p-3">
             {messages.map((message) => (
@@ -433,23 +475,24 @@ export function FleetManager() {
                 key={message.id}
                 className={`rounded-md border px-3 py-2 text-xs leading-5 ${
                   message.role === "operator"
-                    ? "border-zinc-900 bg-zinc-950 text-white"
-                    : "border-stone-200 bg-[#fbfaf7] text-zinc-700"
+                    ? "border-[#8b5cf6]/40 bg-[#8b5cf6]/20 text-white"
+                    : "border-white/[0.08] bg-white/[0.05] text-zinc-300"
                 }`}
               >
-                <div className={message.role === "operator" ? "text-zinc-400" : "text-zinc-500"}>
+                <div className={message.role === "operator" ? "text-white/50" : "text-white/40"}>
                   {message.role === "operator" ? "You" : "Archfleet"}
                 </div>
                 <div className="mt-1 whitespace-pre-wrap">{message.text}</div>
               </div>
             ))}
           </div>
-          <div className="flex items-center gap-2 border-t border-stone-200 px-3">
+          <div className="flex items-center gap-2 border-t border-white/[0.08] px-3">
             <input
               value={chatDraft}
               onChange={(e) => setChatDraft(e.target.value)}
               aria-label="Message"
-              className="h-9 min-w-0 flex-1 rounded-md border border-stone-200 bg-white px-3 text-sm outline-none focus:border-zinc-500"
+              placeholder="Update the objective or leave an operator note"
+              className="h-9 min-w-0 flex-1 rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-3 text-sm text-white outline-none placeholder:text-white/30 focus:border-[#8b5cf6]"
               onKeyDown={(e) => {
                 if (e.key === "Enter") sendChat();
               }}
@@ -458,14 +501,14 @@ export function FleetManager() {
               type="button"
               title="Send"
               onClick={sendChat}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-zinc-950 text-white hover:bg-zinc-800"
+              className="perceo-primary inline-flex h-9 w-9 items-center justify-center rounded-[5px]"
             >
               <Send className="h-4 w-4" aria-hidden="true" />
             </button>
           </div>
         </section>
 
-        <div className="min-h-0 bg-white">
+        <div className="min-h-0 bg-[#232323]/70">
           <WorkflowCanvas
             workflow={workflow}
             className="h-full"
@@ -482,7 +525,7 @@ export function FleetManager() {
           />
         </div>
 
-        <section className="grid min-h-0 grid-rows-[48px_minmax(0,1fr)] bg-zinc-950 text-white">
+        <section className="grid min-h-[420px] grid-rows-[48px_minmax(0,1fr)] bg-[#161616] text-white xl:min-h-0">
           <div className="flex items-center justify-between border-b border-white/10 px-3">
             <div>
               <h2 className="text-sm font-semibold">XRDP viewer</h2>
@@ -495,16 +538,16 @@ export function FleetManager() {
                 type="button"
                 onClick={() => void runAction("cancel")}
                 disabled={!latestRun || !["queued", "running", "paused"].includes(latestRun.status)}
-                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-white/10 px-2 text-xs text-zinc-200 hover:bg-white/10 disabled:opacity-40"
+                className="inline-flex h-8 items-center gap-1.5 rounded-[5px] border border-white/10 px-2 text-xs text-zinc-200 hover:bg-white/10 disabled:opacity-40"
               >
                 <Pause className="h-3.5 w-3.5" aria-hidden="true" />
-                Pause / stop
+                Stop
               </button>
               <button
                 type="button"
                 onClick={() => void runAction("resume")}
                 disabled={!latestRun || !["paused", "failed", "canceled"].includes(latestRun.status)}
-                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-white/10 px-2 text-xs text-zinc-200 hover:bg-white/10 disabled:opacity-40"
+                className="inline-flex h-8 items-center gap-1.5 rounded-[5px] border border-white/10 px-2 text-xs text-zinc-200 hover:bg-white/10 disabled:opacity-40"
               >
                 <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
                 Resume
@@ -514,7 +557,7 @@ export function FleetManager() {
                 onClick={() => void openDesktop(primaryVm)}
                 disabled={desktopBusy || !primaryVm}
                 title="Open desktop"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/10 text-zinc-200 hover:bg-white/10 disabled:opacity-50"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-[5px] border border-white/10 text-zinc-200 hover:bg-white/10 disabled:opacity-50"
               >
                 <ExternalLink className="h-4 w-4" aria-hidden="true" />
               </button>
@@ -539,7 +582,7 @@ export function FleetManager() {
                   type="button"
                   onClick={() => void openDesktop(primaryVm)}
                   disabled={desktopBusy || !primaryVm}
-                  className="mt-4 inline-flex h-9 items-center gap-2 rounded-md bg-white px-3 text-xs font-semibold text-zinc-950 hover:bg-zinc-200 disabled:opacity-50"
+                  className="perceo-primary mt-4 inline-flex h-9 items-center gap-2 rounded-[5px] px-3 text-xs font-semibold disabled:opacity-50"
                 >
                   <Monitor className="h-4 w-4" aria-hidden="true" />
                   {desktopBusy ? "Connecting" : "Connect XRDP"}
@@ -550,161 +593,188 @@ export function FleetManager() {
         </section>
       </div>
 
-      <div className="grid min-h-0 gap-px bg-stone-200 lg:grid-cols-[minmax(0,1fr)_420px]">
-        <section className="grid min-h-0 grid-rows-[44px_minmax(0,1fr)] bg-[#fbfaf7]">
-          <div className="flex items-center justify-between border-b border-stone-200 px-4">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 text-[#b45f36]" aria-hidden="true" />
-              <h2 className="text-sm font-semibold">Profile and versions</h2>
-            </div>
-            <div className="text-xs text-zinc-500">{primaryVm?.xrdp.username ?? "agent"} · {primaryVm?.xrdp.host}:{primaryVm?.xrdp.port}</div>
+      <div className="border-t border-stone-200 bg-[#fbfaf7]">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-200 px-4 py-2">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-[#b45f36]" aria-hidden="true" />
+            <h2 className="text-sm font-semibold">Workbench</h2>
           </div>
-          <div className="grid grid-cols-[minmax(360px,1fr)_minmax(260px,0.45fr)] gap-3 overflow-hidden p-3 text-xs">
-            <div className="grid grid-cols-[180px_180px_minmax(240px,1fr)] gap-2">
-              <label className="block">
-                <span className="font-medium text-zinc-500">Task</span>
-                <input
-                  value={taskName}
-                  onChange={(e) => setTaskName(e.target.value)}
-                  className="mt-1 h-9 w-full rounded-md border border-stone-200 bg-white px-2 text-sm text-zinc-950 outline-none focus:border-zinc-500"
-                />
-              </label>
-              <label className="block">
-                <span className="font-medium text-zinc-500">Profile</span>
-                <input
-                  value={profileName}
-                  onChange={(e) => setProfileName(e.target.value)}
-                  className="mt-1 h-9 w-full rounded-md border border-stone-200 bg-white px-2 text-sm text-zinc-950 outline-none focus:border-zinc-500"
-                />
-              </label>
-              <label className="block">
-                <span className="font-medium text-zinc-500">Current objective</span>
-                <input
-                  value={objective}
-                  onChange={(e) => setObjective(e.target.value)}
-                  className="mt-1 h-9 w-full rounded-md border border-stone-200 bg-white px-2 text-sm text-zinc-950 outline-none focus:border-zinc-500"
-                />
-              </label>
-            </div>
-            <div className="grid grid-cols-[1fr_auto] gap-2">
-              <label className="block">
-                <span className="font-medium text-zinc-500">Version name</span>
-                <input
-                  value={versionName}
-                  onChange={(e) => setVersionName(e.target.value)}
-                  className="mt-1 h-9 w-full rounded-md border border-stone-200 bg-white px-2 text-sm text-zinc-950 outline-none focus:border-zinc-500"
-                />
-              </label>
+          <div className="flex rounded-md border border-stone-200 bg-white p-0.5 text-xs">
+            {[
+              ["versions", "Versions"],
+              ["profile", "Profile setup"],
+              ["inputs", "Params & triggers"],
+            ].map(([id, label]) => (
               <button
+                key={id}
                 type="button"
-                onClick={() => void saveVersion()}
-                className="mt-5 inline-flex h-9 items-center gap-1.5 rounded-md bg-zinc-950 px-3 text-xs font-semibold text-white hover:bg-zinc-800"
+                onClick={() => setWorkbenchTab(id as WorkbenchTab)}
+                className={`h-8 rounded px-3 font-semibold ${
+                  workbenchTab === id ? "bg-zinc-950 text-white" : "text-zinc-600 hover:bg-stone-50"
+                }`}
               >
-                <Save className="h-3.5 w-3.5" aria-hidden="true" />
-                Save
+                {label}
               </button>
-              <div className="col-span-2 flex min-w-0 items-center gap-2 overflow-x-auto">
-                {saveNote ? <span className="shrink-0 text-zinc-500">{saveNote}</span> : null}
-                {versions.map((version) => (
-                  <button
-                    key={version.id}
-                    type="button"
-                    onClick={() => restoreVersion(version)}
-                    className="shrink-0 rounded-sm border border-stone-200 bg-white px-2 py-1 text-[11px] text-zinc-700 hover:bg-stone-50"
-                  >
-                    {version.name}
-                  </button>
-                ))}
-              </div>
-            </div>
+            ))}
           </div>
-        </section>
+        </div>
 
-        <section className="grid min-h-0 grid-rows-[44px_minmax(0,1fr)] bg-white">
-          <div className="flex items-center justify-between border-b border-stone-200 px-3">
-            <div className="flex items-center gap-2">
-              <TerminalSquare className="h-4 w-4 text-zinc-700" aria-hidden="true" />
-              <h2 className="text-sm font-semibold">Run</h2>
-            </div>
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => void runAction("cancel")}
-                disabled={!latestRun || !["queued", "running", "paused"].includes(latestRun.status)}
-                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-stone-200 px-2 text-xs text-zinc-700 hover:bg-stone-50 disabled:opacity-40"
-              >
-                <Square className="h-3.5 w-3.5" aria-hidden="true" />
-                Pause / stop
-              </button>
-              <button
-                type="button"
-                onClick={() => void runAction("resume")}
-                disabled={!latestRun || !["paused", "failed", "canceled"].includes(latestRun.status)}
-                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-stone-200 px-2 text-xs text-zinc-700 hover:bg-stone-50 disabled:opacity-40"
-              >
-                <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
-                Resume
-              </button>
-              <button
-                type="button"
-                onClick={runWorkflow}
-                disabled={running}
-                title="Run"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-zinc-950 text-white hover:bg-zinc-800 disabled:opacity-60"
-              >
-                <Play className="h-3.5 w-3.5" aria-hidden="true" />
-              </button>
-            </div>
-          </div>
-          <div className="min-h-0 overflow-y-auto p-3">
-            {latestRun ? (
-              <div className="space-y-2">
-                {actionMessage ? (
-                  <div className="rounded-sm border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
-                    {actionMessage}
+        {workbenchTab === "versions" ? (
+          <div className="grid gap-px bg-stone-200 lg:grid-cols-[minmax(0,1fr)_420px]">
+            <section className="bg-[#fbfaf7]">
+              <div className="grid gap-3 p-3 text-xs xl:grid-cols-[minmax(420px,1fr)_minmax(280px,0.45fr)]">
+                <div className="grid gap-2 md:grid-cols-[180px_180px_minmax(240px,1fr)]">
+                  <label className="block">
+                    <span className="font-medium text-zinc-500">Task</span>
+                    <input
+                      value={taskName}
+                      onChange={(e) => setTaskName(e.target.value)}
+                      className="mt-1 h-9 w-full rounded-md border border-stone-200 bg-white px-2 text-sm text-zinc-950 outline-none focus:border-zinc-500"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="font-medium text-zinc-500">Profile</span>
+                    <input
+                      value={profileName}
+                      onChange={(e) => setProfileName(e.target.value)}
+                      className="mt-1 h-9 w-full rounded-md border border-stone-200 bg-white px-2 text-sm text-zinc-950 outline-none focus:border-zinc-500"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="font-medium text-zinc-500">Current objective</span>
+                    <input
+                      value={objective}
+                      onChange={(e) => setObjective(e.target.value)}
+                      className="mt-1 h-9 w-full rounded-md border border-stone-200 bg-white px-2 text-sm text-zinc-950 outline-none focus:border-zinc-500"
+                    />
+                  </label>
+                </div>
+                <div className="grid grid-cols-[1fr_auto] gap-2">
+                  <label className="block">
+                    <span className="font-medium text-zinc-500">Version name</span>
+                    <input
+                      value={versionName}
+                      onChange={(e) => setVersionName(e.target.value)}
+                      className="mt-1 h-9 w-full rounded-md border border-stone-200 bg-white px-2 text-sm text-zinc-950 outline-none focus:border-zinc-500"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => void saveVersion()}
+                    className="mt-5 inline-flex h-9 items-center gap-1.5 rounded-md bg-zinc-950 px-3 text-xs font-semibold text-white hover:bg-zinc-800"
+                  >
+                    <Save className="h-3.5 w-3.5" aria-hidden="true" />
+                    Save
+                  </button>
+                  <div className="col-span-2 flex min-w-0 items-center gap-2 overflow-x-auto">
+                    {saveNote ? <span className="shrink-0 text-zinc-500">{saveNote}</span> : null}
+                    {versions.map((version) => (
+                      <button
+                        key={version.id}
+                        type="button"
+                        onClick={() => restoreVersion(version)}
+                        className="shrink-0 rounded-sm border border-stone-200 bg-white px-2 py-1 text-[11px] text-zinc-700 hover:bg-stone-50"
+                      >
+                        {version.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section className="grid min-h-44 grid-rows-[44px_minmax(0,1fr)] bg-white">
+              <div className="flex items-center justify-between border-b border-stone-200 px-3">
+                <div className="flex items-center gap-2">
+                  <TerminalSquare className="h-4 w-4 text-zinc-700" aria-hidden="true" />
+                  <h2 className="text-sm font-semibold">Run</h2>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => void runAction("cancel")}
+                    disabled={!latestRun || !["queued", "running", "paused"].includes(latestRun.status)}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-md border border-stone-200 px-2 text-xs text-zinc-700 hover:bg-stone-50 disabled:opacity-40"
+                  >
+                    <Square className="h-3.5 w-3.5" aria-hidden="true" />
+                    Stop
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void runAction("resume")}
+                    disabled={!latestRun || !["paused", "failed", "canceled"].includes(latestRun.status)}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-md border border-stone-200 px-2 text-xs text-zinc-700 hover:bg-stone-50 disabled:opacity-40"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+                    Resume
+                  </button>
+                  <button
+                    type="button"
+                    onClick={runWorkflow}
+                    disabled={running}
+                    title="Run"
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-zinc-950 text-white hover:bg-zinc-800 disabled:opacity-60"
+                  >
+                    <Play className="h-3.5 w-3.5" aria-hidden="true" />
+                  </button>
+                </div>
+              </div>
+              <div className="min-h-0 overflow-y-auto p-3">
+                {latestRun ? (
+                  <div className="space-y-2">
+                    {actionMessage ? (
+                      <div className="rounded-sm border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+                        {actionMessage}
+                      </div>
+                    ) : null}
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-medium text-zinc-950">{latestRun.workflowName}</span>
+                      <span className={`rounded-sm px-2 py-1 text-[11px] font-medium ${runStatusTone(latestRun.status)}`}>
+                        {latestRun.status}
+                      </span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {getRunTimeline(latestRun).map((event) => (
+                        <div key={event.id} className="rounded-sm bg-zinc-950 px-2 py-1.5 font-mono text-[11px] leading-5 text-zinc-100">
+                          <span className="text-[#f2b66d]">{event.level}</span> {event.message}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid h-full place-items-center rounded-md border border-dashed border-stone-300 text-xs text-zinc-500">
+                    Trigger a run to see logs.
+                  </div>
+                )}
+                {runs.length ? (
+                  <div className="mt-3 border-t border-stone-200 pt-2">
+                    <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-zinc-500">
+                      <History className="h-3.5 w-3.5" aria-hidden="true" />
+                      Recent
+                    </div>
+                    <div className="flex gap-1 overflow-x-auto">
+                      {runs.slice(0, 5).map((run) => (
+                        <button
+                          key={run.id}
+                          type="button"
+                          onClick={() => void loadRun(run.id)}
+                          className="shrink-0 rounded-sm border border-stone-200 px-2 py-1 text-[11px] text-zinc-600 hover:bg-stone-50"
+                        >
+                          {run.status}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 ) : null}
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-medium text-zinc-950">{latestRun.workflowName}</span>
-                  <span className={`rounded-sm px-2 py-1 text-[11px] font-medium ${runStatusTone(latestRun.status)}`}>
-                    {latestRun.status}
-                  </span>
-                </div>
-                <div className="space-y-1.5">
-                  {getRunTimeline(latestRun).map((event) => (
-                    <div key={event.id} className="rounded-sm bg-zinc-950 px-2 py-1.5 font-mono text-[11px] leading-5 text-zinc-100">
-                      <span className="text-[#f2b66d]">{event.level}</span> {event.message}
-                    </div>
-                  ))}
-                </div>
               </div>
-            ) : (
-              <div className="grid h-full place-items-center rounded-md border border-dashed border-stone-300 text-xs text-zinc-500">
-                Trigger a run to see logs.
-              </div>
-            )}
-            {runs.length ? (
-              <div className="mt-3 border-t border-stone-200 pt-2">
-                <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-zinc-500">
-                  <History className="h-3.5 w-3.5" aria-hidden="true" />
-                  Recent
-                </div>
-                <div className="flex gap-1 overflow-x-auto">
-                  {runs.slice(0, 5).map((run) => (
-                    <button
-                      key={run.id}
-                      type="button"
-                      onClick={() => void loadRun(run.id)}
-                      className="shrink-0 rounded-sm border border-stone-200 px-2 py-1 text-[11px] text-zinc-600 hover:bg-stone-50"
-                    >
-                      {run.status}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
+            </section>
           </div>
-        </section>
+        ) : null}
+
+        {workbenchTab === "profile" ? <ProfileSetupPanel /> : null}
+        {workbenchTab === "inputs" ? (
+          <SecretsParamsPanel params={state.params} secrets={state.secrets} workflowId={workflow.id} />
+        ) : null}
       </div>
     </main>
   );
