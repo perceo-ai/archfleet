@@ -119,7 +119,7 @@ function decisionOutcome(result: AgentRunResult): Outcome {
   const text = `${typeof raw === "string" ? raw : JSON.stringify(raw ?? "")}\n${result.stdout}`.toLowerCase();
   if (/\b(failure|fail|no|false|blocked|not ready)\b/.test(text)) return "failure";
   if (/\b(success|succeed|yes|true|pass|ready)\b/.test(text)) return "success";
-  return result.status === "succeeded" ? "success" : "failure";
+  return "failure";
 }
 
 export async function runWorkflow(
