@@ -67,3 +67,77 @@ describe("fleet MCP tools", () => {
     db.close();
   });
 });
+
+describe("automation-era MCP tools", () => {
+  it("list_automations returns the seeded automation with health", async () => {
+    const db = openDb(":memory:");
+    ensureSeeded(db);
+    const out = (await tool("list_automations").run(db, {})) as { id: string; health: string }[];
+    expect(out.map((a) => a.id)).toContain("auto_portal_login");
+    expect(out[0].health).toBeDefined();
+    db.close();
+  });
+
+  it("run_automation links the run; list_takeovers/resolve_takeover round-trip", async () => {
+    const db = openDb(":memory:");
+    ensureSeeded(db);
+    const run = (await tool("run_automation").run(db, { id: "auto_portal_login" })) as {
+      id: string;
+      automationId: string;
+      status: string;
+    };
+    expect(run.status).toBe("queued");
+    expect(run.automationId).toBe("auto_portal_login");
+
+    const { openTakeover } = await import("../lib/fleet/db/takeovers-repo");
+    openTakeover(db, {
+      id: "tk_1",
+      runId: run.id,
+      reason: "MFA",
+      requestedAction: "approve",
+      status: "open",
+      openedAt: "2026-08-12T00:00:00Z",
+    });
+    const open = (await tool("list_takeovers").run(db, { status: "open" })) as { id: string }[];
+    expect(open.map((t) => t.id)).toContain("tk_1");
+    const resolved = (await tool("resolve_takeover").run(db, {
+      id: "tk_1",
+      operatorNotes: "done",
+      action: "cancel",
+    })) as { ok: boolean; takeover: { status: string } };
+    expect(resolved.ok).toBe(true);
+    expect(resolved.takeover.status).toBe("resolved");
+    const got = (await tool("get_run").run(db, { id: run.id })) as { status: string };
+    expect(got.status).toBe("canceled");
+    db.close();
+  });
+
+  it("upsert_automation + get_automation + list_environments + list_evidence", async () => {
+    const db = openDb(":memory:");
+    ensureSeeded(db);
+    const up = (await tool("upsert_automation").run(db, {
+      automation: { id: "auto_x", name: "X", workflowId: "wf_portal_login", category: "general" },
+    })) as { ok: boolean };
+    expect(up.ok).toBe(true);
+    const got = (await tool("get_automation").run(db, { id: "auto_x" })) as {
+      automation: { name: string };
+      health: string;
+    };
+    expect(got.automation.name).toBe("X");
+    const envs = (await tool("list_environments").run(db, {})) as { id: string }[];
+    expect(envs.map((e) => e.id)).toContain("env_default");
+
+    const { addEvidence } = await import("../lib/fleet/db/evidence-repo");
+    addEvidence(db, {
+      id: "ev_1",
+      runId: "r1",
+      automationId: "auto_x",
+      type: "screenshot",
+      description: "shot",
+      createdAt: "2026-08-12T00:00:00Z",
+    });
+    const evidence = (await tool("list_evidence").run(db, { automationId: "auto_x" })) as unknown[];
+    expect(evidence).toHaveLength(1);
+    db.close();
+  });
+});

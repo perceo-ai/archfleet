@@ -12,7 +12,16 @@ import { listSecretMeta, saveSecret } from "../lib/fleet/db/secrets-repo";
 import { createTrigger, listTriggers } from "../lib/fleet/triggers/triggers-repo";
 import { enqueueManualRun, processPendingRuns } from "../lib/fleet/server-runtime";
 import { realVmsFromEnv } from "../lib/fleet/vm-daemon/fleet-config";
-import type { Workflow } from "../lib/fleet/types";
+import {
+  automationHealth,
+  getAutomation,
+  listAutomations,
+  saveAutomation,
+} from "../lib/fleet/db/automations-repo";
+import { listEnvironments } from "../lib/fleet/db/environments-repo";
+import { listEvidenceByAutomation, listEvidenceByRun } from "../lib/fleet/db/evidence-repo";
+import { getTakeover, listTakeovers, resolveTakeover } from "../lib/fleet/db/takeovers-repo";
+import type { Automation, AutomationStatus, EvidenceType, TakeoverStatus, Workflow } from "../lib/fleet/types";
 
 export type FleetTool = {
   name: string;
@@ -66,6 +75,7 @@ export const FLEET_TOOLS: FleetTool[] = [
       enqueueManualRun(a.workflowId as string | undefined, {
         db,
         params: a.params as Record<string, string | number | boolean | null> | undefined,
+        triggerSource: "api",
       }),
   },
   {
@@ -142,6 +152,138 @@ export const FLEET_TOOLS: FleetTool[] = [
         scopeId: a.scopeId as string | undefined,
       });
       return { id, name: a.name };
+    },
+  },
+  {
+    name: "list_automations",
+    description: "List automations (the user-facing objects: intent + workflow + environment + criteria) with derived health.",
+    shape: {
+      status: z.enum(["draft", "active", "disabled"]).optional(),
+      category: z.string().optional(),
+    },
+    run: (db, a) =>
+      listAutomations(db, {
+        status: a.status as AutomationStatus | undefined,
+        category: a.category as string | undefined,
+      }).map((auto) => ({ ...auto, ...automationHealth(db, auto.id) })),
+  },
+  {
+    name: "get_automation",
+    description: "Get one automation with its derived health, last run, and workflow graph.",
+    shape: { id: z.string() },
+    run: (db, a) => {
+      const automation = getAutomation(db, a.id as string);
+      if (!automation) return { error: "not found" };
+      return {
+        automation,
+        workflow: getWorkflow(db, automation.workflowId),
+        runs: listRuns(db, 10, { automationId: automation.id }),
+        ...automationHealth(db, automation.id),
+      };
+    },
+  },
+  {
+    name: "upsert_automation",
+    description: "Create or update an automation. Pass the full Automation object (id, name, workflowId, ...).",
+    shape: { automation: z.record(z.string(), z.unknown()) },
+    run: (db, a) => {
+      const automation = a.automation as Automation;
+      if (!automation?.id || !automation.name || !automation.workflowId) {
+        return { ok: false, errors: ["automation needs id, name and workflowId"] };
+      }
+      saveAutomation(db, {
+        successCriteria: [],
+        requiredSecrets: [],
+        riskNotes: [],
+        goal: "",
+        category: "general",
+        target: "",
+        specMarkdown: "",
+        artifactPolicy: "",
+        retryPolicy: "",
+        takeoverPolicy: "",
+        status: "draft",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        ...automation,
+      });
+      return { ok: true, id: automation.id };
+    },
+  },
+  {
+    name: "draft_automation",
+    description:
+      "Draft a full automation (goal, spec, success criteria, secrets, policies, workflow graph, clarifying questions) from a plain-language description. Set save=true to persist a valid draft (status stays 'draft' until reviewed).",
+    shape: { prompt: z.string(), save: z.boolean().optional() },
+    run: async (db, a) => {
+      const { draftAutomation } = await import("../lib/fleet/automation-draft");
+      const { spawnAgentExec } = await import("../lib/fleet/ssh-exec");
+      const draft = await draftAutomation(a.prompt as string, spawnAgentExec);
+      if (a.save && draft.errors.length === 0) {
+        saveWorkflow(db, draft.workflow);
+        saveAutomation(db, draft.automation);
+      }
+      return draft;
+    },
+  },
+  {
+    name: "run_automation",
+    description: "Enqueue a run of an automation (linked to its environment + run history). Returns the queued run.",
+    shape: { id: z.string(), params: z.record(z.string(), z.unknown()).optional() },
+    run: (db, a) => {
+      const automation = getAutomation(db, a.id as string);
+      if (!automation) return { error: "not found" };
+      return enqueueManualRun(automation.workflowId, {
+        db,
+        params: a.params as Record<string, string | number | boolean | null> | undefined,
+        automationId: automation.id,
+        environmentId: automation.environmentId,
+        triggerSource: "api",
+      });
+    },
+  },
+  {
+    name: "list_environments",
+    description: "List prepared environments (reusable logged-in browser/desktop state backed by fleet profiles).",
+    shape: {},
+    run: (db) => listEnvironments(db),
+  },
+  {
+    name: "list_evidence",
+    description: "List evidence (screenshots, files, logs, criteria reviews) for a run or an automation.",
+    shape: {
+      runId: z.string().optional(),
+      automationId: z.string().optional(),
+      type: z.enum(["screenshot", "file", "log", "criteria_review"]).optional(),
+    },
+    run: (db, a) => {
+      const type = a.type as EvidenceType | undefined;
+      if (a.runId) return listEvidenceByRun(db, a.runId as string, { type });
+      if (a.automationId) return listEvidenceByAutomation(db, a.automationId as string, { type });
+      return { error: "runId or automationId is required" };
+    },
+  },
+  {
+    name: "list_takeovers",
+    description: "List human takeover requests (why a run paused + what the operator should do).",
+    shape: { status: z.enum(["open", "resolved"]).optional() },
+    run: (db, a) => listTakeovers(db, { status: a.status as TakeoverStatus | undefined }),
+  },
+  {
+    name: "resolve_takeover",
+    description: "Mark a takeover resolved with optional operator notes. Optionally resume (re-queue) or cancel the paused run.",
+    shape: {
+      id: z.string(),
+      operatorNotes: z.string().optional(),
+      action: z.enum(["resume", "cancel"]).optional(),
+    },
+    run: (db, a) => {
+      const ok = resolveTakeover(db, a.id as string, { operatorNotes: a.operatorNotes as string | undefined });
+      if (!ok) return { ok: false, error: "takeover not found or already resolved" };
+      const takeover = getTakeover(db, a.id as string);
+      if (takeover && a.action === "resume") retryRun(db, takeover.runId);
+      else if (takeover && a.action === "cancel") cancelRun(db, takeover.runId);
+      return { ok: true, takeover };
     },
   },
   {
