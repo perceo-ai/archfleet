@@ -187,3 +187,17 @@ describe("greptile fixes", () => {
     db.close();
   });
 });
+
+describe("upsert_automation workflow guard", () => {
+  it("rejects an automation whose workflow does not exist", async () => {
+    const db = openDb(":memory:");
+    ensureSeeded(db);
+    const res = (await tool("upsert_automation").run(db, {
+      automation: { id: "auto_bad", name: "Bad", workflowId: "wf_missing" },
+    })) as { ok: boolean; errors?: string[] };
+    expect(res.ok).toBe(false);
+    expect(res.errors?.[0]).toMatch(/wf_missing not found/);
+    expect(await tool("get_automation").run(db, { id: "auto_bad" })).toEqual({ error: "not found" });
+    db.close();
+  });
+});

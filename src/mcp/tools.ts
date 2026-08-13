@@ -199,6 +199,14 @@ export const FLEET_TOOLS: FleetTool[] = [
       if (!automation?.id || !automation.name || !automation.workflowId) {
         return { ok: false, errors: ["automation needs id, name and workflowId"] };
       }
+      // Same guard as POST /api/automations: an automation pointing at a missing
+      // workflow would be accepted here but rejected by every run attempt.
+      if (!getWorkflow(db, automation.workflowId)) {
+        return {
+          ok: false,
+          errors: [`workflow ${automation.workflowId} not found — save it first with upsert_workflow`],
+        };
+      }
       const now = new Date().toISOString();
       saveAutomation(db, {
         id: automation.id,
