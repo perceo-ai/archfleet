@@ -51,6 +51,7 @@ export function usePolling<T>(url: string, intervalMs = 0): {
 
   useEffect(() => {
     alive.current = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void refresh();
     const timer = intervalMs > 0 ? setInterval(() => void refresh(), intervalMs) : undefined;
     return () => {

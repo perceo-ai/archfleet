@@ -1,5 +1,5 @@
-import { FleetManager } from "@/components/fleet/FleetManager";
+import { HomeDashboard } from "@/components/home/HomeDashboard";
 
 export default function Home() {
-  return <FleetManager />;
+  return <HomeDashboard />;
 }
