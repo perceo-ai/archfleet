@@ -6,7 +6,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { SCHEMA_SQL } from "./schema";
+import { COLUMN_MIGRATIONS, SCHEMA_SQL, ensureColumns } from "./schema";
 
 export type Db = DatabaseSync;
 
@@ -21,6 +21,9 @@ export function openDb(path: string): Db {
   }
   const db = new DatabaseSync(path);
   db.exec(SCHEMA_SQL);
+  for (const [table, columns] of Object.entries(COLUMN_MIGRATIONS)) {
+    ensureColumns(db, table, columns);
+  }
   return db;
 }
 

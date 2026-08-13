@@ -144,6 +144,102 @@ export type WorkflowRun = {
   finishedAt?: string;
   events: RunEvent[];
   artifacts?: RunArtifact[];
+  /** Automation this run belongs to (runs can also target a bare workflow). */
+  automationId?: string;
+  environmentId?: string;
+  triggerSource?: TriggerSource;
+  /** Name of the node currently executing (live progress). */
+  currentStep?: string;
+  /** Why the run paused — set when status is "paused". */
+  pausedReason?: string;
+  /** One-line outcome written when the run finishes. */
+  resultSummary?: string;
+};
+
+export type AutomationStatus = "draft" | "active" | "disabled";
+
+export type AutomationHealth = "healthy" | "failing" | "needs_attention" | "unknown";
+
+export type TriggerSource = "manual" | "schedule" | "webhook" | "api";
+
+export type EnvironmentHealth = "ready" | "degraded" | "recovering" | "unknown";
+
+export type TakeoverStatus = "open" | "resolved";
+
+export type EvidenceType = "screenshot" | "file" | "log" | "criteria_review";
+
+/** The user-facing object: intent + workflow + environment + criteria + policy.
+ * The workflow graph lives underneath (`workflowId`); the automation is what
+ * users create, edit, run, and schedule. */
+export type Automation = {
+  id: string;
+  name: string;
+  goal: string;
+  /** Purpose bucket, e.g. "general" | "semantic_test" | "data_extraction" | "form_fill" | "report_download". */
+  category: string;
+  /** Target site/app/system in plain language. */
+  target: string;
+  /** Plain-language spec: the steps as the user would describe them. */
+  specMarkdown: string;
+  workflowId: string;
+  environmentId?: string;
+  /** Plain-language success criteria, reviewed by humans against run evidence. */
+  successCriteria: string[];
+  requiredSecrets: string[];
+  mfaExpectation?: string;
+  artifactPolicy: string;
+  retryPolicy: string;
+  takeoverPolicy: string;
+  triggerSuggestion?: string;
+  riskNotes: string[];
+  status: AutomationStatus;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** A reusable, ready-to-run environment (browser state, logins, device trust).
+ * Backed by the fleet's profile/warm-snapshot machinery via `profileRef`. */
+export type PreparedEnvironment = {
+  id: string;
+  name: string;
+  description: string;
+  labels: string[];
+  /** Fleet profile slug this environment maps to (label `profile:<slug>`). */
+  profileRef?: string;
+  health: EnvironmentHealth;
+  snapshotState?: string;
+  lastUsedAt?: string;
+  recoveryState?: string;
+  setupNotes?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type EvidenceItem = {
+  id: string;
+  runId: string;
+  automationId?: string;
+  type: EvidenceType;
+  /** Artifact name servable via /api/runs/:id/artifacts/:name, or external ref. */
+  artifactRef?: string;
+  stepId?: string;
+  description: string;
+  /** Human review outcome for criteria_review evidence. */
+  verdict?: "pass" | "fail";
+  createdAt: string;
+};
+
+export type HumanTakeover = {
+  id: string;
+  runId: string;
+  environmentId?: string;
+  vmId?: string;
+  reason: string;
+  requestedAction: string;
+  status: TakeoverStatus;
+  openedAt: string;
+  resolvedAt?: string;
+  operatorNotes?: string;
 };
 
 export type FleetState = {

@@ -103,6 +103,74 @@ CREATE TABLE IF NOT EXISTS cuf_params (
   updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS cuf_automations (
+  id               TEXT PRIMARY KEY,
+  name             TEXT NOT NULL,
+  goal             TEXT NOT NULL DEFAULT '',
+  category         TEXT NOT NULL DEFAULT 'general',
+  target           TEXT NOT NULL DEFAULT '',
+  spec_markdown    TEXT NOT NULL DEFAULT '',
+  workflow_id      TEXT NOT NULL,
+  environment_id   TEXT,
+  success_criteria TEXT NOT NULL DEFAULT '[]',   -- JSON string[]
+  required_secrets TEXT NOT NULL DEFAULT '[]',   -- JSON string[]
+  mfa_expectation  TEXT,
+  artifact_policy  TEXT NOT NULL DEFAULT '',
+  retry_policy     TEXT NOT NULL DEFAULT '',
+  takeover_policy  TEXT NOT NULL DEFAULT '',
+  trigger_suggestion TEXT,
+  risk_notes       TEXT NOT NULL DEFAULT '[]',   -- JSON string[]
+  status           TEXT NOT NULL DEFAULT 'draft', -- draft | active | disabled
+  created_at       TEXT NOT NULL,
+  updated_at       TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS cuf_automations_workflow ON cuf_automations(workflow_id);
+CREATE INDEX IF NOT EXISTS cuf_automations_status ON cuf_automations(status);
+
+CREATE TABLE IF NOT EXISTS cuf_environments (
+  id             TEXT PRIMARY KEY,
+  name           TEXT NOT NULL,
+  description    TEXT NOT NULL DEFAULT '',
+  labels_json    TEXT NOT NULL DEFAULT '[]',
+  profile_ref    TEXT,                            -- profile:<slug> convention
+  health         TEXT NOT NULL DEFAULT 'unknown', -- ready | degraded | recovering | unknown
+  snapshot_state TEXT,
+  last_used_at   TEXT,
+  recovery_state TEXT,
+  setup_notes    TEXT,
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS cuf_evidence (
+  id            TEXT PRIMARY KEY,
+  run_id        TEXT NOT NULL,
+  automation_id TEXT,
+  type          TEXT NOT NULL,                    -- screenshot | file | log | criteria_review
+  artifact_ref  TEXT,
+  step_id       TEXT,
+  description   TEXT NOT NULL DEFAULT '',
+  verdict       TEXT,                             -- pass | fail (criteria_review)
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS cuf_evidence_run ON cuf_evidence(run_id);
+CREATE INDEX IF NOT EXISTS cuf_evidence_automation ON cuf_evidence(automation_id);
+
+CREATE TABLE IF NOT EXISTS cuf_takeovers (
+  id               TEXT PRIMARY KEY,
+  run_id           TEXT NOT NULL,
+  environment_id   TEXT,
+  vm_id            TEXT,
+  reason           TEXT NOT NULL DEFAULT '',
+  requested_action TEXT NOT NULL DEFAULT '',
+  status           TEXT NOT NULL DEFAULT 'open',  -- open | resolved
+  opened_at        TEXT NOT NULL,
+  resolved_at      TEXT,
+  operator_notes   TEXT
+);
+CREATE INDEX IF NOT EXISTS cuf_takeovers_run ON cuf_takeovers(run_id);
+CREATE INDEX IF NOT EXISTS cuf_takeovers_status ON cuf_takeovers(status);
+
 CREATE TABLE IF NOT EXISTS cuf_users (
   id            TEXT PRIMARY KEY,
   username      TEXT NOT NULL UNIQUE,
@@ -126,4 +194,36 @@ export const CUF_TABLES = [
   "cuf_secrets",
   "cuf_params",
   "cuf_users",
+  "cuf_automations",
+  "cuf_environments",
+  "cuf_evidence",
+  "cuf_takeovers",
 ] as const;
+
+/** Columns added after a table first shipped. `CREATE TABLE IF NOT EXISTS`
+ * cannot alter existing databases, so `openDb` applies these via ensureColumns. */
+export const COLUMN_MIGRATIONS: Record<string, Record<string, string>> = {
+  cuf_runs: {
+    automation_id: "TEXT",
+    environment_id: "TEXT",
+    trigger_source: "TEXT",
+    current_step: "TEXT",
+    paused_reason: "TEXT",
+    result_summary: "TEXT",
+  },
+};
+
+type SqlRunner = {
+  prepare(sql: string): { all(...args: unknown[]): unknown[] };
+  exec(sql: string): void;
+};
+
+/** Add any missing columns to `table`. Idempotent — existing columns are left alone. */
+export function ensureColumns(db: SqlRunner, table: string, columns: Record<string, string>): void {
+  const existing = new Set(
+    (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name),
+  );
+  for (const [name, ddl] of Object.entries(columns)) {
+    if (!existing.has(name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${ddl}`);
+  }
+}
