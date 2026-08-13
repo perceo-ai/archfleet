@@ -206,3 +206,55 @@ describe("automation-aware run lifecycle", () => {
     db.close();
   });
 });
+
+describe("evidence checks + PR association through execution", () => {
+  it("evaluates automation evidence checks into check evidence rows", async () => {
+    const db = openDb(":memory:");
+    const { saveWorkflow } = await import("./db/workflows-repo");
+    saveWorkflow(db, {
+      id: "wf_noop3",
+      name: "Noop",
+      description: "",
+      enabled: true,
+      triggerKinds: ["manual"],
+      nodes: [
+        { id: "start", type: "start", name: "Start step", position: { x: 0, y: 0 }, config: {} },
+        { id: "end", type: "end", name: "End", position: { x: 1, y: 0 }, config: {} },
+      ],
+      edges: [{ id: "e1", from: "start", to: "end", condition: "always" }],
+    });
+    const { saveAutomation } = await import("./db/automations-repo");
+    saveAutomation(db, {
+      id: "auto_chk",
+      name: "Checked",
+      goal: "",
+      category: "general",
+      target: "",
+      specMarkdown: "",
+      workflowId: "wf_noop3",
+      successCriteria: [],
+      requiredSecrets: [],
+      artifactPolicy: "",
+      retryPolicy: "",
+      takeoverPolicy: "",
+      riskNotes: [],
+      evidenceChecks: [
+        { type: "screenshot_captured" },
+      ],
+      status: "active",
+      createdAt: "t",
+      updatedAt: "t",
+    });
+    enqueueManualRun("wf_noop3", { db, prRef: "42", branchRef: "main" });
+    await processPendingRuns(db, 5);
+    const run = listRuns(db)[0];
+    expect(run.status).toBe("succeeded");
+    expect(run.prRef).toBe("42");
+    expect(run.branchRef).toBe("main");
+    const { listEvidenceByRun } = await import("./db/evidence-repo");
+    const checks = listEvidenceByRun(db, run.id, { type: "check" });
+    expect(checks).toHaveLength(1);
+    expect(checks[0].verdict).toBe("fail"); // noop run captures no screenshots
+    db.close();
+  });
+});

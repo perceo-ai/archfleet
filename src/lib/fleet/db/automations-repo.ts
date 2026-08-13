@@ -15,8 +15,8 @@ export function saveAutomation(db: Db, a: Automation): void {
     `INSERT OR REPLACE INTO cuf_automations
        (id, name, goal, category, target, spec_markdown, workflow_id, environment_id,
         success_criteria, required_secrets, mfa_expectation, artifact_policy, retry_policy,
-        takeover_policy, trigger_suggestion, risk_notes, status, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        takeover_policy, trigger_suggestion, risk_notes, evidence_checks, status, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   ).run(
     a.id,
     a.name,
@@ -34,6 +34,7 @@ export function saveAutomation(db: Db, a: Automation): void {
     a.takeoverPolicy,
     a.triggerSuggestion ?? null,
     JSON.stringify(a.riskNotes),
+    JSON.stringify(a.evidenceChecks ?? []),
     a.status,
     a.createdAt,
     a.updatedAt,
@@ -58,6 +59,7 @@ function rowToAutomation(row: Record<string, unknown>): Automation {
     takeoverPolicy: row.takeover_policy as string,
     triggerSuggestion: (row.trigger_suggestion as string) ?? undefined,
     riskNotes: JSON.parse((row.risk_notes as string) || "[]"),
+    evidenceChecks: JSON.parse((row.evidence_checks as string) || "[]"),
     status: row.status as AutomationStatus,
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,

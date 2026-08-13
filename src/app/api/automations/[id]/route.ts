@@ -53,6 +53,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     "takeoverPolicy",
     "triggerSuggestion",
     "riskNotes",
+    "evidenceChecks",
     "status",
   ];
   const updated: Automation = { ...existing };

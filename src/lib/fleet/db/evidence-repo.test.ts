@@ -39,3 +39,29 @@ describe("evidence repo", () => {
     db.close();
   });
 });
+
+describe("evidence by PR/branch association", () => {
+  it("joins through runs to find release-check evidence", async () => {
+    const db = openDb(":memory:");
+    const { saveRun } = await import("./runs-repo");
+    saveRun(db, {
+      id: "r_pr",
+      workflowId: "wf1",
+      workflowName: "Release smoke",
+      status: "succeeded",
+      startedAt: "2026-08-12T01:00:00Z",
+      events: [],
+      artifacts: [],
+      prRef: "42",
+      branchRef: "feature/login",
+    });
+    addEvidence(db, evidence("ev_pr", { runId: "r_pr", type: "check", verdict: "pass", artifactRef: undefined }));
+    addEvidence(db, evidence("ev_other", { runId: "r_unrelated" }));
+    const { listEvidenceByRunAssociation } = await import("./evidence-repo");
+    expect(listEvidenceByRunAssociation(db, { prRef: "42" }).map((e) => e.id)).toEqual(["ev_pr"]);
+    expect(listEvidenceByRunAssociation(db, { branchRef: "feature/login" }).map((e) => e.id)).toEqual(["ev_pr"]);
+    expect(listEvidenceByRunAssociation(db, { prRef: "99" })).toEqual([]);
+    expect(listEvidenceByRunAssociation(db, {})).toEqual([]);
+    db.close();
+  });
+});

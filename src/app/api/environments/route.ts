@@ -3,14 +3,41 @@ import {
   getEnvironment,
   listEnvironments,
   saveEnvironment,
+  setEnvironmentHealth,
 } from "@/lib/fleet/db/environments-repo";
+import { checkProfileFleet } from "@/lib/fleet/profile-status";
+import { realVmsFromEnv } from "@/lib/fleet/vm-daemon/fleet-config";
+import { createVirshClient } from "@/lib/fleet/vm-daemon/virsh";
+import { execVirshRunner } from "@/lib/fleet/vm-daemon/exec-runner";
 import type { PreparedEnvironment } from "@/lib/fleet/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// GET /api/environments — prepared environments (user-facing wrapper over profiles).
-export async function GET() {
+/** Best-effort: refresh environment health from live profile/warm-snapshot state.
+ * Only touches environments with a profileRef; silently no-ops without libvirt. */
+async function syncHealthFromFleet(): Promise<void> {
+  const db = getDb();
+  const withProfiles = listEnvironments(db).filter((e) => e.profileRef);
+  const vms = realVmsFromEnv();
+  if (!withProfiles.length || !vms.length) return;
+  try {
+    const client = createVirshClient(execVirshRunner(), process.env.CUF_LIBVIRT_URI ?? "qemu:///session");
+    const status = await checkProfileFleet(vms, client);
+    for (const env of withProfiles) {
+      const profile = status.profiles[env.profileRef!];
+      if (!profile) continue;
+      setEnvironmentHealth(db, env.id, profile.ready ? "ready" : "degraded");
+    }
+  } catch {
+    // libvirt unreachable — keep stored health
+  }
+}
+
+// GET /api/environments?live=1 — prepared environments (user-facing wrapper over
+// profiles). live=1 first refreshes health from libvirt/warm-snapshot state.
+export async function GET(req: Request) {
+  if (new URL(req.url).searchParams.get("live") === "1") await syncHealthFromFleet();
   return Response.json(listEnvironments(getDb()));
 }
 

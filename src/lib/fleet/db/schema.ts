@@ -210,6 +210,11 @@ export const COLUMN_MIGRATIONS: Record<string, Record<string, string>> = {
     current_step: "TEXT",
     paused_reason: "TEXT",
     result_summary: "TEXT",
+    branch_ref: "TEXT",
+    pr_ref: "TEXT",
+  },
+  cuf_automations: {
+    evidence_checks: "TEXT NOT NULL DEFAULT '[]'",
   },
 };
 

@@ -55,3 +55,29 @@ export function listEvidenceByAutomation(
   const args = filter.type ? [automationId, filter.type] : [automationId];
   return (db.prepare(sql).all(...(args as never[])) as Record<string, unknown>[]).map(rowToEvidence);
 }
+
+/** Evidence for every run associated with a PR (or branch) — how release checks
+ * attach their proof back to review. */
+export function listEvidenceByRunAssociation(
+  db: Db,
+  filter: { prRef?: string; branchRef?: string; type?: EvidenceType },
+): EvidenceItem[] {
+  const where: string[] = [];
+  const args: unknown[] = [];
+  if (filter.prRef) {
+    where.push("r.pr_ref = ?");
+    args.push(filter.prRef);
+  }
+  if (filter.branchRef) {
+    where.push("r.branch_ref = ?");
+    args.push(filter.branchRef);
+  }
+  if (!where.length) return [];
+  if (filter.type) {
+    where.push("e.type = ?");
+    args.push(filter.type);
+  }
+  const sql = `SELECT e.* FROM cuf_evidence e JOIN cuf_runs r ON r.id = e.run_id
+               WHERE ${where.join(" AND ")} ORDER BY e.created_at DESC, e.id`;
+  return (db.prepare(sql).all(...(args as never[])) as Record<string, unknown>[]).map(rowToEvidence);
+}

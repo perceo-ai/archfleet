@@ -29,6 +29,7 @@ function automation(id: string, overrides: Partial<Automation> = {}): Automation
     takeoverPolicy: "Pause for human on MFA",
     triggerSuggestion: "Run on every release",
     riskNotes: ["Login page layout changes may break selectors"],
+    evidenceChecks: [{ type: "text_found", value: "dashboard" }],
     status: "active",
     createdAt: "2026-08-12T00:00:00.000Z",
     updatedAt: "2026-08-12T00:00:00.000Z",

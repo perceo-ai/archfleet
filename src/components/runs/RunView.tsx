@@ -115,6 +115,7 @@ export function RunView({ id }: { id: string }) {
       .filter((e) => e.type === "criteria_review")
       .map((e) => [e.description, e.verdict] as const),
   );
+  const checkResults = (evidence.data ?? []).filter((e) => e.type === "check");
 
   return (
     <main className="mx-auto w-full max-w-6xl px-5 py-6 md:px-12">
@@ -334,6 +335,33 @@ export function RunView({ id }: { id: string }) {
                     </li>
                   );
                 })}
+              </ul>
+            </section>
+          ) : null}
+
+          {checkResults.length > 0 ? (
+            <section className="glass glass-border rounded-[5px]">
+              <div className="border-b border-white/[0.08] px-4 py-3">
+                <h2 className="text-sm font-semibold text-white">Automated checks</h2>
+                <p className="mt-1 text-xs text-white/45">
+                  Evaluated against this run&apos;s events and artifacts.
+                </p>
+              </div>
+              <ul className="divide-y divide-white/[0.08]">
+                {checkResults.map((c) => (
+                  <li key={c.id} className="flex items-center justify-between gap-2 px-4 py-3">
+                    <span className="text-sm text-white/85">{c.description}</span>
+                    <span
+                      className={`shrink-0 rounded-[5px] px-2 py-0.5 text-xs font-semibold ${
+                        c.verdict === "pass"
+                          ? "bg-[#4ade80]/20 text-[#8add84] ring-1 ring-[#4ade80]/30"
+                          : "bg-[#f87171]/20 text-[#fca5a5] ring-1 ring-[#f87171]/30"
+                      }`}
+                    >
+                      {c.verdict}
+                    </span>
+                  </li>
+                ))}
               </ul>
             </section>
           ) : null}

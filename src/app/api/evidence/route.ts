@@ -1,21 +1,33 @@
 import { getDb } from "@/lib/fleet/db/db";
-import { listEvidenceByAutomation, listEvidenceByRun } from "@/lib/fleet/db/evidence-repo";
-import { addEvidence } from "@/lib/fleet/db/evidence-repo";
+import {
+  addEvidence,
+  listEvidenceByAutomation,
+  listEvidenceByRun,
+  listEvidenceByRunAssociation,
+} from "@/lib/fleet/db/evidence-repo";
 import type { EvidenceItem, EvidenceType } from "@/lib/fleet/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// GET /api/evidence?runId=|automationId=&type= — evidence for a run or automation.
+// GET /api/evidence?runId=|automationId=|pr=|branch=&type= — evidence for a run,
+// an automation, or every run associated with a PR/branch (release checks).
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const runId = url.searchParams.get("runId");
   const automationId = url.searchParams.get("automationId");
+  const prRef = url.searchParams.get("pr");
+  const branchRef = url.searchParams.get("branch");
   const type = (url.searchParams.get("type") ?? undefined) as EvidenceType | undefined;
   const db = getDb();
   if (runId) return Response.json(listEvidenceByRun(db, runId, { type }));
   if (automationId) return Response.json(listEvidenceByAutomation(db, automationId, { type }));
-  return Response.json({ error: "runId or automationId is required" }, { status: 400 });
+  if (prRef || branchRef) {
+    return Response.json(
+      listEvidenceByRunAssociation(db, { prRef: prRef ?? undefined, branchRef: branchRef ?? undefined, type }),
+    );
+  }
+  return Response.json({ error: "runId, automationId, pr or branch is required" }, { status: 400 });
 }
 
 // POST /api/evidence — record a human review (or other manual evidence) for a run.

@@ -154,6 +154,10 @@ export type WorkflowRun = {
   pausedReason?: string;
   /** One-line outcome written when the run finishes. */
   resultSummary?: string;
+  /** Branch this run is associated with (semantic tests / Archductor triggers). */
+  branchRef?: string;
+  /** PR this run is associated with, e.g. "42" or "org/repo#42". */
+  prRef?: string;
 };
 
 export type AutomationStatus = "draft" | "active" | "disabled";
@@ -166,7 +170,7 @@ export type EnvironmentHealth = "ready" | "degraded" | "recovering" | "unknown";
 
 export type TakeoverStatus = "open" | "resolved";
 
-export type EvidenceType = "screenshot" | "file" | "log" | "criteria_review";
+export type EvidenceType = "screenshot" | "file" | "log" | "criteria_review" | "check";
 
 /** The user-facing object: intent + workflow + environment + criteria + policy.
  * The workflow graph lives underneath (`workflowId`); the automation is what
@@ -192,6 +196,8 @@ export type Automation = {
   takeoverPolicy: string;
   triggerSuggestion?: string;
   riskNotes: string[];
+  /** Machine-evaluated assertions run after each execution (see evidence-checks.ts). */
+  evidenceChecks?: import("./evidence-checks").EvidenceCheck[];
   status: AutomationStatus;
   createdAt: string;
   updatedAt: string;

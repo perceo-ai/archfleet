@@ -18,11 +18,15 @@ export type RunSummary = {
   triggerSource?: TriggerSource;
   currentStep?: string;
   resultSummary?: string;
+  branchRef?: string;
+  prRef?: string;
 };
 
 export type RunListFilter = {
   automationId?: string;
   statuses?: RunStatus[];
+  branchRef?: string;
+  prRef?: string;
 };
 
 /** Upsert a run with its events + artifacts atomically. Columns not owned by the
@@ -32,8 +36,9 @@ export function saveRun(db: Db, run: WorkflowRun): void {
   const insertRun = db.prepare(
     `INSERT INTO cuf_runs
        (id, workflow_id, workflow_name, status, vm_id, trigger_id, started_at, finished_at,
-        automation_id, environment_id, trigger_source, current_step, paused_reason, result_summary)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        automation_id, environment_id, trigger_source, current_step, paused_reason, result_summary,
+        branch_ref, pr_ref)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
      ON CONFLICT(id) DO UPDATE SET
        workflow_id=excluded.workflow_id,
        workflow_name=excluded.workflow_name,
@@ -47,7 +52,9 @@ export function saveRun(db: Db, run: WorkflowRun): void {
        trigger_source=excluded.trigger_source,
        current_step=excluded.current_step,
        paused_reason=excluded.paused_reason,
-       result_summary=excluded.result_summary`,
+       result_summary=excluded.result_summary,
+       branch_ref=excluded.branch_ref,
+       pr_ref=excluded.pr_ref`,
   );
   const insertEvent = db.prepare(
     `INSERT OR REPLACE INTO cuf_events (id, run_id, node_id, level, message, timestamp, seq)
@@ -75,6 +82,8 @@ export function saveRun(db: Db, run: WorkflowRun): void {
       run.currentStep ?? null,
       run.pausedReason ?? null,
       run.resultSummary ?? null,
+      run.branchRef ?? null,
+      run.prRef ?? null,
     );
     run.events.forEach((e, i) =>
       insertEvent.run(e.id, run.id, null, e.level, e.message, e.timestamp, i),
@@ -152,6 +161,8 @@ export function getRun(db: Db, id: string): WorkflowRun | undefined {
     currentStep: (row.current_step as string) ?? undefined,
     pausedReason: (row.paused_reason as string) ?? undefined,
     resultSummary: (row.result_summary as string) ?? undefined,
+    branchRef: (row.branch_ref as string) ?? undefined,
+    prRef: (row.pr_ref as string) ?? undefined,
   };
 }
 
@@ -238,6 +249,14 @@ export function listRuns(db: Db, limit = 50, filter: RunListFilter = {}): RunSum
     where.push(`status IN (${filter.statuses.map(() => "?").join(",")})`);
     args.push(...filter.statuses);
   }
+  if (filter.branchRef) {
+    where.push("branch_ref = ?");
+    args.push(filter.branchRef);
+  }
+  if (filter.prRef) {
+    where.push("pr_ref = ?");
+    args.push(filter.prRef);
+  }
   const sql = `SELECT * FROM cuf_runs ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY started_at DESC LIMIT ?`;
   const rows = db.prepare(sql).all(...(args as never[]), limit) as Record<string, unknown>[];
   return rows.map((row) => ({
@@ -253,5 +272,7 @@ export function listRuns(db: Db, limit = 50, filter: RunListFilter = {}): RunSum
     triggerSource: (row.trigger_source as TriggerSource) ?? undefined,
     currentStep: (row.current_step as string) ?? undefined,
     resultSummary: (row.result_summary as string) ?? undefined,
+    branchRef: (row.branch_ref as string) ?? undefined,
+    prRef: (row.pr_ref as string) ?? undefined,
   }));
 }

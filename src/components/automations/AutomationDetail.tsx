@@ -16,6 +16,7 @@ import {
   statusLabel,
 } from "@/components/fleet/status-colors";
 import { WorkflowCanvas } from "@/components/fleet/WorkflowCanvas";
+import { formatEvidenceChecks, parseEvidenceChecks } from "@/lib/fleet/evidence-checks";
 import type { RunSummary } from "@/lib/fleet/db/runs-repo";
 import type {
   Automation,
@@ -257,6 +258,19 @@ export function AutomationDetail({ id }: { id: string }) {
                   rows={3}
                   value={edit.successCriteria.join("\n")}
                   onChange={(e) => patch({ successCriteria: e.target.value.split("\n").filter(Boolean) })}
+                />
+              </Field>
+            </div>
+            <div className="md:col-span-2">
+              <Field
+                label="Automated evidence checks"
+                hint="One per line, evaluated after each run: text_found: <text> · url_reached: <url> · file_downloaded: <name> · screenshot_captured"
+              >
+                <textarea
+                  className={inputCls}
+                  rows={3}
+                  value={formatEvidenceChecks(edit.evidenceChecks ?? [])}
+                  onChange={(e) => patch({ evidenceChecks: parseEvidenceChecks(e.target.value) })}
                 />
               </Field>
             </div>

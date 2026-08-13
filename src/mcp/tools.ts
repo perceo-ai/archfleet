@@ -19,7 +19,11 @@ import {
   saveAutomation,
 } from "../lib/fleet/db/automations-repo";
 import { listEnvironments } from "../lib/fleet/db/environments-repo";
-import { listEvidenceByAutomation, listEvidenceByRun } from "../lib/fleet/db/evidence-repo";
+import {
+  listEvidenceByAutomation,
+  listEvidenceByRun,
+  listEvidenceByRunAssociation,
+} from "../lib/fleet/db/evidence-repo";
 import { getTakeover, listTakeovers, resolveTakeover } from "../lib/fleet/db/takeovers-repo";
 import type { Automation, AutomationStatus, EvidenceType, TakeoverStatus, Workflow } from "../lib/fleet/types";
 
@@ -92,9 +96,13 @@ export const FLEET_TOOLS: FleetTool[] = [
   },
   {
     name: "list_runs",
-    description: "List recent runs (newest first).",
-    shape: { limit: z.number().optional() },
-    run: (db, a) => listRuns(db, (a.limit as number) ?? 50),
+    description: "List recent runs (newest first). Filter by PR or branch association.",
+    shape: { limit: z.number().optional(), pr: z.string().optional(), branch: z.string().optional() },
+    run: (db, a) =>
+      listRuns(db, (a.limit as number) ?? 50, {
+        prRef: a.pr as string | undefined,
+        branchRef: a.branch as string | undefined,
+      }),
   },
   {
     name: "retry_run",
@@ -256,17 +264,27 @@ export const FLEET_TOOLS: FleetTool[] = [
   },
   {
     name: "list_evidence",
-    description: "List evidence (screenshots, files, logs, criteria reviews) for a run or an automation.",
+    description:
+      "List evidence (screenshots, files, logs, criteria reviews, automated checks) for a run, an automation, or every run associated with a PR/branch.",
     shape: {
       runId: z.string().optional(),
       automationId: z.string().optional(),
-      type: z.enum(["screenshot", "file", "log", "criteria_review"]).optional(),
+      pr: z.string().optional(),
+      branch: z.string().optional(),
+      type: z.enum(["screenshot", "file", "log", "criteria_review", "check"]).optional(),
     },
     run: (db, a) => {
       const type = a.type as EvidenceType | undefined;
       if (a.runId) return listEvidenceByRun(db, a.runId as string, { type });
       if (a.automationId) return listEvidenceByAutomation(db, a.automationId as string, { type });
-      return { error: "runId or automationId is required" };
+      if (a.pr || a.branch) {
+        return listEvidenceByRunAssociation(db, {
+          prRef: a.pr as string | undefined,
+          branchRef: a.branch as string | undefined,
+          type,
+        });
+      }
+      return { error: "runId, automationId, pr or branch is required" };
     },
   },
   {

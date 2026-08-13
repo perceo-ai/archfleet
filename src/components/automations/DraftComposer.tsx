@@ -22,6 +22,46 @@ const CATEGORIES = [
   "marketing",
 ];
 
+// Common patterns (strategy doc "Prompt-to-Automation Draft"). Templates seed the
+// description; natural language stays the primary path.
+const TEMPLATES: { label: string; prompt: string }[] = [
+  {
+    label: "Product flow test",
+    prompt:
+      "Test that a user can <do the core flow, e.g. sign up, create a project, invite a teammate> on <app URL>. Succeed only if <what the final screen must show>. Capture a screenshot at each step.",
+  },
+  {
+    label: "Release smoke",
+    prompt:
+      "Run a smoke check of <app URL> before a release: log in, visit <key pages>, and verify each renders without errors. Capture screenshots as evidence.",
+  },
+  {
+    label: "Form fill",
+    prompt:
+      "Open <form URL> and fill the form with <field values or where to get them>, submit it, and confirm the confirmation message appears.",
+  },
+  {
+    label: "Data extraction",
+    prompt:
+      "Log into <site> and extract <the data you need, e.g. this month's invoices> into a file. Download or save the results as artifacts.",
+  },
+  {
+    label: "Account setup",
+    prompt:
+      "Create a new account on <site> using <email/credentials source>, complete onboarding, and pause for me when MFA or email verification appears.",
+  },
+  {
+    label: "Report download",
+    prompt:
+      "Log into <portal> and download the <weekly/monthly> <report name> report. Save the file as an artifact and confirm the totals page rendered.",
+  },
+  {
+    label: "Marketing workflow",
+    prompt:
+      "In <tool>, <the marketing task, e.g. schedule this week's newsletter from the draft folder>, and capture a screenshot of the final scheduled state.",
+  },
+];
+
 function Field(props: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <label className="grid gap-1 text-xs text-white/60">
@@ -94,6 +134,18 @@ export function DraftComposer() {
       </p>
 
       <section className="glass glass-border mt-5 rounded-[5px] p-4">
+        <div className="mb-3 flex flex-wrap gap-2" aria-label="Templates">
+          {TEMPLATES.map((t) => (
+            <button
+              key={t.label}
+              type="button"
+              onClick={() => setPrompt(t.prompt)}
+              className="rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2.5 py-1 text-xs font-semibold text-white/60 transition hover:text-white"
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
         <label className="grid gap-2">
           <span className="text-sm font-semibold text-white">What should this automation do?</span>
           <textarea

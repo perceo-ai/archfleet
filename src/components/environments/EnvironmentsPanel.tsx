@@ -16,7 +16,7 @@ const inputCls =
   "rounded-[5px] border border-white/[0.08] bg-[#161616] px-3 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/50";
 
 export function EnvironmentsPanel() {
-  const environments = usePolling<PreparedEnvironment[]>("/api/environments", 10000);
+  const environments = usePolling<PreparedEnvironment[]>("/api/environments?live=1", 30000);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [profileRef, setProfileRef] = useState("");

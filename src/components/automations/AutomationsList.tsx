@@ -14,7 +14,12 @@ import {
   statusLabel,
 } from "@/components/fleet/status-colors";
 import type { RunSummary } from "@/lib/fleet/db/runs-repo";
-import type { Automation, AutomationHealth, HumanTakeover } from "@/lib/fleet/types";
+import type {
+  Automation,
+  AutomationHealth,
+  HumanTakeover,
+  PreparedEnvironment,
+} from "@/lib/fleet/types";
 import clsx from "clsx";
 
 type AutomationWithHealth = Automation & { health: AutomationHealth; lastRun?: RunSummary };
@@ -28,11 +33,12 @@ const FIXED_LENSES = [
   { key: "needs_human", label: "Needs human" },
 ] as const;
 
-type LensKey = (typeof FIXED_LENSES)[number]["key"] | `cat:${string}`;
+type LensKey = (typeof FIXED_LENSES)[number]["key"] | `cat:${string}` | `env:${string}`;
 
 export function AutomationsList() {
   const automations = usePolling<AutomationWithHealth[]>("/api/automations", 10000);
   const takeovers = usePolling<HumanTakeover[]>("/api/takeovers?status=open", 10000);
+  const environments = usePolling<PreparedEnvironment[]>("/api/environments", 30000);
   const [lens, setLens] = useState<LensKey>("all");
 
   const all = useMemo(() => automations.data ?? [], [automations.data]);
@@ -42,6 +48,11 @@ export function AutomationsList() {
     () => [...new Set(all.map((a) => a.category))].filter((c) => c !== "semantic_test").sort(),
     [all],
   );
+  // Only environments actually in use become lenses.
+  const usedEnvironments = useMemo(() => {
+    const used = new Set(all.map((a) => a.environmentId).filter(Boolean));
+    return (environments.data ?? []).filter((e) => used.has(e.id));
+  }, [all, environments.data]);
 
   const visible = all.filter((a) => {
     switch (lens) {
@@ -58,7 +69,9 @@ export function AutomationsList() {
       case "needs_human":
         return a.health === "needs_attention" || (a.lastRun ? needsHumanRunIds.has(a.lastRun.id) : false);
       default:
-        return lens.startsWith("cat:") ? a.category === lens.slice(4) : true;
+        if (lens.startsWith("cat:")) return a.category === lens.slice(4);
+        if (lens.startsWith("env:")) return a.environmentId === lens.slice(4);
+        return true;
     }
   });
 
@@ -81,7 +94,11 @@ export function AutomationsList() {
       </div>
 
       <div role="tablist" aria-label="Lenses" className="mt-5 flex flex-wrap gap-2">
-        {[...FIXED_LENSES, ...categories.map((c) => ({ key: `cat:${c}` as LensKey, label: categoryLabel(c) }))].map(
+        {[
+          ...FIXED_LENSES,
+          ...categories.map((c) => ({ key: `cat:${c}` as LensKey, label: categoryLabel(c) })),
+          ...usedEnvironments.map((e) => ({ key: `env:${e.id}` as LensKey, label: `env: ${e.name}` })),
+        ].map(
           (item) => (
             <button
               key={item.key}

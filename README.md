@@ -162,7 +162,9 @@ See `RUNBOOK.md` for the full human-in-the-loop and 2FA playbook, and `ARCHITECT
 
 - ✅ **Automations as the main object** — intent + workflow + trigger + prepared environment + success criteria + run history, drafted from plain language and reviewed before anything runs.
 - ✅ **State-dependent run view** — live desktop + current step while running; takeover reason, held desktop, operator notes while paused; criteria review + evidence when done; failure point + recovery paths on failure.
-- ✅ **Evidence store** — screenshots/files/logs per run plus human pass/fail criteria reviews, queryable by run or automation.
+- ✅ **Evidence store** — screenshots/files/logs per run plus human pass/fail criteria reviews, queryable by run, automation, or associated PR/branch.
+- ✅ **Automated evidence checks** — `text_found` / `url_reached` / `file_downloaded` / `screenshot_captured` assertions evaluated after every run and recorded as pass/fail evidence.
+- ✅ **PR/branch association** — runs accept `branch`/`pr` (API body or webhook payload); semantic-test evidence is retrievable per PR for review (`GET /api/evidence?pr=42`).
 - ✅ **Prepared environments** — the user-facing wrapper over profile VMs (logins, device trust, warm snapshots).
 - ✅ **Visual workflow editor** — React Flow canvas, validated before save (Advanced tab).
 - ✅ **Node types** — `computer_use_task` (Agent S, LLM), `script_task` (scripted pyautogui, no LLM), `browser_task` (Playwright step list, no LLM), `cli_agent_task` (Claude Code / Codex), `shell_task` (gated), `api_call`, `otp_email`, `human_takeover`, `condition`, `retry_wait`.

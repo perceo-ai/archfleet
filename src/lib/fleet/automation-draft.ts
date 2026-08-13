@@ -6,7 +6,20 @@
 import { runCliAgent, type AgentExec } from "./cli-agent-runner";
 import { normalizeWorkflow } from "./planner";
 import { validateWorkflow } from "./workflow-validation";
+import type { EvidenceCheck } from "./evidence-checks";
 import type { AgentProvider, Automation, Workflow } from "./types";
+
+const CHECK_TYPES = ["text_found", "url_reached", "file_downloaded", "screenshot_captured"];
+
+function checkList(v: unknown): EvidenceCheck[] {
+  if (!Array.isArray(v)) return [];
+  return v
+    .filter(
+      (c): c is EvidenceCheck =>
+        !!c && typeof c === "object" && CHECK_TYPES.includes((c as EvidenceCheck).type),
+    )
+    .map((c) => (typeof c.value === "string" && c.value ? { type: c.type, value: c.value } : { type: c.type }));
+}
 
 export const DRAFT_SYSTEM = `You design draft automations for a computer-use platform.
 Given a user's description, output ONLY a JSON object (no prose) with these fields:
@@ -26,7 +39,8 @@ Given a user's description, output ONLY a JSON object (no prose) with these fiel
   "retry_policy": string,
   "takeover_policy": string,            // when to pause for a human
   "risk_notes": string[],               // fragility/risk warnings
-  "clarifying_questions": string[]      // ask instead of guessing when underspecified
+  "clarifying_questions": string[],     // ask instead of guessing when underspecified
+  "evidence_checks": [{"type":"text_found"|"url_reached"|"file_downloaded"|"screenshot_captured","value"?:string}]
 }
 Node types: start, computer_use_task, cli_agent_task, shell_task, condition, human_takeover, retry_wait, end.
 Insert a human_takeover node wherever login/MFA/captcha/device-trust will likely block the agent.
@@ -114,6 +128,7 @@ export async function draftAutomation(
     takeoverPolicy: str(raw.takeover_policy, "Pause for a human on login, MFA, or captcha."),
     triggerSuggestion: str(raw.trigger_suggestion) || undefined,
     riskNotes: strList(raw.risk_notes),
+    evidenceChecks: checkList(raw.evidence_checks),
     status: "draft",
     createdAt: timestamp,
     updatedAt: timestamp,

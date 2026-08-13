@@ -19,7 +19,8 @@ import type { RunArtifact } from "./types";
 import { getDb, type Db } from "./db/db";
 import { saveRun, getRun, claimQueuedRun, deferRun, setRunProgress } from "./db/runs-repo";
 import { getWorkflow } from "./db/workflows-repo";
-import { getAutomationByWorkflowId } from "./db/automations-repo";
+import { getAutomation, getAutomationByWorkflowId } from "./db/automations-repo";
+import { evaluateEvidenceChecks } from "./evidence-checks";
 import { touchEnvironment } from "./db/environments-repo";
 import { addEvidence } from "./db/evidence-repo";
 import { getOpenTakeoverForRun, openTakeover } from "./db/takeovers-repo";
@@ -68,6 +69,9 @@ export type ExecuteOptions = {
   automationId?: string;
   environmentId?: string;
   triggerSource?: TriggerSource;
+  /** Branch/PR association for semantic tests and Archductor-triggered runs. */
+  branchRef?: string;
+  prRef?: string;
 };
 
 /** Prefer encrypted secrets from the db (production); fall back to seed secrets
@@ -181,6 +185,8 @@ export function enqueueManualRun(
     automationId: opts.automationId ?? automation?.id,
     environmentId: opts.environmentId ?? automation?.environmentId,
     triggerSource: opts.triggerSource,
+    branchRef: opts.branchRef,
+    prRef: opts.prRef,
   };
   saveRun(db, run);
   if (opts.params && Object.keys(opts.params).length) {
@@ -227,6 +233,8 @@ export async function executeRunById(db: Db, runId: string, now = () => new Date
     automationId: existing.automationId,
     environmentId: existing.environmentId,
     triggerSource: existing.triggerSource,
+    branchRef: existing.branchRef,
+    prRef: existing.prRef,
     resultSummary: settled ? `${run.status}${lastEvent ? ` — ${lastEvent.message}` : ""}` : undefined,
   };
   saveRun(db, merged);
@@ -259,6 +267,21 @@ function recordRunSideEffects(db: Db, run: WorkflowRun, now: () => string): void
       createdAt: a.createdAt,
     });
   });
+  // Machine-evaluated evidence checks (text found, URL reached, files, screenshots).
+  const automation = run.automationId ? getAutomation(db, run.automationId) : undefined;
+  if (automation?.evidenceChecks?.length && (run.status === "succeeded" || run.status === "failed")) {
+    evaluateEvidenceChecks(automation.evidenceChecks, run).forEach((result, i) => {
+      addEvidence(db, {
+        id: `ev_check_${run.id}_${i}`,
+        runId: run.id,
+        automationId: run.automationId,
+        type: "check",
+        description: `${result.check.type}${result.check.value ? `: ${result.check.value}` : ""} — ${result.detail}`,
+        verdict: result.verdict,
+        createdAt: now(),
+      });
+    });
+  }
   if (run.status === "paused" && !getOpenTakeoverForRun(db, run.id)) {
     openTakeover(db, {
       id: `tk_${run.id}_${now()}`,
@@ -296,5 +319,9 @@ export function makeTriggerExecute(db?: Db): TriggerExecute {
       triggerId: trigger.id,
       params: payload as ExecuteOptions["params"],
       triggerSource: trigger.type === "schedule" ? "schedule" : trigger.type === "webhook" ? "webhook" : "manual",
+      // Webhook payloads (e.g. from Archductor or CI) can associate the run with
+      // a branch/PR so its evidence is retrievable from review.
+      branchRef: typeof payload?.branch === "string" ? payload.branch : undefined,
+      prRef: payload?.pr != null ? String(payload.pr) : undefined,
     });
 }
