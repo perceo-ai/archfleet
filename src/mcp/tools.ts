@@ -187,25 +187,31 @@ export const FLEET_TOOLS: FleetTool[] = [
     description: "Create or update an automation. Pass the full Automation object (id, name, workflowId, ...).",
     shape: { automation: z.record(z.string(), z.unknown()) },
     run: (db, a) => {
-      const automation = a.automation as Automation;
+      const automation = a.automation as Partial<Automation>;
       if (!automation?.id || !automation.name || !automation.workflowId) {
         return { ok: false, errors: ["automation needs id, name and workflowId"] };
       }
+      const now = new Date().toISOString();
       saveAutomation(db, {
-        successCriteria: [],
-        requiredSecrets: [],
-        riskNotes: [],
-        goal: "",
-        category: "general",
-        target: "",
-        specMarkdown: "",
-        artifactPolicy: "",
-        retryPolicy: "",
-        takeoverPolicy: "",
-        status: "draft",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        ...automation,
+        id: automation.id,
+        name: automation.name,
+        workflowId: automation.workflowId,
+        goal: automation.goal ?? "",
+        category: automation.category ?? "general",
+        target: automation.target ?? "",
+        specMarkdown: automation.specMarkdown ?? "",
+        environmentId: automation.environmentId,
+        successCriteria: automation.successCriteria ?? [],
+        requiredSecrets: automation.requiredSecrets ?? [],
+        mfaExpectation: automation.mfaExpectation,
+        artifactPolicy: automation.artifactPolicy ?? "",
+        retryPolicy: automation.retryPolicy ?? "",
+        takeoverPolicy: automation.takeoverPolicy ?? "",
+        triggerSuggestion: automation.triggerSuggestion,
+        riskNotes: automation.riskNotes ?? [],
+        status: automation.status ?? "draft",
+        createdAt: automation.createdAt ?? now,
+        updatedAt: now,
       });
       return { ok: true, id: automation.id };
     },

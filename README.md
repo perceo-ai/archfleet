@@ -41,7 +41,7 @@ You can exercise the entire pipeline — app → VM → guest → screenshot →
 CUF_AGENT_BACKEND=mock npm run dev
 ```
 
-Open http://localhost:3000, pick the seeded `Portal Login Check` workflow, and hit Run. The run is enqueued and drained by the built-in worker loop; the run panel streams events, status, and screenshot thumbnails.
+Open http://localhost:3000, open the seeded **Portal Login Check** automation, and hit **Run now**. The run is enqueued and drained by the built-in worker loop; the run page shows live status, the current step, events, and screenshot evidence.
 
 To bring up a real VM (Ubuntu + XFCE + XRDP, provisioned and warm-snapshotted):
 
@@ -147,8 +147,8 @@ See `.env.example` for the full list.
 
 ## How it works
 
-1. **Author.** Build a workflow on the React Flow canvas, draft one from a plain-language task with the planner (`plan_workflow`), or use Task Profile to create the setup workflow for a logged-in golden profile.
-2. **Prepare.** Task Profile starts the source VM, opens its desktop, waits for manual login/2FA, captures the source, clones it, and writes fleet JSON for labels such as `profile:bank`.
+1. **Author.** Describe the task in plain language on **New automation** — archfleet drafts the whole automation (goal, steps, secrets, success criteria, risk notes, workflow graph) for review. Power users can still edit the React Flow graph on the automation's Advanced tab or draft a bare graph with `plan_workflow`.
+2. **Prepare.** The Environments page wraps profile ops: it starts the source VM, opens its desktop, waits for manual login/2FA, captures the source, clones it, and writes fleet JSON for labels such as `profile:bank`. Automations reference the result as a **prepared environment**.
 3. **Trigger.** Run manually (Run button / `POST /api/runs`), on a cron schedule, or via webhook (`POST /api/webhooks/:token`, whose JSON body becomes run params).
 4. **Enqueue.** `POST /api/runs` returns `202` with a `queued` run. A worker drains the queue — the always-on server does it via the `instrumentation` loop; serverless/multi-instance hosts POST `/api/runs/process` on a cron. Claims are atomic, so multiple workers are safe.
 5. **Acquire & reset.** The vm-daemon shells out to `virsh` to acquire an idle VM and restore its warm memory snapshot (~1–3s), giving each run a clean desktop.
@@ -160,7 +160,11 @@ See `RUNBOOK.md` for the full human-in-the-loop and 2FA playbook, and `ARCHITECT
 
 ## Features
 
-- ✅ **Visual workflow editor** — React Flow canvas, validated before save.
+- ✅ **Automations as the main object** — intent + workflow + trigger + prepared environment + success criteria + run history, drafted from plain language and reviewed before anything runs.
+- ✅ **State-dependent run view** — live desktop + current step while running; takeover reason, held desktop, operator notes while paused; criteria review + evidence when done; failure point + recovery paths on failure.
+- ✅ **Evidence store** — screenshots/files/logs per run plus human pass/fail criteria reviews, queryable by run or automation.
+- ✅ **Prepared environments** — the user-facing wrapper over profile VMs (logins, device trust, warm snapshots).
+- ✅ **Visual workflow editor** — React Flow canvas, validated before save (Advanced tab).
 - ✅ **Node types** — `computer_use_task` (Agent S, LLM), `script_task` (scripted pyautogui, no LLM), `browser_task` (Playwright step list, no LLM), `cli_agent_task` (Claude Code / Codex), `shell_task` (gated), `api_call`, `otp_email`, `human_takeover`, `condition`, `retry_wait`.
 - ✅ **Async + durable runs** — atomic queue claim, backoff/retry when no VM is free, worker loop or external cron.
 - ✅ **Triggers** — manual, cron schedule, and webhook (hashed token).
@@ -169,7 +173,7 @@ See `RUNBOOK.md` for the full human-in-the-loop and 2FA playbook, and `ARCHITECT
 - ✅ **XRDP human-takeover** — pause + hold VM + page operator; land on the same `:0` desktop the agent was driving.
 - ✅ **Task profile operations** — browser-first setup, update, and recovery for logged-in task goldens.
 - ✅ **Model-free demo backend** — `CUF_AGENT_BACKEND=mock` proves the whole stack end to end.
-- ✅ **MCP server** — `npm run mcp` exposes every fleet op as stdio tools (`list_workflows`, `run_workflow`, `get_run`, `create_trigger`, `create_secret`, `list_vms`, …). Register it with any MCP client; see `mcp.json.example`.
+- ✅ **MCP server** — `npm run mcp` exposes every fleet op as stdio tools (`list_automations`, `draft_automation`, `run_automation`, `list_evidence`, `resolve_takeover`, `run_workflow`, `get_run`, `create_trigger`, `create_secret`, `list_vms`, …). Register it with any MCP client; see `mcp.json.example`.
 - 🚧 **Real VM fleet (libvirt/QEMU)** — the vm-daemon, `virsh` control, and guest runners are implemented and tested; the initial base golden image still requires libvirt/qemu/guestfs-tools on the host.
 - 🚧 **Multi-VM / scale-out** — safe by construction (atomic queue claim, `CUF_FLEET_JSON` fleet definition); exercised in unit tests, not yet run at scale.
 - 🚧 **Operator UI polish** — the dashboard is functional (live fleet health, run history, secrets/triggers, XRDP copy) but not branded/marketing-grade; spacing, empty states, theming, and mobile are unpolished by design.

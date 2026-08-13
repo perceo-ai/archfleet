@@ -29,11 +29,13 @@ Production: `docker build -t archfleet . && docker run …` (see README).
    │      instrumentation worker loop      ← drains the run queue + fires schedule triggers
    ▼
  src/lib/fleet/  (pure domain, no React)   ← the ORCHESTRATOR + repos + adapters
-   ├─ orchestrator.ts   graph engine (branch/pause/retry, per-node dispatch)
+   ├─ orchestrator.ts   graph engine (branch/pause/retry, per-node dispatch, live progress)
+   ├─ automation-draft  prompt → draft automation (goal/spec/criteria/graph/questions)
    ├─ vm-daemon/*       virsh control + acquire/reset
    ├─ computer-use.ts   SSH transport to the guest runners
    ├─ cli-agent-runner  claude/codex
-   ├─ db/*              node:sqlite repos (runs/workflows/secrets/vms/triggers)
+   ├─ db/*              node:sqlite repos (automations/environments/evidence/takeovers/
+   │                     runs/workflows/secrets/vms/triggers)
    └─ triggers/*, planner.ts, notify.ts, templating.ts
    │  virsh / ssh
    ▼
@@ -82,10 +84,22 @@ All task nodes resolve `{{secret.x}}` / `{{param.x}}` at runtime, so passwords a
 tokens flow to Agent S (typed), Playwright (`fill`), scripts, and API headers —
 and are redacted from logs.
 
-## Frontend maturity (honest)
+## Frontend (automation-first)
 
-The UI is a **functional operational dashboard** (Tailwind + React Flow): live
-fleet health, editable workflow canvas, run history + screenshot thumbnails,
-secrets/triggers management, XRDP copy. It is **not** branded/marketing-grade —
-spacing, empty states, theming, and mobile are unpolished. It's built for an
-operator, not a landing page. Polishing it is a distinct, sizeable design pass.
+Routes (per `docs/2026-08-12-archfleet-ux-backend-strategy.md`):
+
+| Route | Surface |
+|---|---|
+| `/` | Automation-first home: needs-human takeovers, running/failed runs, drafts, automations with health, semantic-test rail, compact fleet strip |
+| `/automations` | All automations with lenses (semantic tests, drafts, active, recently failed, needs human, categories) |
+| `/automations/new` | Prompt-to-automation draft composer (review before save; save + run once) |
+| `/automations/[id]` | Spec editor (goal/steps/criteria/secrets/environment/triggers) — the React Flow graph is the **Advanced** tab |
+| `/runs/[id]` | State-dependent run view: running (live desktop, current step), paused (takeover + operator notes), completed (criteria review + evidence), failed (failure point + recovery) |
+| `/environments` | Prepared environments + the profile-ops setup flow (golden build, manual login, capture, clones) |
+| `/fleet` | Operator surface: VM capacity/status, desktop access, profile readiness |
+
+The user-facing object is the **Automation** (intent + workflow + trigger +
+prepared environment + success criteria + run history); the workflow graph and
+the VM fleet exist underneath and stay visible for power users/operators. The UI
+is functional, dark-theme only; mobile and marketing polish remain a separate
+design pass.

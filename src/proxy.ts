@@ -3,7 +3,7 @@ import { AUTH_COOKIE, authOk, isAuthExempt } from "@/lib/auth";
 
 // Gate the whole app behind CUF_AUTH_TOKEN when it is set. API requests get 401;
 // page requests redirect to /login. No token set = open (local dev).
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const expected = process.env.CUF_AUTH_TOKEN;
   const path = req.nextUrl.pathname;
   if (!expected || isAuthExempt(path)) return NextResponse.next();
