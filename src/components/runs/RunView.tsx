@@ -8,6 +8,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ExternalLink, Play, RefreshCw, Square } from "lucide-react";
 import { sendJson, usePolling } from "@/lib/ui/api";
 import { duration, timeAgo } from "@/lib/ui/format";
@@ -22,6 +23,7 @@ function isImage(name: string | undefined): boolean {
 }
 
 export function RunView({ id }: { id: string }) {
+  const router = useRouter();
   const run = usePolling<WorkflowRun>(`/api/runs/${id}`, 2000);
   const evidence = usePolling<EvidenceItem[]>(`/api/evidence?runId=${id}`, 5000);
   const takeovers = usePolling<HumanTakeover[]>(`/api/takeovers?status=open`, 5000);
@@ -163,7 +165,7 @@ export function RunView({ id }: { id: string }) {
               type="button"
               onClick={async () => {
                 const next = await sendJson<WorkflowRun>(`/api/automations/${automation.id}/run`, "POST", {});
-                window.location.href = `/runs/${next.id}`;
+                router.push(`/runs/${next.id}`);
               }}
               className="perceo-primary inline-flex h-9 items-center gap-2 rounded-[5px] px-3 text-xs font-semibold"
             >

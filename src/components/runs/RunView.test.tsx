@@ -3,6 +3,8 @@ import { render, screen } from "@testing-library/react";
 import { RunView } from "./RunView";
 import { stubFetch } from "@/test/fetch-stub";
 
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+
 afterEach(() => vi.unstubAllGlobals());
 
 const AUTOMATION = {

@@ -5,6 +5,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Play } from "lucide-react";
 import { getJson, sendJson, usePolling } from "@/lib/ui/api";
 import { timeAgo, duration, categoryLabel } from "@/lib/ui/format";
@@ -51,6 +52,7 @@ function Field(props: { label: string; hint?: string; children: React.ReactNode 
 }
 
 export function AutomationDetail({ id }: { id: string }) {
+  const router = useRouter();
   const detail = usePolling<Detail>(`/api/automations/${id}`, 8000);
   const [tab, setTab] = useState<Tab>("spec");
   const [edit, setEdit] = useState<Automation | null>(null);
@@ -103,7 +105,7 @@ export function AutomationDetail({ id }: { id: string }) {
   async function runNow() {
     try {
       const run = await sendJson<WorkflowRun>(`/api/automations/${id}/run`, "POST", {});
-      window.location.href = `/runs/${run.id}`;
+      router.push(`/runs/${run.id}`);
     } catch (e) {
       setMessage(String(e));
     }
