@@ -21,7 +21,7 @@ export async function POST(req: Request) {
   } catch {
     // no body — default workflow, no params
   }
-  const run = enqueueManualRun(workflowId, { params });
+  const run = enqueueManualRun(workflowId, { params, triggerSource: "manual" });
   return Response.json(run, { status: 202 });
 }
 
