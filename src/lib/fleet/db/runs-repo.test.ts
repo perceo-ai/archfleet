@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { openDb } from "./db";
-import { getRun, listRuns, saveRun } from "./runs-repo";
+import { getRun, listRuns, saveRun, setRunOutcome, setRunProgress } from "./runs-repo";
 import type { WorkflowRun } from "../types";
 
 function run(id: string, overrides: Partial<WorkflowRun> = {}): WorkflowRun {
@@ -73,6 +73,67 @@ describe("runs repo", () => {
     saveRun(db, run("r1", { status: "succeeded" }));
     expect(getRun(db, "r1")?.status).toBe("succeeded");
     expect(listRuns(db)).toHaveLength(1);
+    db.close();
+  });
+
+  it("repeated save preserves params_json and attempts", () => {
+    const db = openDb(":memory:");
+    saveRun(db, run("r1", { status: "queued", events: [], artifacts: [] }));
+    db.prepare("UPDATE cuf_runs SET params_json=?, attempts=2 WHERE id='r1'").run('{"user":"a"}');
+    saveRun(db, run("r1", { status: "succeeded" }));
+    const row = db.prepare("SELECT params_json, attempts FROM cuf_runs WHERE id='r1'").get() as {
+      params_json: string;
+      attempts: number;
+    };
+    expect(row).toEqual({ params_json: '{"user":"a"}', attempts: 2 });
+    db.close();
+  });
+
+  it("round-trips automation linkage and progress fields", () => {
+    const db = openDb(":memory:");
+    saveRun(
+      db,
+      run("r1", {
+        status: "paused",
+        automationId: "auto_1",
+        environmentId: "env_1",
+        triggerSource: "manual",
+        currentStep: "Manual login",
+        pausedReason: "Waiting for MFA",
+        resultSummary: undefined,
+      }),
+    );
+    const got = getRun(db, "r1");
+    expect(got?.automationId).toBe("auto_1");
+    expect(got?.environmentId).toBe("env_1");
+    expect(got?.triggerSource).toBe("manual");
+    expect(got?.currentStep).toBe("Manual login");
+    expect(got?.pausedReason).toBe("Waiting for MFA");
+    const summary = listRuns(db)[0];
+    expect(summary.automationId).toBe("auto_1");
+    expect(summary.currentStep).toBe("Manual login");
+    db.close();
+  });
+
+  it("setRunProgress and setRunOutcome update in place", () => {
+    const db = openDb(":memory:");
+    saveRun(db, run("r1", { status: "running", events: [], artifacts: [] }));
+    setRunProgress(db, "r1", "Open portal");
+    expect(getRun(db, "r1")?.currentStep).toBe("Open portal");
+    setRunOutcome(db, "r1", { resultSummary: "succeeded — all steps done", pausedReason: null });
+    const got = getRun(db, "r1");
+    expect(got?.resultSummary).toBe("succeeded — all steps done");
+    expect(got?.pausedReason).toBeUndefined();
+    db.close();
+  });
+
+  it("filters runs by automation and status", () => {
+    const db = openDb(":memory:");
+    saveRun(db, run("r1", { automationId: "auto_1", status: "failed", startedAt: "2026-08-04T10:00:00Z" }));
+    saveRun(db, run("r2", { automationId: "auto_2", status: "succeeded", startedAt: "2026-08-04T11:00:00Z" }));
+    saveRun(db, run("r3", { automationId: "auto_1", status: "running", startedAt: "2026-08-04T12:00:00Z" }));
+    expect(listRuns(db, 50, { automationId: "auto_1" }).map((r) => r.id)).toEqual(["r3", "r1"]);
+    expect(listRuns(db, 50, { statuses: ["failed", "running"] }).map((r) => r.id)).toEqual(["r3", "r1"]);
     db.close();
   });
 });
