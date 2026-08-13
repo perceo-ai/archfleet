@@ -4,6 +4,7 @@ import type {
   EnvironmentHealth,
   RunStatus,
   TakeoverStatus,
+  VmStatus,
 } from "@/lib/fleet/types";
 
 // Single source of truth for status badge colors across the app (dark theme).
@@ -70,6 +71,25 @@ export function takeoverStatusTone(status: TakeoverStatus | string): string {
   return status === "open"
     ? "bg-[#8b5cf6]/20 text-[#c4b5fd] ring-1 ring-[#8b5cf6]/30"
     : "bg-white/10 text-white/60 ring-1 ring-white/10";
+}
+
+export function vmStatusTone(status: VmStatus | string): string {
+  switch (status) {
+    case "idle":
+      return "bg-[#4ade80]/20 text-[#8add84] ring-1 ring-[#4ade80]/30";
+    case "running":
+    case "assigned":
+    case "starting":
+      return "bg-[#60a5fa]/20 text-[#9ec5fb] ring-1 ring-[#60a5fa]/30";
+    case "needs_human":
+    case "resetting":
+      return "bg-[#8b5cf6]/20 text-[#c4b5fd] ring-1 ring-[#8b5cf6]/30";
+    case "unhealthy":
+      return "bg-[#f87171]/20 text-[#fca5a5] ring-1 ring-[#f87171]/30";
+    case "stopped":
+    default:
+      return "bg-white/10 text-white/60 ring-1 ring-white/10";
+  }
 }
 
 /** Human-friendly label for machine statuses ("needs_attention" -> "needs attention"). */

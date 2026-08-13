@@ -110,7 +110,7 @@ describe("RunView", () => {
     render(<RunView id="r1" />);
     expect(await screen.findByText(/Failed at "Log into portal"/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Retry run/i })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Edit automation/i })).toHaveAttribute("href", "/automations/auto_1");
+    expect(await screen.findByRole("link", { name: /Edit automation/i })).toHaveAttribute("href", "/automations/auto_1");
     expect(screen.getByRole("link", { name: /Recover environment/i })).toHaveAttribute("href", "/environments");
   });
 });
