@@ -141,3 +141,49 @@ describe("automation-era MCP tools", () => {
     db.close();
   });
 });
+
+describe("greptile fixes", () => {
+  it("resolve_takeover keeps the takeover open when the run transition is rejected", async () => {
+    const db = openDb(":memory:");
+    ensureSeeded(db);
+    const { saveRun } = await import("../lib/fleet/db/runs-repo");
+    saveRun(db, {
+      id: "r_done",
+      workflowId: "wf_portal_login",
+      workflowName: "Portal",
+      status: "succeeded", // already finished — cannot be resumed or canceled
+      startedAt: "2026-08-12T00:00:00Z",
+      events: [],
+      artifacts: [],
+    });
+    const { openTakeover, getTakeover } = await import("../lib/fleet/db/takeovers-repo");
+    openTakeover(db, {
+      id: "tk_race",
+      runId: "r_done",
+      reason: "MFA",
+      requestedAction: "approve",
+      status: "open",
+      openedAt: "2026-08-12T00:01:00Z",
+    });
+    const res = (await tool("resolve_takeover").run(db, { id: "tk_race", action: "resume" })) as {
+      ok: boolean;
+      error?: string;
+    };
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/not in a state to resume/);
+    expect(getTakeover(db, "tk_race")?.status).toBe("open"); // NOT resolved
+    db.close();
+  });
+
+  it("run_automation reports an error when the automation's workflow is missing", async () => {
+    const db = openDb(":memory:");
+    ensureSeeded(db);
+    await tool("upsert_automation").run(db, {
+      automation: { id: "auto_orphan", name: "Orphan", workflowId: "wf_portal_login" },
+    });
+    db.prepare("UPDATE cuf_automations SET workflow_id='wf_gone' WHERE id='auto_orphan'").run();
+    const res = (await tool("run_automation").run(db, { id: "auto_orphan" })) as { error?: string };
+    expect(res.error).toMatch(/wf_gone not found/);
+    db.close();
+  });
+});

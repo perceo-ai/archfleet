@@ -18,14 +18,19 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     branch?: string;
     pr?: string | number;
   };
-  const run = enqueueManualRun(automation.workflowId, {
-    db,
-    params: body.params,
-    automationId: automation.id,
-    environmentId: automation.environmentId,
-    triggerSource: "manual",
-    branchRef: body.branch,
-    prRef: body.pr != null ? String(body.pr) : undefined,
-  });
+  let run;
+  try {
+    run = enqueueManualRun(automation.workflowId, {
+      db,
+      params: body.params,
+      automationId: automation.id,
+      environmentId: automation.environmentId,
+      triggerSource: "manual",
+      branchRef: body.branch,
+      prRef: body.pr != null ? String(body.pr) : undefined,
+    });
+  } catch (e) {
+    return Response.json({ error: String(e instanceof Error ? e.message : e) }, { status: 409 });
+  }
   return Response.json(run, { status: 202 });
 }

@@ -247,13 +247,17 @@ export const FLEET_TOOLS: FleetTool[] = [
     run: (db, a) => {
       const automation = getAutomation(db, a.id as string);
       if (!automation) return { error: "not found" };
-      return enqueueManualRun(automation.workflowId, {
-        db,
-        params: a.params as Record<string, string | number | boolean | null> | undefined,
-        automationId: automation.id,
-        environmentId: automation.environmentId,
-        triggerSource: "api",
-      });
+      try {
+        return enqueueManualRun(automation.workflowId, {
+          db,
+          params: a.params as Record<string, string | number | boolean | null> | undefined,
+          automationId: automation.id,
+          environmentId: automation.environmentId,
+          triggerSource: "api",
+        });
+      } catch (e) {
+        return { error: e instanceof Error ? e.message : String(e) };
+      }
     },
   },
   {
@@ -302,12 +306,19 @@ export const FLEET_TOOLS: FleetTool[] = [
       action: z.enum(["resume", "cancel"]).optional(),
     },
     run: (db, a) => {
-      const ok = resolveTakeover(db, a.id as string, { operatorNotes: a.operatorNotes as string | undefined });
-      if (!ok) return { ok: false, error: "takeover not found or already resolved" };
       const takeover = getTakeover(db, a.id as string);
-      if (takeover && a.action === "resume") retryRun(db, takeover.runId);
-      else if (takeover && a.action === "cancel") cancelRun(db, takeover.runId);
-      return { ok: true, takeover };
+      if (!takeover || takeover.status !== "open") {
+        return { ok: false, error: "takeover not found or already resolved" };
+      }
+      // Transition the run first — if it already moved on, keep the takeover open.
+      if (a.action === "resume" && !retryRun(db, takeover.runId)) {
+        return { ok: false, error: "run not in a state to resume" };
+      }
+      if (a.action === "cancel" && !cancelRun(db, takeover.runId)) {
+        return { ok: false, error: "run not in a state to cancel" };
+      }
+      resolveTakeover(db, a.id as string, { operatorNotes: a.operatorNotes as string | undefined });
+      return { ok: true, takeover: getTakeover(db, a.id as string) };
     },
   },
   {

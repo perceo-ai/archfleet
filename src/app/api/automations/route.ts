@@ -4,7 +4,7 @@ import {
   listAutomations,
   saveAutomation,
 } from "@/lib/fleet/db/automations-repo";
-import { saveWorkflow } from "@/lib/fleet/db/workflows-repo";
+import { getWorkflow, saveWorkflow } from "@/lib/fleet/db/workflows-repo";
 import { validateWorkflow } from "@/lib/fleet/workflow-validation";
 import type { Automation, AutomationStatus, Workflow } from "@/lib/fleet/types";
 
@@ -42,6 +42,13 @@ export async function POST(req: Request) {
     const errors = validateWorkflow(body.workflow);
     if (errors.length) return Response.json({ error: "invalid workflow", errors }, { status: 400 });
     saveWorkflow(db, body.workflow);
+  } else if (!getWorkflow(db, body.automation.workflowId)) {
+    // Without a resolvable workflow the automation would run the seed workflow
+    // while attributing runs/evidence to itself.
+    return Response.json(
+      { error: `workflow ${body.automation.workflowId} not found — include it in the request or save it first` },
+      { status: 400 },
+    );
   }
   saveAutomation(db, body.automation);
   return Response.json({ id: body.automation.id }, { status: 201 });

@@ -258,3 +258,17 @@ describe("evidence checks + PR association through execution", () => {
     db.close();
   });
 });
+
+describe("automation workflow guard", () => {
+  it("throws instead of falling back to the seed workflow when an automation's workflow is missing", () => {
+    const db = openDb(":memory:");
+    ensureSeeded(db);
+    expect(() =>
+      enqueueManualRun("wf_does_not_exist", { db, automationId: "auto_orphan" }),
+    ).toThrow(/workflow wf_does_not_exist not found/);
+    // without an automationId the seed fallback stays (bare-workflow demo path)
+    const run = enqueueManualRun("wf_does_not_exist", { db });
+    expect(run.workflowId).toBe("wf_portal_login");
+    db.close();
+  });
+});

@@ -169,6 +169,11 @@ export function enqueueManualRun(
     (workflowId ? getWorkflow(db, workflowId) : undefined) ??
     state.workflows.find((w) => w.id === workflowId) ??
     state.workflows[0];
+  // An automation must run ITS workflow — falling back to the seed workflow would
+  // execute an unrelated task while attributing the run + evidence to the automation.
+  if (opts.automationId && workflowId && workflow.id !== workflowId) {
+    throw new Error(`workflow ${workflowId} not found for automation ${opts.automationId}`);
+  }
   // Link the run to its automation (and inherit the prepared environment) so run
   // history, evidence, and health all attach to the user-facing object.
   const automation = opts.automationId ? undefined : getAutomationByWorkflowId(db, workflow.id);
