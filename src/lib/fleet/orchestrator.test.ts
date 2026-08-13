@@ -677,3 +677,75 @@ describe("runWorkflow", () => {
     expect(client.reverts).toHaveLength(2);
   });
 });
+
+describe("run progress + pause metadata", () => {
+  function takeoverWorkflow(): Workflow {
+    return {
+      id: "wf_tk",
+      name: "Needs Human",
+      description: "",
+      enabled: true,
+      triggerKinds: ["manual"],
+      nodes: [
+        { id: "start", type: "start", name: "Start", position: { x: 0, y: 0 }, config: {} },
+        {
+          id: "h1",
+          type: "human_takeover",
+          name: "Manual MFA",
+          position: { x: 1, y: 0 },
+          config: { prompt: "Complete the MFA challenge, then resume" },
+        },
+        { id: "end", type: "end", name: "End", position: { x: 2, y: 0 }, config: {} },
+      ],
+      edges: [
+        { id: "e1", from: "start", to: "h1", condition: "always" },
+        { id: "e2", from: "h1", to: "end", condition: "success" },
+      ],
+    };
+  }
+
+  it("reports each node via onProgress and records the current step", async () => {
+    const client = fakeClient({ "dom-vm1": "running" });
+    const daemon = testDaemon(client);
+    const seen: string[] = [];
+    const run = await runWorkflow(
+      { workflow: workflow(), secrets, params, runId: "run_1" },
+      {
+        daemon,
+        exec: execReturning({ status: "succeeded", reason: "done", steps: 1, artifacts: [] }),
+        now: now(),
+        onProgress: (_id, name) => seen.push(name),
+      },
+    );
+    expect(seen).toEqual(["Start", "Log into portal", "End"]);
+    expect(run.currentStep).toBe("End");
+    expect(run.status).toBe("succeeded");
+  });
+
+  it("paused run carries pausedReason and the pausing step", async () => {
+    const client = fakeClient({ "dom-vm1": "running" });
+    const daemon = testDaemon(client);
+    const run = await runWorkflow(
+      { workflow: takeoverWorkflow(), secrets, params, runId: "run_1" },
+      { daemon, exec: execReturning({ status: "succeeded", reason: "d", steps: 1, artifacts: [] }), now: now() },
+    );
+    expect(run.status).toBe("paused");
+    expect(run.currentStep).toBe("Manual MFA");
+    expect(run.pausedReason).toBe("Complete the MFA challenge, then resume");
+  });
+
+  it("guest needs_human pause uses the guest report reason", async () => {
+    const client = fakeClient({ "dom-vm1": "running" });
+    const daemon = testDaemon(client);
+    const run = await runWorkflow(
+      { workflow: workflow(), secrets, params, runId: "run_1" },
+      {
+        daemon,
+        exec: execReturning({ status: "needs_human", reason: "login page shows a captcha", steps: 3, artifacts: [] }),
+        now: now(),
+      },
+    );
+    expect(run.status).toBe("paused");
+    expect(run.pausedReason).toBe("login page shows a captcha");
+  });
+});
