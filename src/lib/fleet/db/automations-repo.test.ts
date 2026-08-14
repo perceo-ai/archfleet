@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { openDb } from "./db";
 import {
+  activationReadiness,
   automationHealth,
   deleteAutomation,
   getAutomation,
@@ -8,6 +9,7 @@ import {
   listAutomations,
   saveAutomation,
 } from "./automations-repo";
+import { addEvidence } from "./evidence-repo";
 import { saveRun } from "./runs-repo";
 import type { Automation, WorkflowRun } from "../types";
 
@@ -96,6 +98,61 @@ describe("automations repo", () => {
 
     saveRun(db, run("r3", "auto_1", { status: "paused", startedAt: "2026-08-12T03:00:00Z" }));
     expect(automationHealth(db, "auto_1").health).toBe("needs_attention");
+    db.close();
+  });
+
+  it("blocks activation until a run has succeeded", () => {
+    const db = openDb(":memory:");
+    const a = automation("auto_1", { status: "draft" });
+    saveAutomation(db, a);
+    expect(activationReadiness(db, a).ok).toBe(false);
+    expect(activationReadiness(db, a).reason).toMatch(/successful run/i);
+
+    saveRun(db, run("r1", "auto_1", { status: "failed" }));
+    expect(activationReadiness(db, a).ok).toBe(false);
+    db.close();
+  });
+
+  it("blocks activation until criteria are reviewed on a successful run", () => {
+    const db = openDb(":memory:");
+    const a = automation("auto_1", { status: "draft" });
+    saveAutomation(db, a);
+    saveRun(db, run("r1", "auto_1", { status: "succeeded" }));
+    // Succeeded but nobody reviewed the evidence yet.
+    expect(activationReadiness(db, a).ok).toBe(false);
+    expect(activationReadiness(db, a).reason).toMatch(/review/i);
+
+    addEvidence(db, {
+      id: "ev1",
+      runId: "r1",
+      automationId: "auto_1",
+      type: "criteria_review",
+      description: a.successCriteria[0],
+      verdict: "fail",
+      createdAt: "2026-08-12T01:05:00.000Z",
+    });
+    // Reviewed but the verdict was fail — still not activatable.
+    expect(activationReadiness(db, a).ok).toBe(false);
+
+    addEvidence(db, {
+      id: "ev1",
+      runId: "r1",
+      automationId: "auto_1",
+      type: "criteria_review",
+      description: a.successCriteria[0],
+      verdict: "pass",
+      createdAt: "2026-08-12T01:06:00.000Z",
+    });
+    expect(activationReadiness(db, a).ok).toBe(true);
+    db.close();
+  });
+
+  it("activation needs only a successful run when there are no criteria", () => {
+    const db = openDb(":memory:");
+    const a = automation("auto_1", { status: "draft", successCriteria: [] });
+    saveAutomation(db, a);
+    saveRun(db, run("r1", "auto_1", { status: "succeeded" }));
+    expect(activationReadiness(db, a).ok).toBe(true);
     db.close();
   });
 });

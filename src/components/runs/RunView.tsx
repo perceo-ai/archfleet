@@ -13,6 +13,7 @@ import { ExternalLink, Play, RefreshCw, Square } from "lucide-react";
 import { sendJson, usePolling } from "@/lib/ui/api";
 import { duration, timeAgo } from "@/lib/ui/format";
 import { runStatusTone, statusLabel } from "@/components/fleet/status-colors";
+import { diagnoseFailure } from "@/lib/fleet/run-diagnosis";
 import type { Automation, EvidenceItem, HumanTakeover, WorkflowRun } from "@/lib/fleet/types";
 
 const btnGhost =
@@ -85,13 +86,18 @@ export function RunView({ id }: { id: string }) {
     }
   }
 
-  async function runAction(action: "cancel" | "resume" | "retry") {
+  async function runAction(
+    action: "cancel" | "resume" | "retry" | "retry_from_step" | "add_takeover_point",
+  ) {
     setMessage(null);
     try {
       await sendJson(`/api/runs/${data!.id}/action`, "POST", {
         action,
         operatorNotes: notes || undefined,
       });
+      if (action === "add_takeover_point") {
+        setMessage("Takeover point added before the failed step — retry to use it.");
+      }
       await run.refresh();
     } catch (e) {
       setMessage(String(e));
@@ -227,10 +233,34 @@ export function RunView({ id }: { id: string }) {
             Failed{data.currentStep ? ` at "${data.currentStep}"` : ""}
           </h2>
           {data.resultSummary ? <p className="mt-2 text-sm text-white">{data.resultSummary}</p> : null}
+          {(() => {
+            const diagnosis = diagnoseFailure(data);
+            return (
+              <div className="mt-2 text-sm">
+                <p className="text-white/85">
+                  <span className="font-semibold text-white">
+                    {diagnosis.confident ? "Likely cause:" : "No clear cause found."}
+                  </span>{" "}
+                  {diagnosis.cause}
+                </p>
+                <p className="mt-1 text-xs text-white/55">{diagnosis.suggestion}</p>
+              </div>
+            );
+          })()}
           <div className="mt-3 flex flex-wrap gap-2">
             <button type="button" onClick={() => void runAction("retry")} className={btnGhost}>
               Retry run
             </button>
+            {data.currentStep ? (
+              <button type="button" onClick={() => void runAction("retry_from_step")} className={btnGhost}>
+                Retry from failed step
+              </button>
+            ) : null}
+            {data.currentStep ? (
+              <button type="button" onClick={() => void runAction("add_takeover_point")} className={btnGhost}>
+                Add takeover point before this step
+              </button>
+            ) : null}
             {automation ? (
               <Link href={`/automations/${automation.id}`} className={btnGhost}>
                 Edit automation
@@ -254,12 +284,21 @@ export function RunView({ id }: { id: string }) {
             </section>
           ) : null}
 
-          {!live && lastShot ? (
+          {lastShot ? (
             <section className="glass glass-border rounded-[5px]">
-              <div className="border-b border-white/[0.08] px-4 py-3">
+              <div className="flex items-center justify-between border-b border-white/[0.08] px-4 py-3">
                 <h2 className="text-sm font-semibold text-white">
-                  {data.status === "failed" ? "Screenshot at failure" : "Last screenshot"}
+                  {live
+                    ? "Live view — latest screenshot"
+                    : data.status === "failed"
+                      ? "Screenshot at failure"
+                      : "Last screenshot"}
                 </h2>
+                {live ? (
+                  <span className="text-xs text-white/45">
+                    {data.currentStep ? `step: ${data.currentStep} · ` : ""}updates as the agent works
+                  </span>
+                ) : null}
               </div>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
@@ -267,6 +306,19 @@ export function RunView({ id }: { id: string }) {
                 alt={`Screenshot from ${data.workflowName}`}
                 className="w-full"
               />
+            </section>
+          ) : null}
+
+          {live && !lastShot && !desktopUrl ? (
+            <section className="glass glass-border rounded-[5px] px-4 py-8 text-center">
+              <p className="text-sm text-white/60">
+                {data.status === "queued"
+                  ? "Waiting for a prepared environment — the run starts as soon as one is free."
+                  : "The agent is working — the first screenshot appears here as soon as it's captured."}
+              </p>
+              <p className="mt-2 text-xs text-white/40">
+                Want the real desktop? Use “Watch live desktop” above to open an interactive view.
+              </p>
             </section>
           ) : null}
 

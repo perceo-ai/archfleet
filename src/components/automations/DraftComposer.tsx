@@ -4,10 +4,10 @@
 // automation (not a silent workflow), provide secrets contextually, then save —
 // with a strong nudge to run once before enabling any schedule.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Sparkles } from "lucide-react";
-import { sendJson } from "@/lib/ui/api";
+import { getJson, sendJson } from "@/lib/ui/api";
 import { categoryLabel } from "@/lib/ui/format";
 import type { AutomationDraft } from "@/lib/fleet/automation-draft";
 import type { WorkflowRun } from "@/lib/fleet/types";
@@ -82,6 +82,17 @@ export function DraftComposer() {
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<AutomationDraft | null>(null);
   const [secretValues, setSecretValues] = useState<Record<string, string>>({});
+  // Per-secret choice: type it now, reference a saved secret, or pause the run
+  // for a human to enter it on the desktop (spec "Secrets and MFA UX").
+  const [secretModes, setSecretModes] = useState<Record<string, "enter" | "saved" | "takeover">>({});
+  const [savedSecrets, setSavedSecrets] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!draft) return;
+    getJson<{ name: string }[]>("/api/secrets")
+      .then((list) => setSavedSecrets(list.map((s) => s.name)))
+      .catch(() => undefined);
+  }, [draft]);
 
   const patchAutomation = (fields: Partial<AutomationDraft["automation"]>) =>
     setDraft((d) => (d ? { ...d, automation: { ...d.automation, ...fields } } : d));
@@ -104,13 +115,37 @@ export function DraftComposer() {
     setBusy(runOnce ? "run" : "save");
     setError(null);
     try {
-      // Save any secrets the user typed (best-effort: needs CUF_SECRET_KEY server-side).
-      for (const [name, value] of Object.entries(secretValues)) {
-        if (!value) continue;
-        await sendJson("/api/secrets", "POST", { name, scope: "workflow", value }).catch(() => undefined);
+      // Save typed secrets. A failure here stops the save loudly — the user chose
+      // "enter now", so silently dropping the value would break their runs later.
+      for (const name of draft.automation.requiredSecrets) {
+        const mode = secretModes[name] ?? "enter";
+        const value = secretValues[name];
+        if (mode !== "enter" || !value) continue;
+        try {
+          await sendJson("/api/secrets", "POST", { name, scope: "workflow", value });
+        } catch (e) {
+          throw new Error(
+            `Could not save secret "${name}": ${String(e)}. Choose "pause for me" or clear the value to continue without it.`,
+          );
+        }
       }
+      // Takeover-mode secrets become explicit human-takeover policy on the automation.
+      const takeoverSecrets = draft.automation.requiredSecrets.filter(
+        (name) => secretModes[name] === "takeover",
+      );
+      const automation = takeoverSecrets.length
+        ? {
+            ...draft.automation,
+            takeoverPolicy: [
+              draft.automation.takeoverPolicy,
+              `Pause for a human to enter ${takeoverSecrets.map((s) => `"${s}"`).join(", ")} on the desktop.`,
+            ]
+              .filter(Boolean)
+              .join(" "),
+          }
+        : draft.automation;
       await sendJson("/api/automations", "POST", {
-        automation: draft.automation,
+        automation,
         workflow: draft.workflow,
       });
       if (runOnce) {
@@ -279,17 +314,47 @@ export function DraftComposer() {
                 prepared environment that is already logged in.
               </p>
               <div className="mt-3 grid gap-3 md:grid-cols-2">
-                {draft.automation.requiredSecrets.map((name) => (
-                  <Field key={name} label={name}>
-                    <input
-                      type="password"
-                      className={inputCls}
-                      placeholder="leave blank to provide later"
-                      value={secretValues[name] ?? ""}
-                      onChange={(e) => setSecretValues((s) => ({ ...s, [name]: e.target.value }))}
-                    />
-                  </Field>
-                ))}
+                {draft.automation.requiredSecrets.map((name) => {
+                  const mode = secretModes[name] ?? "enter";
+                  const saved = savedSecrets.includes(name);
+                  return (
+                    <Field key={name} label={name}>
+                      <select
+                        aria-label={`How to provide ${name}`}
+                        className={inputCls}
+                        value={mode}
+                        onChange={(e) =>
+                          setSecretModes((m) => ({ ...m, [name]: e.target.value as typeof mode }))
+                        }
+                      >
+                        <option value="enter">Enter it now</option>
+                        <option value="saved">Use a saved secret</option>
+                        <option value="takeover">Pause the run for me to type it</option>
+                      </select>
+                      {mode === "enter" ? (
+                        <input
+                          type="password"
+                          className={inputCls}
+                          placeholder="leave blank to provide later"
+                          value={secretValues[name] ?? ""}
+                          onChange={(e) => setSecretValues((s) => ({ ...s, [name]: e.target.value }))}
+                        />
+                      ) : null}
+                      {mode === "saved" ? (
+                        <span className={saved ? "text-xs text-[#8add84]" : "text-xs text-[#c4b5fd]"}>
+                          {saved
+                            ? `Runs will use the saved secret "${name}".`
+                            : `No saved secret named "${name}" yet — add it on the Environments page first.`}
+                        </span>
+                      ) : null}
+                      {mode === "takeover" ? (
+                        <span className="text-xs text-white/45">
+                          The run pauses and holds the desktop; you type it in, then resume.
+                        </span>
+                      ) : null}
+                    </Field>
+                  );
+                })}
               </div>
             </div>
           ) : null}

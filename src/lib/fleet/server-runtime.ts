@@ -17,7 +17,15 @@ import { runWorkflow, type OrchestratorDeps } from "./orchestrator";
 import type { GuestConnection } from "./computer-use";
 import type { RunArtifact } from "./types";
 import { getDb, type Db } from "./db/db";
-import { saveRun, getRun, claimQueuedRun, deferRun, setRunProgress } from "./db/runs-repo";
+import {
+  saveRun,
+  getRun,
+  claimQueuedRun,
+  deferRun,
+  setRunProgress,
+  appendRunEvent,
+  appendRunArtifact,
+} from "./db/runs-repo";
 import { getWorkflow } from "./db/workflows-repo";
 import { getAutomation, getAutomationByWorkflowId } from "./db/automations-repo";
 import { evaluateEvidenceChecks } from "./evidence-checks";
@@ -222,11 +230,28 @@ export async function executeRunById(db: Db, runId: string, now = () => new Date
     getWorkflow(db, existing.workflowId) ??
     state.workflows.find((w) => w.id === existing.workflowId) ??
     state.workflows[0];
+  // Checkpoint retry / takeover resume: `__resumeFrom` in the run params names the
+  // node to start from (set by POST /api/runs/:id/action, consumed once here).
+  const paramRow = db.prepare("SELECT params_json FROM cuf_runs WHERE id=?").get(runId) as
+    | { params_json: string }
+    | undefined;
+  const resumeFrom = (JSON.parse(paramRow?.params_json || "{}") as Record<string, unknown>).__resumeFrom;
   const run = await runWorkflow(
-    { workflow, secrets: resolveSecrets(db, state), params: resolveParams(db, state, runId), runId },
+    {
+      workflow,
+      secrets: resolveSecrets(db, state),
+      params: resolveParams(db, state, runId),
+      runId,
+      startNodeId: typeof resumeFrom === "string" ? resumeFrom : undefined,
+    },
     {
       ...buildRunDeps(state, now),
       onProgress: (_nodeId, nodeName) => setRunProgress(db, runId, nodeName),
+      // Stream events + artifacts into the db as they happen so the run view is a
+      // live "watch it run" surface, not a post-hoc report. Same ids as the final
+      // saveRun, so the settle-time write replaces these rows.
+      onEvent: (event, seq) => appendRunEvent(db, runId, event, seq),
+      onArtifact: (artifact) => appendRunArtifact(db, artifact),
     },
   );
   // Carry linkage the orchestrator doesn't know about, and summarize settled runs.

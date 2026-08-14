@@ -138,6 +138,9 @@ CREATE TABLE IF NOT EXISTS cuf_environments (
   last_used_at   TEXT,
   recovery_state TEXT,
   setup_notes    TEXT,
+  state_json     TEXT NOT NULL DEFAULT '{}',      -- structured EnvironmentState
+  warm_snapshot  TEXT,
+  cloned_from    TEXT,
   created_at     TEXT NOT NULL,
   updated_at     TEXT NOT NULL
 );
@@ -215,6 +218,11 @@ export const COLUMN_MIGRATIONS: Record<string, Record<string, string>> = {
   },
   cuf_automations: {
     evidence_checks: "TEXT NOT NULL DEFAULT '[]'",
+  },
+  cuf_environments: {
+    state_json: "TEXT NOT NULL DEFAULT '{}'",
+    warm_snapshot: "TEXT",
+    cloned_from: "TEXT",
   },
 };
 

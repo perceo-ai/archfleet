@@ -555,6 +555,36 @@ describe("runWorkflow", () => {
     expect(run.events.some((e) => e.message.includes("Released"))).toBe(true);
   });
 
+  it("starts from startNodeId (checkpoint retry) instead of the start node", async () => {
+    const client = fakeClient({ "dom-vm1": "running" });
+    const daemon = testDaemon(client);
+    let execCalls = 0;
+    const exec: ExecRunner = async () => {
+      execCalls++;
+      return { code: 0, stdout: JSON.stringify({ status: "succeeded", reason: "done", steps: 1, artifacts: [] }), stderr: "" } as ExecResult;
+    };
+    const wf = workflow();
+    wf.nodes.splice(2, 0, {
+      id: "task2",
+      type: "computer_use_task",
+      name: "Download report",
+      position: { x: 1.5, y: 0 },
+      config: { prompt: "Download the report", requiredLabels: ["browser"] },
+    });
+    wf.edges = [
+      { id: "e1", from: "start", to: "task1", condition: "always" },
+      { id: "e2", from: "task1", to: "task2", condition: "success" },
+      { id: "e3", from: "task2", to: "end", condition: "success" },
+    ];
+    const run = await runWorkflow(
+      { workflow: wf, secrets, params, runId: "run_ckpt", startNodeId: "task2" },
+      { daemon, exec, now: now() },
+    );
+    expect(run.status).toBe("succeeded");
+    expect(execCalls).toBe(1); // task1 skipped — only the resumed step ran
+    expect(run.events.some((e) => e.message.includes('Resuming from "Download report"'))).toBe(true);
+  });
+
   it("drives the guest over the SSH port, not the XRDP port", async () => {
     const client = fakeClient({ "dom-vm1": "running" });
     const daemon = testDaemon(client);

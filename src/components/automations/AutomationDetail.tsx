@@ -35,9 +35,28 @@ type Detail = {
   runs: RunSummary[];
   health: AutomationHealth;
   lastRun?: RunSummary;
+  /** Draft lifecycle gate — why activation is blocked, when it is. */
+  activation?: { ok: boolean; reason?: string };
 };
 
 type Tab = "spec" | "runs" | "advanced";
+
+// Guided schedule choices — users pick a cadence, not a cron string. Custom cron
+// stays available under the "custom" choice for power users.
+const SCHEDULE_PRESETS: { key: string; label: string; cron: string }[] = [
+  { key: "15min", label: "Every 15 minutes", cron: "*/15 * * * *" },
+  { key: "hourly", label: "Every hour", cron: "0 * * * *" },
+  { key: "daily", label: "Every day at 9:00", cron: "0 9 * * *" },
+  { key: "weekdays", label: "Weekdays at 9:00", cron: "0 9 * * 1-5" },
+  { key: "weekly", label: "Mondays at 9:00", cron: "0 9 * * 1" },
+  { key: "monthly", label: "1st of the month at 9:00", cron: "0 9 1 * *" },
+];
+
+/** Human-readable cadence for a stored trigger, falling back to the raw cron. */
+function cadenceLabel(cron: string | undefined): string {
+  if (!cron) return "";
+  return SCHEDULE_PRESETS.find((p) => p.cron === cron)?.label ?? cron;
+}
 
 const inputCls =
   "rounded-[5px] border border-white/[0.08] bg-[#161616] px-3 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/50";
@@ -60,7 +79,8 @@ export function AutomationDetail({ id }: { id: string }) {
   const [environments, setEnvironments] = useState<PreparedEnvironment[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [webhookToken, setWebhookToken] = useState<string | null>(null);
-  const [cron, setCron] = useState("0 9 * * *");
+  const [scheduleKey, setScheduleKey] = useState("daily");
+  const [customCron, setCustomCron] = useState("0 9 * * *");
 
   const automation = detail.data?.automation;
   useEffect(() => {
@@ -81,7 +101,7 @@ export function AutomationDetail({ id }: { id: string }) {
       </main>
     );
   }
-  const { workflow, environment, triggers, runs, health } = detail.data;
+  const { workflow, environment, triggers, runs, health, activation } = detail.data;
 
   const patch = (fields: Partial<Automation>) => setEdit((e) => (e ? { ...e, ...fields } : e));
 
@@ -98,8 +118,12 @@ export function AutomationDetail({ id }: { id: string }) {
   }
 
   async function setStatus(status: Automation["status"]) {
-    await sendJson(`/api/automations/${id}`, "PATCH", { status }).catch((e) => setMessage(String(e)));
-    patch({ status });
+    try {
+      await sendJson(`/api/automations/${id}`, "PATCH", { status });
+      patch({ status });
+    } catch (e) {
+      setMessage(String(e));
+    }
     await detail.refresh();
   }
 
@@ -116,6 +140,10 @@ export function AutomationDetail({ id }: { id: string }) {
     if (!edit) return;
     setMessage(null);
     try {
+      const cron =
+        scheduleKey === "custom"
+          ? customCron
+          : SCHEDULE_PRESETS.find((p) => p.key === scheduleKey)?.cron;
       const res = await sendJson<{ trigger: Trigger; webhookToken?: string }>("/api/triggers", "POST", {
         workflowId: edit.workflowId,
         type,
@@ -151,8 +179,10 @@ export function AutomationDetail({ id }: { id: string }) {
           {edit.status === "draft" ? (
             <button
               type="button"
+              disabled={activation ? !activation.ok : false}
+              title={activation?.reason}
               onClick={() => void setStatus("active")}
-              className="inline-flex h-10 items-center rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-4 text-sm font-semibold text-white hover:bg-white/[0.08]"
+              className="inline-flex h-10 items-center rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-4 text-sm font-semibold text-white hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-50"
             >
               Activate
             </button>
@@ -202,6 +232,9 @@ export function AutomationDetail({ id }: { id: string }) {
       </div>
 
       {message ? <p className="mt-3 text-sm text-white/60">{message}</p> : null}
+      {edit.status === "draft" && activation && !activation.ok ? (
+        <p className="mt-3 text-sm text-[#c4b5fd]">{activation.reason}</p>
+      ) : null}
 
       {tab === "spec" ? (
         <section className="glass glass-border mt-4 rounded-[5px]">
@@ -264,7 +297,7 @@ export function AutomationDetail({ id }: { id: string }) {
             <div className="md:col-span-2">
               <Field
                 label="Automated evidence checks"
-                hint="One per line, evaluated after each run: text_found: <text> · url_reached: <url> · file_downloaded: <name> · screenshot_captured"
+                hint="One per line, evaluated after each run: text_found: <text> · url_reached: <url> · file_downloaded: <name> · screenshot_captured · element_visible: <element> · form_submitted[: <form>] · email_received · output_extracted[: <name>] · visual_state_changed"
               >
                 <textarea
                   className={inputCls}
@@ -310,8 +343,7 @@ export function AutomationDetail({ id }: { id: string }) {
               {triggers.length === 0 ? <li>Manual only — no schedule or webhook yet.</li> : null}
               {triggers.map((t) => (
                 <li key={t.id}>
-                  {t.type}
-                  {t.cron ? ` · ${t.cron}` : ""}
+                  {t.type === "schedule" ? cadenceLabel(t.cron) : t.type}
                   {t.nextRunAt ? ` · next ${timeAgo(t.nextRunAt)}` : ""}
                   {!t.enabled ? " · disabled" : ""}
                 </li>
@@ -323,12 +355,27 @@ export function AutomationDetail({ id }: { id: string }) {
               </p>
             ) : null}
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <input
-                aria-label="Cron expression"
-                className={`${inputCls} w-36`}
-                value={cron}
-                onChange={(e) => setCron(e.target.value)}
-              />
+              <select
+                aria-label="Schedule cadence"
+                className={inputCls}
+                value={scheduleKey}
+                onChange={(e) => setScheduleKey(e.target.value)}
+              >
+                {SCHEDULE_PRESETS.map((p) => (
+                  <option key={p.key} value={p.key}>
+                    {p.label}
+                  </option>
+                ))}
+                <option value="custom">Custom (cron)</option>
+              </select>
+              {scheduleKey === "custom" ? (
+                <input
+                  aria-label="Cron expression"
+                  className={`${inputCls} w-36`}
+                  value={customCron}
+                  onChange={(e) => setCustomCron(e.target.value)}
+                />
+              ) : null}
               <button
                 type="button"
                 onClick={() => void addTrigger("schedule")}

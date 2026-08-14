@@ -3,6 +3,7 @@
 
 import type { Db } from "./db";
 import type { Automation, AutomationHealth, AutomationStatus } from "../types";
+import { listEvidenceByAutomation } from "./evidence-repo";
 import { listRuns, type RunSummary } from "./runs-repo";
 
 export type AutomationListFilter = {
@@ -98,6 +99,46 @@ export function listAutomations(db: Db, filter: AutomationListFilter = {}): Auto
 
 export function deleteAutomation(db: Db, id: string): boolean {
   return db.prepare("DELETE FROM cuf_automations WHERE id=?").run(id).changes === 1;
+}
+
+export type ActivationReadiness = {
+  ok: boolean;
+  /** Why activation is blocked — user-facing, absent when ok. */
+  reason?: string;
+};
+
+/** Draft lifecycle gate: a draft can only become active after at least one run
+ * succeeded AND (when the automation has success criteria) a human reviewed that
+ * run's evidence with no failing verdicts. Keeps "activate" honest — an automation
+ * is only repeatable once someone has watched it work. */
+export function activationReadiness(db: Db, a: Automation): ActivationReadiness {
+  const succeeded = listRuns(db, 50, { automationId: a.id, statuses: ["succeeded"] });
+  if (!succeeded.length) {
+    return {
+      ok: false,
+      reason: "No successful run yet. Run it once and watch it succeed before activating.",
+    };
+  }
+  if (!a.successCriteria.length) return { ok: true };
+  const reviews = listEvidenceByAutomation(db, a.id, { type: "criteria_review" });
+  const byRun = new Map<string, { pass: number; fail: number }>();
+  for (const r of reviews) {
+    const tally = byRun.get(r.runId) ?? { pass: 0, fail: 0 };
+    tally[r.verdict === "fail" ? "fail" : "pass"]++;
+    byRun.set(r.runId, tally);
+  }
+  const reviewedOk = succeeded.some((run) => {
+    const tally = byRun.get(run.id);
+    return tally && tally.pass > 0 && tally.fail === 0;
+  });
+  if (!reviewedOk) {
+    return {
+      ok: false,
+      reason:
+        "Success criteria not reviewed yet. Open a successful run and mark the criteria pass against its evidence.",
+    };
+  }
+  return { ok: true };
 }
 
 /** Health from the most recent runs: last run failed → failing; paused (waiting on a

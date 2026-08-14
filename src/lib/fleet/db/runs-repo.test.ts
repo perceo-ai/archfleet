@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { openDb } from "./db";
-import { getRun, listRuns, saveRun, setRunOutcome, setRunProgress } from "./runs-repo";
+import {
+  appendRunArtifact,
+  appendRunEvent,
+  getRun,
+  listRuns,
+  saveRun,
+  setRunOutcome,
+  setRunProgress,
+} from "./runs-repo";
 import type { WorkflowRun } from "../types";
 
 function run(id: string, overrides: Partial<WorkflowRun> = {}): WorkflowRun {
@@ -124,6 +132,28 @@ describe("runs repo", () => {
     const got = getRun(db, "r1");
     expect(got?.resultSummary).toBe("succeeded — all steps done");
     expect(got?.pausedReason).toBeUndefined();
+    db.close();
+  });
+
+  it("appends events and artifacts incrementally, idempotent with final save", () => {
+    const db = openDb(":memory:");
+    saveRun(db, run("r1", { status: "running", events: [], artifacts: [] }));
+    appendRunEvent(db, "r1", { id: "r1_e0", level: "info", message: "assigned", timestamp: "2026-08-04T16:10:00.000Z" }, 0);
+    appendRunEvent(db, "r1", { id: "r1_e1", level: "info", message: "done", timestamp: "2026-08-04T16:10:12.000Z" }, 1);
+    appendRunArtifact(db, { id: "r1_a0", runId: "r1", nodeId: "task1", type: "file", path: "shot.png", createdAt: "2026-08-04T16:10:11.000Z" });
+    const live = getRun(db, "r1");
+    expect(live?.events.map((e) => e.message)).toEqual(["assigned", "done"]);
+    expect(live?.artifacts?.[0].path).toBe("shot.png");
+    // Final saveRun re-writes the same ids — no duplicates.
+    saveRun(db, run("r1", { status: "succeeded", events: [
+      { id: "r1_e0", level: "info", message: "assigned", timestamp: "2026-08-04T16:10:00.000Z" },
+      { id: "r1_e1", level: "info", message: "done", timestamp: "2026-08-04T16:10:12.000Z" },
+    ], artifacts: [
+      { id: "r1_a0", runId: "r1", nodeId: "task1", type: "file", path: "shot.png", createdAt: "2026-08-04T16:10:11.000Z" },
+    ] }));
+    const final = getRun(db, "r1");
+    expect(final?.events).toHaveLength(2);
+    expect(final?.artifacts).toHaveLength(1);
     db.close();
   });
 

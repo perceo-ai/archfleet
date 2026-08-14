@@ -106,6 +106,23 @@ export function saveRun(db: Db, run: WorkflowRun): void {
   }
 }
 
+/** Persist one event mid-run so the run view streams progress live. Same id
+ * scheme as the final saveRun, so the settle-time write replaces, not duplicates. */
+export function appendRunEvent(db: Db, runId: string, e: RunEvent, seq: number): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO cuf_events (id, run_id, node_id, level, message, timestamp, seq)
+     VALUES (?,?,?,?,?,?,?)`,
+  ).run(e.id, runId, null, e.level, e.message, e.timestamp, seq);
+}
+
+/** Persist one artifact mid-run (live screenshots for the "watch it run" view). */
+export function appendRunArtifact(db: Db, a: RunArtifact): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO cuf_artifacts (id, run_id, node_id, type, path, metadata_json, created_at)
+     VALUES (?,?,?,?,?,?,?)`,
+  ).run(a.id, a.runId, a.nodeId ?? null, a.type, a.path, JSON.stringify(a.metadata ?? {}), a.createdAt);
+}
+
 /** Full run with events + artifacts, or undefined if not found. */
 export function getRun(db: Db, id: string): WorkflowRun | undefined {
   const row = db.prepare("SELECT * FROM cuf_runs WHERE id=?").get(id) as

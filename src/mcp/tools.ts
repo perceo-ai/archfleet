@@ -250,8 +250,14 @@ export const FLEET_TOOLS: FleetTool[] = [
   },
   {
     name: "run_automation",
-    description: "Enqueue a run of an automation (linked to its environment + run history). Returns the queued run.",
-    shape: { id: z.string(), params: z.record(z.string(), z.unknown()).optional() },
+    description:
+      "Enqueue a run of an automation (linked to its environment + run history). Pass pr/branch to associate the run's evidence with a change (Archductor / release checks). Returns the queued run.",
+    shape: {
+      id: z.string(),
+      params: z.record(z.string(), z.unknown()).optional(),
+      pr: z.string().optional(),
+      branch: z.string().optional(),
+    },
     run: (db, a) => {
       const automation = getAutomation(db, a.id as string);
       if (!automation) return { error: "not found" };
@@ -262,10 +268,51 @@ export const FLEET_TOOLS: FleetTool[] = [
           automationId: automation.id,
           environmentId: automation.environmentId,
           triggerSource: "api",
+          prRef: a.pr as string | undefined,
+          branchRef: a.branch as string | undefined,
         });
       } catch (e) {
         return { error: e instanceof Error ? e.message : String(e) };
       }
+    },
+  },
+  {
+    name: "run_semantic_tests",
+    description:
+      "Enqueue every active semantic_test automation against a PR/branch (the Archductor trigger path). Returns the queued runs; evidence attaches to the PR/branch for pr_evidence_summary.",
+    shape: { pr: z.string().optional(), branch: z.string().optional() },
+    run: (db, a) => {
+      const tests = listAutomations(db, { status: "active", category: "semantic_test" });
+      const runs = tests.map((t) => {
+        try {
+          return enqueueManualRun(t.workflowId, {
+            db,
+            automationId: t.id,
+            environmentId: t.environmentId,
+            triggerSource: "api",
+            prRef: a.pr as string | undefined,
+            branchRef: a.branch as string | undefined,
+          });
+        } catch (e) {
+          return { automationId: t.id, error: e instanceof Error ? e.message : String(e) };
+        }
+      });
+      return { enqueued: runs.length, runs };
+    },
+  },
+  {
+    name: "pr_evidence_summary",
+    description:
+      "Markdown evidence summary (statuses, criteria reviews, automated checks, screenshots) for every run associated with a PR or branch. Set publish=true to post it as a GitHub PR comment (needs CUF_GITHUB_TOKEN).",
+    shape: { pr: z.string().optional(), branch: z.string().optional(), publish: z.boolean().optional() },
+    run: async (db, a) => {
+      const { buildPrEvidenceSummary, publishPrComment } = await import("../lib/fleet/pr-evidence");
+      if (!a.pr && !a.branch) return { error: "pr or branch is required" };
+      if (a.publish && a.pr) return publishPrComment(db, a.pr as string);
+      return buildPrEvidenceSummary(db, {
+        prRef: a.pr as string | undefined,
+        branchRef: a.branch as string | undefined,
+      });
     },
   },
   {

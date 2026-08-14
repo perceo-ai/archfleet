@@ -59,7 +59,7 @@ describe("AutomationDetail", () => {
     expect(screen.getByText("healthy")).toBeInTheDocument();
     expect(screen.getByDisplayValue(/2\. Log in/)).toBeInTheDocument();
     expect(screen.getByDisplayValue("Dashboard visible")).toBeInTheDocument();
-    expect(screen.getByText(/schedule · 0 9 \* \* \*/)).toBeInTheDocument();
+    expect(screen.getAllByText(/Every day at 9:00/).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Run now" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Advanced" })).toBeInTheDocument();
   });
