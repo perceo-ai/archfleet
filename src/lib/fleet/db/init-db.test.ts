@@ -15,6 +15,25 @@ describe("ensureSeeded", () => {
     db.close();
   });
 
+  it("seeds a default automation + prepared environment, idempotently", () => {
+    const db = openDb(":memory:");
+    ensureSeeded(db);
+    ensureSeeded(db);
+    const automations = db.prepare("SELECT id, workflow_id, environment_id, status FROM cuf_automations").all() as {
+      id: string;
+      workflow_id: string;
+      environment_id: string;
+      status: string;
+    }[];
+    expect(automations).toHaveLength(1);
+    expect(automations[0].workflow_id).toBe("wf_portal_login");
+    expect(automations[0].environment_id).toBe("env_default");
+    expect(automations[0].status).toBe("active");
+    const envs = db.prepare("SELECT id FROM cuf_environments").all();
+    expect(envs).toHaveLength(1);
+    db.close();
+  });
+
   it("does not seed demo VMs and removes old demo VM rows", () => {
     const db = openDb(":memory:");
     saveVm(db, {

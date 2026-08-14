@@ -17,14 +17,19 @@ import { runWorkflow, type OrchestratorDeps } from "./orchestrator";
 import type { GuestConnection } from "./computer-use";
 import type { RunArtifact } from "./types";
 import { getDb, type Db } from "./db/db";
-import { saveRun, getRun, claimQueuedRun, deferRun } from "./db/runs-repo";
+import { saveRun, getRun, claimQueuedRun, deferRun, setRunProgress } from "./db/runs-repo";
 import { getWorkflow } from "./db/workflows-repo";
+import { getAutomation, getAutomationByWorkflowId } from "./db/automations-repo";
+import { evaluateEvidenceChecks } from "./evidence-checks";
+import { touchEnvironment } from "./db/environments-repo";
+import { addEvidence } from "./db/evidence-repo";
+import { getOpenTakeoverForRun, openTakeover } from "./db/takeovers-repo";
 import { loadSecrets } from "./db/secrets-repo";
 import { seedFleetState } from "./seed";
 import { notifyRun } from "./notify";
 import { fetchEmailOtpImap } from "./email-imap";
 import type { TriggerExecute } from "./triggers/triggers-runtime";
-import type { FleetState, Workflow, WorkflowRun } from "./types";
+import type { FleetState, TriggerSource, Workflow, WorkflowRun } from "./types";
 
 let runCounter = 0;
 const newRunId = (now: () => string) => `run_${runCounter++}_${now()}`;
@@ -60,6 +65,13 @@ export type ExecuteOptions = {
   triggerId?: string;
   /** Run-level params (e.g. a webhook payload) — override workflow/global params. */
   params?: Record<string, string | number | boolean | null>;
+  /** Automation this run belongs to. Resolved from the workflow when omitted. */
+  automationId?: string;
+  environmentId?: string;
+  triggerSource?: TriggerSource;
+  /** Branch/PR association for semantic tests and Archductor-triggered runs. */
+  branchRef?: string;
+  prRef?: string;
 };
 
 /** Prefer encrypted secrets from the db (production); fall back to seed secrets
@@ -157,6 +169,14 @@ export function enqueueManualRun(
     (workflowId ? getWorkflow(db, workflowId) : undefined) ??
     state.workflows.find((w) => w.id === workflowId) ??
     state.workflows[0];
+  // An automation must run ITS workflow — falling back to the seed workflow would
+  // execute an unrelated task while attributing the run + evidence to the automation.
+  if (opts.automationId && workflowId && workflow.id !== workflowId) {
+    throw new Error(`workflow ${workflowId} not found for automation ${opts.automationId}`);
+  }
+  // Link the run to its automation (and inherit the prepared environment) so run
+  // history, evidence, and health all attach to the user-facing object.
+  const automation = opts.automationId ? undefined : getAutomationByWorkflowId(db, workflow.id);
   const run: WorkflowRun = {
     id: newRunId(now),
     workflowId: workflow.id,
@@ -167,6 +187,11 @@ export function enqueueManualRun(
     events: [
       { id: `evt_enqueue_${now()}`, level: "info", timestamp: now(), message: `Queued ${workflow.name}.` },
     ],
+    automationId: opts.automationId ?? automation?.id,
+    environmentId: opts.environmentId ?? automation?.environmentId,
+    triggerSource: opts.triggerSource,
+    branchRef: opts.branchRef,
+    prRef: opts.prRef,
   };
   saveRun(db, run);
   if (opts.params && Object.keys(opts.params).length) {
@@ -199,9 +224,26 @@ export async function executeRunById(db: Db, runId: string, now = () => new Date
     state.workflows[0];
   const run = await runWorkflow(
     { workflow, secrets: resolveSecrets(db, state), params: resolveParams(db, state, runId), runId },
-    buildRunDeps(state, now),
+    {
+      ...buildRunDeps(state, now),
+      onProgress: (_nodeId, nodeName) => setRunProgress(db, runId, nodeName),
+    },
   );
-  saveRun(db, existing.triggerId ? { ...run, triggerId: existing.triggerId } : run);
+  // Carry linkage the orchestrator doesn't know about, and summarize settled runs.
+  const settled = run.status !== "queued";
+  const lastEvent = run.events[run.events.length - 1];
+  const merged: WorkflowRun = {
+    ...run,
+    triggerId: existing.triggerId,
+    automationId: existing.automationId,
+    environmentId: existing.environmentId,
+    triggerSource: existing.triggerSource,
+    branchRef: existing.branchRef,
+    prRef: existing.prRef,
+    resultSummary: settled ? `${run.status}${lastEvent ? ` — ${lastEvent.message}` : ""}` : undefined,
+  };
+  saveRun(db, merged);
+  recordRunSideEffects(db, merged, now);
   // No VM available -> stays queued; back off so the worker retries later instead
   // of spinning on it.
   if (run.status === "queued") {
@@ -211,6 +253,53 @@ export async function executeRunById(db: Db, runId: string, now = () => new Date
   // Page an operator when a human is needed (or on failure).
   const vm = realVmsFromEnv().find((v) => v.id === run.vmId);
   await notifyRun(run, { xrdp: vm?.xrdp });
+}
+
+/** Post-run bookkeeping: evidence rows from artifacts, a takeover record when the
+ * run paused for a human, and environment usage tracking. */
+function recordRunSideEffects(db: Db, run: WorkflowRun, now: () => string): void {
+  if (run.status === "queued") return;
+  const imageExt = /\.(png|jpe?g)$/i;
+  (run.artifacts ?? []).forEach((a, i) => {
+    addEvidence(db, {
+      id: `ev_${run.id}_${i}`,
+      runId: run.id,
+      automationId: run.automationId,
+      type: imageExt.test(a.path) ? "screenshot" : "file",
+      artifactRef: basename(a.path),
+      stepId: a.nodeId,
+      description: `Captured by "${run.workflowName}"`,
+      createdAt: a.createdAt,
+    });
+  });
+  // Machine-evaluated evidence checks (text found, URL reached, files, screenshots).
+  const automation = run.automationId ? getAutomation(db, run.automationId) : undefined;
+  if (automation?.evidenceChecks?.length && (run.status === "succeeded" || run.status === "failed")) {
+    evaluateEvidenceChecks(automation.evidenceChecks, run).forEach((result, i) => {
+      addEvidence(db, {
+        id: `ev_check_${run.id}_${i}`,
+        runId: run.id,
+        automationId: run.automationId,
+        type: "check",
+        description: `${result.check.type}${result.check.value ? `: ${result.check.value}` : ""} — ${result.detail}`,
+        verdict: result.verdict,
+        createdAt: now(),
+      });
+    });
+  }
+  if (run.status === "paused" && !getOpenTakeoverForRun(db, run.id)) {
+    openTakeover(db, {
+      id: `tk_${run.id}_${now()}`,
+      runId: run.id,
+      environmentId: run.environmentId,
+      vmId: run.vmId,
+      reason: `Paused at "${run.currentStep ?? "unknown step"}"`,
+      requestedAction: run.pausedReason ?? "Open the desktop and finish the blocked step, then resume.",
+      status: "open",
+      openedAt: now(),
+    });
+  }
+  if (run.environmentId) touchEnvironment(db, run.environmentId, now());
 }
 
 /** Process up to `max` queued runs. Returns how many were executed. Call from a
@@ -234,5 +323,10 @@ export function makeTriggerExecute(db?: Db): TriggerExecute {
       db,
       triggerId: trigger.id,
       params: payload as ExecuteOptions["params"],
+      triggerSource: trigger.type === "schedule" ? "schedule" : trigger.type === "webhook" ? "webhook" : "manual",
+      // Webhook payloads (e.g. from Archductor or CI) can associate the run with
+      // a branch/PR so its evidence is retrievable from review.
+      branchRef: typeof payload?.branch === "string" ? payload.branch : undefined,
+      prRef: payload?.pr != null ? String(payload.pr) : undefined,
     });
 }

@@ -86,3 +86,189 @@ describe("async run queue", () => {
     db.close();
   });
 });
+describe("automation-aware run lifecycle", () => {
+  async function seedTakeoverWorkflow(db: import("./db/db").Db) {
+    const { saveWorkflow } = await import("./db/workflows-repo");
+    saveWorkflow(db, {
+      id: "wf_tk",
+      name: "Needs Human",
+      description: "",
+      enabled: true,
+      triggerKinds: ["manual"],
+      nodes: [
+        { id: "start", type: "start", name: "S", position: { x: 0, y: 0 }, config: {} },
+        {
+          id: "h1",
+          type: "human_takeover",
+          name: "Manual MFA",
+          position: { x: 1, y: 0 },
+          config: { prompt: "Approve the MFA prompt" },
+        },
+        { id: "end", type: "end", name: "E", position: { x: 2, y: 0 }, config: {} },
+      ],
+      edges: [
+        { id: "e1", from: "start", to: "h1", condition: "always" },
+        { id: "e2", from: "h1", to: "end", condition: "success" },
+      ],
+    });
+  }
+
+  it("enqueue links the run to its automation and environment", async () => {
+    const db = openDb(":memory:");
+    ensureSeeded(db);
+    await seedTakeoverWorkflow(db);
+    const { saveAutomation } = await import("./db/automations-repo");
+    saveAutomation(db, {
+      id: "auto_tk",
+      name: "MFA automation",
+      goal: "",
+      category: "general",
+      target: "",
+      specMarkdown: "",
+      workflowId: "wf_tk",
+      environmentId: "env_1",
+      successCriteria: [],
+      requiredSecrets: [],
+      artifactPolicy: "",
+      retryPolicy: "",
+      takeoverPolicy: "",
+      riskNotes: [],
+      status: "active",
+      createdAt: "2026-08-12T00:00:00Z",
+      updatedAt: "2026-08-12T00:00:00Z",
+    });
+    const run = enqueueManualRun("wf_tk", { db, triggerSource: "manual" });
+    const persisted = getRun(db, run.id);
+    expect(persisted?.automationId).toBe("auto_tk");
+    expect(persisted?.environmentId).toBe("env_1");
+    expect(persisted?.triggerSource).toBe("manual");
+    db.close();
+  });
+
+  it("paused run opens a takeover and preserves linkage through execution", async () => {
+    const db = openDb(":memory:");
+    ensureSeeded(db);
+    await seedTakeoverWorkflow(db);
+    const { saveAutomation } = await import("./db/automations-repo");
+    saveAutomation(db, {
+      id: "auto_tk",
+      name: "MFA automation",
+      goal: "",
+      category: "general",
+      target: "",
+      specMarkdown: "",
+      workflowId: "wf_tk",
+      successCriteria: [],
+      requiredSecrets: [],
+      artifactPolicy: "",
+      retryPolicy: "",
+      takeoverPolicy: "",
+      riskNotes: [],
+      status: "active",
+      createdAt: "2026-08-12T00:00:00Z",
+      updatedAt: "2026-08-12T00:00:00Z",
+    });
+    enqueueManualRun("wf_tk", { db, triggerSource: "manual" });
+    await processPendingRuns(db, 5);
+    const run = listRuns(db)[0];
+    expect(run.status).toBe("paused");
+    expect(run.automationId).toBe("auto_tk"); // final save must not wipe linkage
+    expect(run.currentStep).toBe("Manual MFA");
+    const full = getRun(db, run.id);
+    expect(full?.pausedReason).toBe("Approve the MFA prompt");
+    const { getOpenTakeoverForRun } = await import("./db/takeovers-repo");
+    const takeover = getOpenTakeoverForRun(db, run.id);
+    expect(takeover?.requestedAction).toBe("Approve the MFA prompt");
+    expect(takeover?.reason).toContain("Manual MFA");
+    db.close();
+  });
+
+  it("writes a result summary on settled runs", async () => {
+    const db = openDb(":memory:");
+    const { saveWorkflow } = await import("./db/workflows-repo");
+    saveWorkflow(db, {
+      id: "wf_noop2",
+      name: "Noop",
+      description: "",
+      enabled: true,
+      triggerKinds: ["manual"],
+      nodes: [
+        { id: "start", type: "start", name: "S", position: { x: 0, y: 0 }, config: {} },
+        { id: "end", type: "end", name: "E", position: { x: 1, y: 0 }, config: {} },
+      ],
+      edges: [{ id: "e1", from: "start", to: "end", condition: "always" }],
+    });
+    enqueueManualRun("wf_noop2", { db });
+    await processPendingRuns(db, 5);
+    const run = listRuns(db)[0];
+    expect(run.status).toBe("succeeded");
+    expect(run.resultSummary).toContain("succeeded");
+    db.close();
+  });
+});
+
+describe("evidence checks + PR association through execution", () => {
+  it("evaluates automation evidence checks into check evidence rows", async () => {
+    const db = openDb(":memory:");
+    const { saveWorkflow } = await import("./db/workflows-repo");
+    saveWorkflow(db, {
+      id: "wf_noop3",
+      name: "Noop",
+      description: "",
+      enabled: true,
+      triggerKinds: ["manual"],
+      nodes: [
+        { id: "start", type: "start", name: "Start step", position: { x: 0, y: 0 }, config: {} },
+        { id: "end", type: "end", name: "End", position: { x: 1, y: 0 }, config: {} },
+      ],
+      edges: [{ id: "e1", from: "start", to: "end", condition: "always" }],
+    });
+    const { saveAutomation } = await import("./db/automations-repo");
+    saveAutomation(db, {
+      id: "auto_chk",
+      name: "Checked",
+      goal: "",
+      category: "general",
+      target: "",
+      specMarkdown: "",
+      workflowId: "wf_noop3",
+      successCriteria: [],
+      requiredSecrets: [],
+      artifactPolicy: "",
+      retryPolicy: "",
+      takeoverPolicy: "",
+      riskNotes: [],
+      evidenceChecks: [
+        { type: "screenshot_captured" },
+      ],
+      status: "active",
+      createdAt: "t",
+      updatedAt: "t",
+    });
+    enqueueManualRun("wf_noop3", { db, prRef: "42", branchRef: "main" });
+    await processPendingRuns(db, 5);
+    const run = listRuns(db)[0];
+    expect(run.status).toBe("succeeded");
+    expect(run.prRef).toBe("42");
+    expect(run.branchRef).toBe("main");
+    const { listEvidenceByRun } = await import("./db/evidence-repo");
+    const checks = listEvidenceByRun(db, run.id, { type: "check" });
+    expect(checks).toHaveLength(1);
+    expect(checks[0].verdict).toBe("fail"); // noop run captures no screenshots
+    db.close();
+  });
+});
+
+describe("automation workflow guard", () => {
+  it("throws instead of falling back to the seed workflow when an automation's workflow is missing", () => {
+    const db = openDb(":memory:");
+    ensureSeeded(db);
+    expect(() =>
+      enqueueManualRun("wf_does_not_exist", { db, automationId: "auto_orphan" }),
+    ).toThrow(/workflow wf_does_not_exist not found/);
+    // without an automationId the seed fallback stays (bare-workflow demo path)
+    const run = enqueueManualRun("wf_does_not_exist", { db });
+    expect(run.workflowId).toBe("wf_portal_login");
+    db.close();
+  });
+});

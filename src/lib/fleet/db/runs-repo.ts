@@ -3,7 +3,7 @@
 // they reach here, so nothing sensitive is written.
 
 import type { Db } from "./db";
-import type { RunArtifact, RunEvent, RunStatus, WorkflowRun } from "../types";
+import type { RunArtifact, RunEvent, RunStatus, TriggerSource, WorkflowRun } from "../types";
 
 export type RunSummary = {
   id: string;
@@ -13,14 +13,48 @@ export type RunSummary = {
   vmId?: string;
   startedAt: string;
   finishedAt?: string;
+  automationId?: string;
+  environmentId?: string;
+  triggerSource?: TriggerSource;
+  currentStep?: string;
+  resultSummary?: string;
+  branchRef?: string;
+  prRef?: string;
 };
 
-/** Insert a run with its events + artifacts atomically. */
+export type RunListFilter = {
+  automationId?: string;
+  statuses?: RunStatus[];
+  branchRef?: string;
+  prRef?: string;
+};
+
+/** Upsert a run with its events + artifacts atomically. Columns not owned by the
+ * WorkflowRun shape (params_json, attempts, next_attempt_at) are preserved on
+ * conflict so a final post-run save can't wipe queue bookkeeping. */
 export function saveRun(db: Db, run: WorkflowRun): void {
   const insertRun = db.prepare(
-    `INSERT OR REPLACE INTO cuf_runs
-       (id, workflow_id, workflow_name, status, vm_id, trigger_id, started_at, finished_at)
-     VALUES (?,?,?,?,?,?,?,?)`,
+    `INSERT INTO cuf_runs
+       (id, workflow_id, workflow_name, status, vm_id, trigger_id, started_at, finished_at,
+        automation_id, environment_id, trigger_source, current_step, paused_reason, result_summary,
+        branch_ref, pr_ref)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+     ON CONFLICT(id) DO UPDATE SET
+       workflow_id=excluded.workflow_id,
+       workflow_name=excluded.workflow_name,
+       status=excluded.status,
+       vm_id=excluded.vm_id,
+       trigger_id=excluded.trigger_id,
+       started_at=excluded.started_at,
+       finished_at=excluded.finished_at,
+       automation_id=excluded.automation_id,
+       environment_id=excluded.environment_id,
+       trigger_source=excluded.trigger_source,
+       current_step=excluded.current_step,
+       paused_reason=excluded.paused_reason,
+       result_summary=excluded.result_summary,
+       branch_ref=excluded.branch_ref,
+       pr_ref=excluded.pr_ref`,
   );
   const insertEvent = db.prepare(
     `INSERT OR REPLACE INTO cuf_events (id, run_id, node_id, level, message, timestamp, seq)
@@ -42,6 +76,14 @@ export function saveRun(db: Db, run: WorkflowRun): void {
       run.triggerId ?? null,
       run.startedAt,
       run.finishedAt ?? null,
+      run.automationId ?? null,
+      run.environmentId ?? null,
+      run.triggerSource ?? null,
+      run.currentStep ?? null,
+      run.pausedReason ?? null,
+      run.resultSummary ?? null,
+      run.branchRef ?? null,
+      run.prRef ?? null,
     );
     run.events.forEach((e, i) =>
       insertEvent.run(e.id, run.id, null, e.level, e.message, e.timestamp, i),
@@ -113,6 +155,14 @@ export function getRun(db: Db, id: string): WorkflowRun | undefined {
     finishedAt: (row.finished_at as string) ?? undefined,
     events,
     artifacts,
+    automationId: (row.automation_id as string) ?? undefined,
+    environmentId: (row.environment_id as string) ?? undefined,
+    triggerSource: (row.trigger_source as TriggerSource) ?? undefined,
+    currentStep: (row.current_step as string) ?? undefined,
+    pausedReason: (row.paused_reason as string) ?? undefined,
+    resultSummary: (row.result_summary as string) ?? undefined,
+    branchRef: (row.branch_ref as string) ?? undefined,
+    prRef: (row.pr_ref as string) ?? undefined,
   };
 }
 
@@ -143,7 +193,7 @@ export function deferRun(db: Db, id: string, nextAttemptIso: string): void {
 export function retryRun(db: Db, id: string): boolean {
   const res = db
     .prepare(
-      "UPDATE cuf_runs SET status='queued', finished_at=NULL, next_attempt_at=NULL WHERE id=? AND status IN ('failed','paused','canceled')",
+      "UPDATE cuf_runs SET status='queued', finished_at=NULL, next_attempt_at=NULL, paused_reason=NULL WHERE id=? AND status IN ('failed','paused','canceled')",
     )
     .run(id);
   return res.changes === 1;
@@ -168,11 +218,47 @@ export function setRunStatus(db: Db, id: string, status: RunStatus, finishedAt?:
   );
 }
 
+/** Record which node is currently executing (live progress for the run view). */
+export function setRunProgress(db: Db, id: string, currentStep: string): void {
+  db.prepare("UPDATE cuf_runs SET current_step=? WHERE id=?").run(currentStep, id);
+}
+
+/** Write outcome fields after a run settles. Pass null to clear a field. */
+export function setRunOutcome(
+  db: Db,
+  id: string,
+  fields: { pausedReason?: string | null; resultSummary?: string | null },
+): void {
+  if (fields.pausedReason !== undefined) {
+    db.prepare("UPDATE cuf_runs SET paused_reason=? WHERE id=?").run(fields.pausedReason, id);
+  }
+  if (fields.resultSummary !== undefined) {
+    db.prepare("UPDATE cuf_runs SET result_summary=? WHERE id=?").run(fields.resultSummary, id);
+  }
+}
+
 /** Recent run summaries, newest first. */
-export function listRuns(db: Db, limit = 50): RunSummary[] {
-  const rows = db
-    .prepare("SELECT * FROM cuf_runs ORDER BY started_at DESC LIMIT ?")
-    .all(limit) as Record<string, unknown>[];
+export function listRuns(db: Db, limit = 50, filter: RunListFilter = {}): RunSummary[] {
+  const where: string[] = [];
+  const args: unknown[] = [];
+  if (filter.automationId) {
+    where.push("automation_id = ?");
+    args.push(filter.automationId);
+  }
+  if (filter.statuses?.length) {
+    where.push(`status IN (${filter.statuses.map(() => "?").join(",")})`);
+    args.push(...filter.statuses);
+  }
+  if (filter.branchRef) {
+    where.push("branch_ref = ?");
+    args.push(filter.branchRef);
+  }
+  if (filter.prRef) {
+    where.push("pr_ref = ?");
+    args.push(filter.prRef);
+  }
+  const sql = `SELECT * FROM cuf_runs ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY started_at DESC LIMIT ?`;
+  const rows = db.prepare(sql).all(...(args as never[]), limit) as Record<string, unknown>[];
   return rows.map((row) => ({
     id: row.id as string,
     workflowId: row.workflow_id as string,
@@ -181,5 +267,12 @@ export function listRuns(db: Db, limit = 50): RunSummary[] {
     vmId: (row.vm_id as string) ?? undefined,
     startedAt: row.started_at as string,
     finishedAt: (row.finished_at as string) ?? undefined,
+    automationId: (row.automation_id as string) ?? undefined,
+    environmentId: (row.environment_id as string) ?? undefined,
+    triggerSource: (row.trigger_source as TriggerSource) ?? undefined,
+    currentStep: (row.current_step as string) ?? undefined,
+    resultSummary: (row.result_summary as string) ?? undefined,
+    branchRef: (row.branch_ref as string) ?? undefined,
+    prRef: (row.pr_ref as string) ?? undefined,
   }));
 }

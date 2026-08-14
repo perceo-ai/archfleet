@@ -50,6 +50,8 @@ export type OrchestratorDeps = {
   httpFetch?: typeof fetch;
   /** Fetch an email OTP for otp_email nodes. Absent = email OTP disabled. */
   emailOtp?: (config: import("./otp-email").EmailOtpConfig) => Promise<string | null>;
+  /** Called before each node executes — lets the caller persist live progress. */
+  onProgress?: (nodeId: string, nodeName: string) => void;
 };
 
 /** A node's branch outcome, used to pick the next edge. */
@@ -178,6 +180,9 @@ export async function runWorkflow(
   const artifacts: RunArtifact[] = [];
   let pastWork = "";
   let finalStatus: RunStatus = "succeeded";
+  // Why the run paused (human_takeover prompt / guest needs_human reason) — shown
+  // to the operator, so it is secret-redacted like events.
+  let pausedReason: string | undefined;
 
   const collectArtifacts = (nodeId: string, paths: string[]) => {
     for (const path of paths) {
@@ -274,6 +279,10 @@ export async function runWorkflow(
       }
       case "human_takeover":
         emit("warn", `Node "${node.name}": paused for human takeover.`);
+        pausedReason = redactSecrets(
+          node.config.prompt || `Human takeover requested at "${node.name}".`,
+          secrets,
+        );
         return "paused";
       case "condition": {
         if (node.config.provider) {
@@ -386,7 +395,14 @@ export async function runWorkflow(
           pastWork += `\n${node.name}: ${report.reason}`;
           return "success";
         }
-        return reportToStatus(report.status) === "paused" ? "paused" : "failure";
+        if (reportToStatus(report.status) === "paused") {
+          pausedReason = redactSecrets(
+            report.reason || `Guest requested human help at "${node.name}".`,
+            secrets,
+          );
+          return "paused";
+        }
+        return "failure";
       }
       case "cli_agent_task": {
         emit("info", `Running CLI-agent node "${node.name}".`);
@@ -429,9 +445,12 @@ export async function runWorkflow(
     workflow.nodes.find((n) => n.type === "start") ?? workflow.nodes[0];
   const maxSteps = workflow.nodes.length * 4 + 10;
   let steps = 0;
+  let currentStep: string | undefined;
   try {
     while (current && steps++ < maxSteps) {
       const node = current;
+      currentStep = node.name;
+      deps.onProgress?.(node.id, node.name);
       const outcome = await runNode(node);
       if (outcome === "paused") {
         finalStatus = "paused";
@@ -477,5 +496,7 @@ export async function runWorkflow(
     finishedAt: deps.now(),
     events,
     artifacts,
+    currentStep,
+    pausedReason: finalStatus === "paused" ? pausedReason : undefined,
   };
 }
