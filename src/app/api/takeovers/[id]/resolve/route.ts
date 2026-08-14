@@ -1,6 +1,6 @@
 import { getDb } from "@/lib/fleet/db/db";
 import { getTakeover, resolveTakeover } from "@/lib/fleet/db/takeovers-repo";
-import { cancelRun, retryRun } from "@/lib/fleet/db/runs-repo";
+import { cancelRun, getRun, retryRun } from "@/lib/fleet/db/runs-repo";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,6 +23,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     operatorNotes?: string;
     action?: "resume" | "cancel";
   };
+  // A paused run must be transitioned, not just have its takeover closed —
+  // otherwise it disappears from needs-human lists while still paused.
+  if (!action && getRun(db, takeover.runId)?.status === "paused") {
+    return Response.json(
+      { error: "run is still paused — pass action: \"resume\" or \"cancel\"" },
+      { status: 400 },
+    );
+  }
   if (action === "resume" && !retryRun(db, takeover.runId)) {
     return Response.json({ error: "run not in a state to resume" }, { status: 409 });
   }

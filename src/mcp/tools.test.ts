@@ -201,3 +201,43 @@ describe("upsert_automation workflow guard", () => {
     db.close();
   });
 });
+
+describe("actionless takeover resolution", () => {
+  it("refuses to close a takeover while its run is still paused", async () => {
+    const db = openDb(":memory:");
+    ensureSeeded(db);
+    const { saveRun } = await import("../lib/fleet/db/runs-repo");
+    saveRun(db, {
+      id: "r_paused",
+      workflowId: "wf_portal_login",
+      workflowName: "Portal",
+      status: "paused",
+      startedAt: "2026-08-12T00:00:00Z",
+      events: [],
+      artifacts: [],
+    });
+    const { openTakeover, getTakeover } = await import("../lib/fleet/db/takeovers-repo");
+    openTakeover(db, {
+      id: "tk_open",
+      runId: "r_paused",
+      reason: "MFA",
+      requestedAction: "approve",
+      status: "open",
+      openedAt: "2026-08-12T00:01:00Z",
+    });
+    const noAction = (await tool("resolve_takeover").run(db, { id: "tk_open" })) as {
+      ok: boolean;
+      error?: string;
+    };
+    expect(noAction.ok).toBe(false);
+    expect(noAction.error).toMatch(/still paused/);
+    expect(getTakeover(db, "tk_open")?.status).toBe("open");
+
+    const resumed = (await tool("resolve_takeover").run(db, { id: "tk_open", action: "resume" })) as {
+      ok: boolean;
+    };
+    expect(resumed.ok).toBe(true);
+    expect(getTakeover(db, "tk_open")?.status).toBe("resolved");
+    db.close();
+  });
+});

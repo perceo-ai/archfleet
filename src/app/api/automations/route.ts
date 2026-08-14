@@ -39,6 +39,12 @@ export async function POST(req: Request) {
   }
   const db = getDb();
   if (body.workflow) {
+    if (body.workflow.id !== body.automation.workflowId) {
+      return Response.json(
+        { error: "workflow id must match the automation's workflowId" },
+        { status: 400 },
+      );
+    }
     const errors = validateWorkflow(body.workflow);
     if (errors.length) return Response.json({ error: "invalid workflow", errors }, { status: 400 });
     saveWorkflow(db, body.workflow);

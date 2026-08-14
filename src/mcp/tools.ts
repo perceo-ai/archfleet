@@ -318,6 +318,10 @@ export const FLEET_TOOLS: FleetTool[] = [
       if (!takeover || takeover.status !== "open") {
         return { ok: false, error: "takeover not found or already resolved" };
       }
+      // A paused run must be transitioned, not just have its takeover closed.
+      if (!a.action && getRun(db, takeover.runId)?.status === "paused") {
+        return { ok: false, error: 'run is still paused — pass action: "resume" or "cancel"' };
+      }
       // Transition the run first — if it already moved on, keep the takeover open.
       if (a.action === "resume" && !retryRun(db, takeover.runId)) {
         return { ok: false, error: "run not in a state to resume" };
