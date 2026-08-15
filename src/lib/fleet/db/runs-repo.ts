@@ -206,14 +206,25 @@ export function deferRun(db: Db, id: string, nextAttemptIso: string): void {
   db.prepare("UPDATE cuf_runs SET next_attempt_at=? WHERE id=?").run(nextAttemptIso, id);
 }
 
-/** Re-queue a terminal/paused run for another attempt (human takeover: retry/resume). */
+/** Re-queue a terminal/paused run for another attempt (human takeover: retry/resume).
+ * Always drops any `__resumeFrom` checkpoint — a plain retry starts from the
+ * beginning. Checkpoint retries set it again AFTER requeueing (action route). */
 export function retryRun(db: Db, id: string): boolean {
   const res = db
     .prepare(
       "UPDATE cuf_runs SET status='queued', finished_at=NULL, next_attempt_at=NULL, paused_reason=NULL WHERE id=? AND status IN ('failed','paused','canceled')",
     )
     .run(id);
-  return res.changes === 1;
+  if (res.changes !== 1) return false;
+  const row = db.prepare("SELECT params_json FROM cuf_runs WHERE id=?").get(id) as
+    | { params_json: string }
+    | undefined;
+  const params = JSON.parse(row?.params_json || "{}") as Record<string, unknown>;
+  if ("__resumeFrom" in params) {
+    delete params.__resumeFrom;
+    db.prepare("UPDATE cuf_runs SET params_json=? WHERE id=?").run(JSON.stringify(params), id);
+  }
+  return true;
 }
 
 /** Cancel a queued/running/paused run. */

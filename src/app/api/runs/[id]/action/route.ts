@@ -46,9 +46,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const run = getRun(db, id);
   if (!run) return Response.json({ error: "run not found" }, { status: 404 });
 
+  // retryRun always clears any stored checkpoint, so checkpoint-setting actions
+  // requeue FIRST and then write `__resumeFrom` — never the other way around.
   let ok = false;
   if (action === "retry") {
-    setResumeFrom(db, id, undefined);
     ok = retryRun(db, id);
   } else if (action === "retry_from_step") {
     const workflow = run.currentStep ? workflowForRun(db, run) : undefined;
@@ -56,8 +57,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (!node) {
       return Response.json({ error: "cannot find the failed step in the workflow" }, { status: 409 });
     }
-    setResumeFrom(db, id, node.id);
     ok = retryRun(db, id);
+    if (ok) setResumeFrom(db, id, node.id);
   } else if (action === "resume") {
     // Resuming a run paused at a human_takeover step must not re-run the pause
     // node — continue from its success edge. Pauses raised by the guest mid-task
@@ -66,8 +67,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const pausedNode = workflow ? findNodeByName(workflow, run.currentStep) : undefined;
     const next =
       workflow && pausedNode?.type === "human_takeover" ? nodeAfter(workflow, pausedNode.id) : pausedNode;
-    setResumeFrom(db, id, next?.id);
     ok = retryRun(db, id);
+    if (ok) setResumeFrom(db, id, next?.id);
   } else if (action === "add_takeover_point") {
     const workflow = run.currentStep ? workflowForRun(db, run) : undefined;
     const node = workflow ? findNodeByName(workflow, run.currentStep) : undefined;

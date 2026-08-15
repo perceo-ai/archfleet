@@ -75,6 +75,21 @@ describe("runs repo", () => {
     db.close();
   });
 
+  it("retry clears a stored checkpoint but keeps other params", async () => {
+    const { retryRun } = await import("./runs-repo");
+    const db = openDb(":memory:");
+    saveRun(db, run("r1", { status: "failed" }));
+    db.prepare("UPDATE cuf_runs SET params_json=? WHERE id='r1'").run(
+      JSON.stringify({ url: "https://x", __resumeFrom: "task2" }),
+    );
+    expect(retryRun(db, "r1")).toBe(true);
+    const row = db.prepare("SELECT params_json FROM cuf_runs WHERE id='r1'").get() as {
+      params_json: string;
+    };
+    expect(JSON.parse(row.params_json)).toEqual({ url: "https://x" });
+    db.close();
+  });
+
   it("upserts on repeated save (status transition)", () => {
     const db = openDb(":memory:");
     saveRun(db, run("r1", { status: "queued", events: [], artifacts: [] }));
