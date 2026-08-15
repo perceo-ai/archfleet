@@ -29,7 +29,7 @@ export type EvidenceCheckResult = {
   detail: string;
 };
 
-const CHECK_TYPES: EvidenceCheckType[] = [
+export const CHECK_TYPES: EvidenceCheckType[] = [
   "text_found",
   "url_reached",
   "file_downloaded",
