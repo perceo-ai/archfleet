@@ -286,6 +286,10 @@ export type HumanTakeover = {
   openedAt: string;
   resolvedAt?: string;
   operatorNotes?: string;
+  /** When the operator webhook was actually paged about this takeover. */
+  notifiedAt?: string;
+  /** When a reminder page was sent because nobody responded. */
+  escalatedAt?: string;
 };
 
 export type FleetState = {

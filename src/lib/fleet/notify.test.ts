@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { notifyRun, shouldNotify, buildNotification } from "./notify";
-import type { WorkflowRun } from "./types";
+import { notifyRun, notifyTakeoverEscalation, shouldNotify, buildNotification } from "./notify";
+import type { HumanTakeover, WorkflowRun } from "./types";
 
 function run(status: WorkflowRun["status"]): WorkflowRun {
   return { id: "r1", workflowId: "wf", workflowName: "Portal", status, startedAt: "t", events: [] };
@@ -34,5 +34,28 @@ describe("notify", () => {
   it("no-ops without a webhook url or on success", async () => {
     expect(await notifyRun(run("paused"), {})).toBe(false);
     expect(await notifyRun(run("succeeded"), { webhookUrl: "https://hook" })).toBe(false);
+  });
+
+  it("escalation reminder includes the wait time and requested action", async () => {
+    const takeover: HumanTakeover = {
+      id: "tk_1",
+      runId: "r1",
+      reason: "MFA prompt",
+      requestedAction: "Complete the MFA challenge, then resume the run",
+      status: "open",
+      openedAt: "2026-08-12T01:00:00Z",
+    };
+    const fetchImpl = vi.fn(async () => new Response("ok"));
+    const ok = await notifyTakeoverEscalation(takeover, 42, {
+      webhookUrl: "https://hook",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(ok).toBe(true);
+    const body = JSON.parse((fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
+    expect(body.text).toContain("STILL waiting for a human after 42 min");
+    expect(body.text).toContain("Complete the MFA challenge");
+    expect(body.status).toBe("escalated");
+    // No webhook — nothing sent.
+    expect(await notifyTakeoverEscalation(takeover, 42, {})).toBe(false);
   });
 });

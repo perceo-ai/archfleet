@@ -8,8 +8,9 @@ import type { HumanTakeover, TakeoverStatus } from "../types";
 export function openTakeover(db: Db, t: HumanTakeover): void {
   db.prepare(
     `INSERT OR REPLACE INTO cuf_takeovers
-       (id, run_id, environment_id, vm_id, reason, requested_action, status, opened_at, resolved_at, operator_notes)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`,
+       (id, run_id, environment_id, vm_id, reason, requested_action, status, opened_at, resolved_at,
+        operator_notes, notified_at, escalated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
   ).run(
     t.id,
     t.runId,
@@ -21,6 +22,8 @@ export function openTakeover(db: Db, t: HumanTakeover): void {
     t.openedAt,
     t.resolvedAt ?? null,
     t.operatorNotes ?? null,
+    t.notifiedAt ?? null,
+    t.escalatedAt ?? null,
   );
 }
 
@@ -36,7 +39,29 @@ function rowToTakeover(row: Record<string, unknown>): HumanTakeover {
     openedAt: row.opened_at as string,
     resolvedAt: (row.resolved_at as string) ?? undefined,
     operatorNotes: (row.operator_notes as string) ?? undefined,
+    notifiedAt: (row.notified_at as string) ?? undefined,
+    escalatedAt: (row.escalated_at as string) ?? undefined,
   };
+}
+
+/** Record that the operator webhook was paged about this takeover. */
+export function markTakeoverNotified(db: Db, id: string, at: string): void {
+  db.prepare("UPDATE cuf_takeovers SET notified_at=? WHERE id=? AND notified_at IS NULL").run(at, id);
+}
+
+/** Record that a reminder page went out because nobody responded. */
+export function markTakeoverEscalated(db: Db, id: string, at: string): void {
+  db.prepare("UPDATE cuf_takeovers SET escalated_at=? WHERE id=? AND escalated_at IS NULL").run(at, id);
+}
+
+/** Open takeovers waiting since before `cutoffIso` that have not been escalated. */
+export function listStaleOpenTakeovers(db: Db, cutoffIso: string): HumanTakeover[] {
+  const rows = db
+    .prepare(
+      "SELECT * FROM cuf_takeovers WHERE status='open' AND escalated_at IS NULL AND opened_at <= ? ORDER BY opened_at",
+    )
+    .all(cutoffIso) as Record<string, unknown>[];
+  return rows.map(rowToTakeover);
 }
 
 export function getTakeover(db: Db, id: string): HumanTakeover | undefined {

@@ -14,9 +14,18 @@ type ProfileStatus = {
   vmCount: number;
 };
 
+type Health = {
+  queuedRuns: number;
+  metrics?: { runs: number; avgQueuedMs?: number; avgExecutionMs?: number };
+};
+
+const asMinSec = (ms: number | undefined) =>
+  ms == null ? "—" : ms < 60_000 ? `${Math.round(ms / 1000)}s` : `${Math.round(ms / 60_000)}m`;
+
 export function FleetOps() {
   const vms = usePolling<FleetVm[]>("/api/vms", 8000);
   const profiles = usePolling<ProfileStatus>("/api/profile-status", 30000);
+  const health = usePolling<Health>("/api/health", 30000);
   const [message, setMessage] = useState<string | null>(null);
 
   const list = vms.data ?? [];
@@ -44,11 +53,14 @@ export function FleetOps() {
         VM capacity, profile readiness, and direct desktop access. Operator territory.
       </p>
 
-      <div className="mt-5 grid gap-3 sm:grid-cols-3">
+      <div className="mt-5 grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {[
           { label: "VMs configured", value: list.length },
           { label: "Online", value: online.length },
           { label: "Busy", value: busy.length },
+          { label: "Queued runs", value: health.data?.queuedRuns ?? "—" },
+          { label: "Avg queue wait (24h)", value: asMinSec(health.data?.metrics?.avgQueuedMs) },
+          { label: "Avg run time (24h)", value: asMinSec(health.data?.metrics?.avgExecutionMs) },
         ].map((s) => (
           <div key={s.label} className="glass rounded-[5px] p-4">
             <div className="text-2xl font-semibold text-white">{s.value}</div>

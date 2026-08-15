@@ -193,7 +193,16 @@ export function RunView({ id }: { id: string }) {
           </p>
           {openTakeover ? (
             <p className="mt-1 text-xs text-white/55">
-              {openTakeover.reason} · opened {timeAgo(openTakeover.openedAt)}
+              {openTakeover.reason} · waiting for a human for {duration(openTakeover.openedAt)}
+            </p>
+          ) : null}
+          {openTakeover ? (
+            <p className="mt-1 text-xs text-white/55">
+              {openTakeover.escalatedAt
+                ? `Operator paged ${timeAgo(openTakeover.notifiedAt ?? openTakeover.openedAt)} · reminder sent ${timeAgo(openTakeover.escalatedAt)}`
+                : openTakeover.notifiedAt
+                  ? `Operator paged ${timeAgo(openTakeover.notifiedAt)}`
+                  : "No operator page sent — set CUF_NOTIFY_WEBHOOK to get paged for takeovers."}
             </p>
           ) : null}
           <p className="mt-2 text-xs text-white/55">
@@ -223,6 +232,40 @@ export function RunView({ id }: { id: string }) {
                 Cancel run
               </button>
             </div>
+          </div>
+        </section>
+      ) : null}
+
+      {data.status === "succeeded" && automation ? (
+        <section className="glass-border mt-5 rounded-[5px] border border-[#4ade80]/30 bg-[#4ade80]/10 p-4">
+          <h2 className="text-sm font-semibold text-[#8add84]">Succeeded</h2>
+          <p className="mt-2 text-sm text-white/85">
+            {automation.status === "draft"
+              ? "Review the success criteria against the evidence, then activate the automation to make this repeatable."
+              : "Evidence is attached to the automation's history. Update the spec if the site changed."}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {automation.status === "draft" ? (
+              <button
+                type="button"
+                onClick={async () => {
+                  setMessage(null);
+                  try {
+                    await sendJson(`/api/automations/${automation.id}`, "PATCH", { status: "active" });
+                    setAutomation({ ...automation, status: "active" });
+                    setMessage("Automation activated.");
+                  } catch (e) {
+                    setMessage(String(e));
+                  }
+                }}
+                className="perceo-primary inline-flex h-9 items-center rounded-[5px] px-3 text-xs font-semibold"
+              >
+                Activate automation
+              </button>
+            ) : null}
+            <Link href={`/automations/${automation.id}`} className={btnGhost}>
+              {automation.status === "draft" ? "Edit automation" : "Update automation"}
+            </Link>
           </div>
         </section>
       ) : null}
@@ -342,6 +385,35 @@ export function RunView({ id }: { id: string }) {
         </div>
 
         <aside className="grid content-start gap-5">
+          {data.status === "succeeded" && artifacts.some((a) => !isImage(a.path)) ? (
+            <section className="glass glass-border rounded-[5px]">
+              <div className="border-b border-white/[0.08] px-4 py-3">
+                <h2 className="text-sm font-semibold text-white">Extracted outputs</h2>
+                <p className="mt-1 text-xs text-white/45">Files and data this run produced.</p>
+              </div>
+              <ul className="divide-y divide-white/[0.08]">
+                {artifacts
+                  .filter((a) => !isImage(a.path))
+                  .map((a) => {
+                    const name = fileName(a.path);
+                    return (
+                      <li key={a.id} className="flex items-center justify-between gap-2 px-4 py-3">
+                        <span className="truncate text-sm text-white/85">{name}</span>
+                        <a
+                          href={artifactUrl(name)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="shrink-0 rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 py-1 text-xs font-semibold text-white/70 hover:text-white"
+                        >
+                          Download
+                        </a>
+                      </li>
+                    );
+                  })}
+              </ul>
+            </section>
+          ) : null}
+
           {automation && automation.successCriteria.length > 0 ? (
             <section className="glass glass-border rounded-[5px]">
               <div className="border-b border-white/[0.08] px-4 py-3">

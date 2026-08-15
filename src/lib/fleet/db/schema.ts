@@ -169,10 +169,26 @@ CREATE TABLE IF NOT EXISTS cuf_takeovers (
   status           TEXT NOT NULL DEFAULT 'open',  -- open | resolved
   opened_at        TEXT NOT NULL,
   resolved_at      TEXT,
-  operator_notes   TEXT
+  operator_notes   TEXT,
+  notified_at      TEXT,
+  escalated_at     TEXT
 );
 CREATE INDEX IF NOT EXISTS cuf_takeovers_run ON cuf_takeovers(run_id);
 CREATE INDEX IF NOT EXISTS cuf_takeovers_status ON cuf_takeovers(status);
+
+-- Per-run resource telemetry, collected for later optimization surfaces (boot
+-- time, warm pools, queue tuning). Backend-only: the UX stays automation-first.
+CREATE TABLE IF NOT EXISTS cuf_run_metrics (
+  run_id         TEXT PRIMARY KEY,
+  automation_id  TEXT,
+  environment_id TEXT,
+  vm_id          TEXT,
+  status         TEXT NOT NULL,
+  queued_ms      INTEGER,
+  execution_ms   INTEGER,
+  created_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS cuf_run_metrics_created ON cuf_run_metrics(created_at);
 
 CREATE TABLE IF NOT EXISTS cuf_users (
   id            TEXT PRIMARY KEY,
@@ -201,6 +217,7 @@ export const CUF_TABLES = [
   "cuf_environments",
   "cuf_evidence",
   "cuf_takeovers",
+  "cuf_run_metrics",
 ] as const;
 
 /** Columns added after a table first shipped. `CREATE TABLE IF NOT EXISTS`
@@ -223,6 +240,10 @@ export const COLUMN_MIGRATIONS: Record<string, Record<string, string>> = {
     state_json: "TEXT NOT NULL DEFAULT '{}'",
     warm_snapshot: "TEXT",
     cloned_from: "TEXT",
+  },
+  cuf_takeovers: {
+    notified_at: "TEXT",
+    escalated_at: "TEXT",
   },
 };
 
