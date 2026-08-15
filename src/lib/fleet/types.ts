@@ -203,6 +203,40 @@ export type Automation = {
   updatedAt: string;
 };
 
+/** A logged-in account the environment holds. Display metadata only — the
+ * credential itself lives in the secret store under `secretRef`. */
+export type EnvironmentAccount = {
+  /** Site/app the account belongs to, e.g. "portal.example.com". */
+  site: string;
+  /** Username/email shown to the user (never the password). */
+  username?: string;
+  /** Saved-secret name holding the credential, if one exists. */
+  secretRef?: string;
+  /** MFA behavior on this site, e.g. "email OTP" or "device-trusted, no prompt". */
+  mfa?: string;
+};
+
+/** Structured description of what a prepared environment actually holds — what
+ * makes it "ready to run this kind of automation" beyond a name and a profile. */
+export type EnvironmentState = {
+  /** Browser + session state, e.g. "Chromium with saved portal session". */
+  browser?: string;
+  /** Accounts already logged in on this desktop. */
+  accounts?: EnvironmentAccount[];
+  /** Sites/apps that trust this device (no repeated MFA). */
+  deviceTrust?: string[];
+  /** Browser extensions installed. */
+  extensions?: string[];
+  /** Desktop apps installed/configured. */
+  apps?: string[];
+  /** Files present on the desktop (downloads, templates, working files). */
+  files?: string[];
+  /** Saved-secret names automations on this environment can reference. */
+  secretRefs?: string[];
+  /** Where MFA can still appear despite the prepared state. */
+  mfaExpectations?: string[];
+};
+
 /** A reusable, ready-to-run environment (browser state, logins, device trust).
  * Backed by the fleet's profile/warm-snapshot machinery via `profileRef`. */
 export type PreparedEnvironment = {
@@ -217,6 +251,12 @@ export type PreparedEnvironment = {
   lastUsedAt?: string;
   recoveryState?: string;
   setupNotes?: string;
+  /** What the environment holds: logins, device trust, extensions, files, MFA. */
+  state?: EnvironmentState;
+  /** Warm snapshot name used for fast per-run resets. */
+  warmSnapshot?: string;
+  /** Environment this one was cloned from, if any. */
+  clonedFrom?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -246,6 +286,10 @@ export type HumanTakeover = {
   openedAt: string;
   resolvedAt?: string;
   operatorNotes?: string;
+  /** When the operator webhook was actually paged about this takeover. */
+  notifiedAt?: string;
+  /** When a reminder page was sent because nobody responded. */
+  escalatedAt?: string;
 };
 
 export type FleetState = {

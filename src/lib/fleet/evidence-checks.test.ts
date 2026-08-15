@@ -54,6 +54,58 @@ describe("evaluateEvidenceChecks", () => {
     const bare = evaluateEvidenceChecks([{ type: "screenshot_captured" }], run({ artifacts: [] }));
     expect(bare[0].verdict).toBe("fail");
   });
+
+  it("element_visible passes when the agent reported seeing the element", () => {
+    const results = evaluateEvidenceChecks(
+      [
+        { type: "element_visible", value: "dashboard" },
+        { type: "element_visible", value: "logout button" },
+      ],
+      run(),
+    );
+    expect(results.map((r) => r.verdict)).toEqual(["pass", "fail"]);
+  });
+
+  it("form_submitted needs a submit report in the events", () => {
+    const submitted = run({
+      events: [
+        { id: "e1", level: "info", message: 'Node "Fill form" succeeded (submitted the request form, confirmation shown) after 4 steps.', timestamp: "t" },
+      ],
+    });
+    expect(evaluateEvidenceChecks([{ type: "form_submitted" }], submitted)[0].verdict).toBe("pass");
+    expect(evaluateEvidenceChecks([{ type: "form_submitted", value: "request form" }], submitted)[0].verdict).toBe("pass");
+    expect(evaluateEvidenceChecks([{ type: "form_submitted", value: "billing form" }], submitted)[0].verdict).toBe("fail");
+    expect(evaluateEvidenceChecks([{ type: "form_submitted" }], run())[0].verdict).toBe("fail");
+  });
+
+  it("email_received passes on a fetched OTP or matching event text", () => {
+    const otp = run({
+      events: [
+        { id: "e1", level: "info", message: 'Node "Get code" : fetched OTP into param "otp".', timestamp: "t" },
+      ],
+    });
+    expect(evaluateEvidenceChecks([{ type: "email_received" }], otp)[0].verdict).toBe("pass");
+    expect(evaluateEvidenceChecks([{ type: "email_received" }], run())[0].verdict).toBe("fail");
+  });
+
+  it("output_extracted looks for a non-image artifact or an extraction report", () => {
+    expect(evaluateEvidenceChecks([{ type: "output_extracted", value: "report" }], run())[0].verdict).toBe("pass");
+    expect(evaluateEvidenceChecks([{ type: "output_extracted", value: "invoices" }], run())[0].verdict).toBe("fail");
+    expect(
+      evaluateEvidenceChecks([{ type: "output_extracted" }], run({ artifacts: [] }))[0].verdict,
+    ).toBe("fail");
+  });
+
+  it("visual_state_changed needs at least two distinct screenshots", () => {
+    const two = run({
+      artifacts: [
+        { id: "a1", runId: "r1", type: "file", path: "/a/before.png", createdAt: "t" },
+        { id: "a2", runId: "r1", type: "file", path: "/a/after.png", createdAt: "t" },
+      ],
+    });
+    expect(evaluateEvidenceChecks([{ type: "visual_state_changed" }], two)[0].verdict).toBe("pass");
+    expect(evaluateEvidenceChecks([{ type: "visual_state_changed" }], run())[0].verdict).toBe("fail");
+  });
 });
 
 describe("parseEvidenceChecks", () => {

@@ -106,6 +106,23 @@ export function saveRun(db: Db, run: WorkflowRun): void {
   }
 }
 
+/** Persist one event mid-run so the run view streams progress live. Same id
+ * scheme as the final saveRun, so the settle-time write replaces, not duplicates. */
+export function appendRunEvent(db: Db, runId: string, e: RunEvent, seq: number): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO cuf_events (id, run_id, node_id, level, message, timestamp, seq)
+     VALUES (?,?,?,?,?,?,?)`,
+  ).run(e.id, runId, null, e.level, e.message, e.timestamp, seq);
+}
+
+/** Persist one artifact mid-run (live screenshots for the "watch it run" view). */
+export function appendRunArtifact(db: Db, a: RunArtifact): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO cuf_artifacts (id, run_id, node_id, type, path, metadata_json, created_at)
+     VALUES (?,?,?,?,?,?,?)`,
+  ).run(a.id, a.runId, a.nodeId ?? null, a.type, a.path, JSON.stringify(a.metadata ?? {}), a.createdAt);
+}
+
 /** Full run with events + artifacts, or undefined if not found. */
 export function getRun(db: Db, id: string): WorkflowRun | undefined {
   const row = db.prepare("SELECT * FROM cuf_runs WHERE id=?").get(id) as
@@ -189,14 +206,25 @@ export function deferRun(db: Db, id: string, nextAttemptIso: string): void {
   db.prepare("UPDATE cuf_runs SET next_attempt_at=? WHERE id=?").run(nextAttemptIso, id);
 }
 
-/** Re-queue a terminal/paused run for another attempt (human takeover: retry/resume). */
+/** Re-queue a terminal/paused run for another attempt (human takeover: retry/resume).
+ * Always drops any `__resumeFrom` checkpoint — a plain retry starts from the
+ * beginning. Checkpoint retries set it again AFTER requeueing (action route). */
 export function retryRun(db: Db, id: string): boolean {
   const res = db
     .prepare(
       "UPDATE cuf_runs SET status='queued', finished_at=NULL, next_attempt_at=NULL, paused_reason=NULL WHERE id=? AND status IN ('failed','paused','canceled')",
     )
     .run(id);
-  return res.changes === 1;
+  if (res.changes !== 1) return false;
+  const row = db.prepare("SELECT params_json FROM cuf_runs WHERE id=?").get(id) as
+    | { params_json: string }
+    | undefined;
+  const params = JSON.parse(row?.params_json || "{}") as Record<string, unknown>;
+  if ("__resumeFrom" in params) {
+    delete params.__resumeFrom;
+    db.prepare("UPDATE cuf_runs SET params_json=? WHERE id=?").run(JSON.stringify(params), id);
+  }
+  return true;
 }
 
 /** Cancel a queued/running/paused run. */

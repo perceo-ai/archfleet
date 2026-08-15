@@ -6,10 +6,8 @@
 import { runCliAgent, type AgentExec } from "./cli-agent-runner";
 import { normalizeWorkflow } from "./planner";
 import { validateWorkflow } from "./workflow-validation";
-import type { EvidenceCheck } from "./evidence-checks";
+import { CHECK_TYPES, type EvidenceCheck } from "./evidence-checks";
 import type { AgentProvider, Automation, Workflow } from "./types";
-
-const CHECK_TYPES = ["text_found", "url_reached", "file_downloaded", "screenshot_captured"];
 
 function checkList(v: unknown): EvidenceCheck[] {
   if (!Array.isArray(v)) return [];
@@ -40,7 +38,7 @@ Given a user's description, output ONLY a JSON object (no prose) with these fiel
   "takeover_policy": string,            // when to pause for a human
   "risk_notes": string[],               // fragility/risk warnings
   "clarifying_questions": string[],     // ask instead of guessing when underspecified
-  "evidence_checks": [{"type":"text_found"|"url_reached"|"file_downloaded"|"screenshot_captured","value"?:string}]
+  "evidence_checks": [{"type":"text_found"|"url_reached"|"file_downloaded"|"screenshot_captured"|"element_visible"|"form_submitted"|"email_received"|"output_extracted"|"visual_state_changed","value"?:string}]
 }
 Node types: start, computer_use_task, cli_agent_task, shell_task, condition, human_takeover, retry_wait, end.
 Insert a human_takeover node wherever login/MFA/captcha/device-trust will likely block the agent.

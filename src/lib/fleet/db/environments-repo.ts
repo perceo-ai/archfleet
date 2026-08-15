@@ -2,14 +2,15 @@
 // profiles: a reusable, ready-to-run desktop state (logins, device trust, browser).
 
 import type { Db } from "./db";
-import type { EnvironmentHealth, PreparedEnvironment } from "../types";
+import type { EnvironmentHealth, EnvironmentState, PreparedEnvironment } from "../types";
 
 export function saveEnvironment(db: Db, env: PreparedEnvironment): void {
   db.prepare(
     `INSERT OR REPLACE INTO cuf_environments
        (id, name, description, labels_json, profile_ref, health, snapshot_state,
-        last_used_at, recovery_state, setup_notes, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+        last_used_at, recovery_state, setup_notes, state_json, warm_snapshot, cloned_from,
+        created_at, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   ).run(
     env.id,
     env.name,
@@ -21,6 +22,9 @@ export function saveEnvironment(db: Db, env: PreparedEnvironment): void {
     env.lastUsedAt ?? null,
     env.recoveryState ?? null,
     env.setupNotes ?? null,
+    JSON.stringify(env.state ?? {}),
+    env.warmSnapshot ?? null,
+    env.clonedFrom ?? null,
     env.createdAt,
     env.updatedAt,
   );
@@ -38,9 +42,17 @@ function rowToEnvironment(row: Record<string, unknown>): PreparedEnvironment {
     lastUsedAt: (row.last_used_at as string) ?? undefined,
     recoveryState: (row.recovery_state as string) ?? undefined,
     setupNotes: (row.setup_notes as string) ?? undefined,
+    state: parseState(row.state_json as string),
+    warmSnapshot: (row.warm_snapshot as string) ?? undefined,
+    clonedFrom: (row.cloned_from as string) ?? undefined,
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
   };
+}
+
+function parseState(json: string | null | undefined): EnvironmentState | undefined {
+  const state = JSON.parse(json || "{}") as EnvironmentState;
+  return Object.keys(state).length ? state : undefined;
 }
 
 export function getEnvironment(db: Db, id: string): PreparedEnvironment | undefined {

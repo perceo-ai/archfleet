@@ -58,6 +58,9 @@ export async function POST(req: Request) {
     lastUsedAt: body.lastUsedAt,
     recoveryState: body.recoveryState,
     setupNotes: body.setupNotes,
+    state: body.state,
+    warmSnapshot: body.warmSnapshot,
+    clonedFrom: body.clonedFrom,
     createdAt: body.createdAt ?? now,
     updatedAt: now,
   };

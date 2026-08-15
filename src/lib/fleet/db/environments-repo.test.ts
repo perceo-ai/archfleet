@@ -35,6 +35,29 @@ describe("environments repo", () => {
     db.close();
   });
 
+  it("round-trips structured state, warm snapshot, and clone metadata", () => {
+    const db = openDb(":memory:");
+    const env = environment("env_1", {
+      state: {
+        browser: "Chromium with saved portal session",
+        accounts: [{ site: "portal.example.com", username: "ops@example.com", secretRef: "portal_password", mfa: "device-trusted, no prompt" }],
+        deviceTrust: ["portal.example.com"],
+        extensions: ["uBlock Origin"],
+        files: ["template.xlsx"],
+        secretRefs: ["portal_password"],
+        mfaExpectations: ["email OTP on fresh sessions"],
+      },
+      warmSnapshot: "portal-warm-3",
+      clonedFrom: "env_golden",
+    });
+    saveEnvironment(db, env);
+    expect(getEnvironment(db, "env_1")).toEqual(env);
+    // Empty state stays undefined, not {}.
+    saveEnvironment(db, environment("env_2"));
+    expect(getEnvironment(db, "env_2")?.state).toBeUndefined();
+    db.close();
+  });
+
   it("lists ordered by name and upserts", () => {
     const db = openDb(":memory:");
     saveEnvironment(db, environment("env_b", { name: "Zeta" }));

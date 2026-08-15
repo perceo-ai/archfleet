@@ -9,11 +9,17 @@ export type EvidenceCheckType =
   | "text_found"
   | "url_reached"
   | "file_downloaded"
-  | "screenshot_captured";
+  | "screenshot_captured"
+  | "element_visible"
+  | "form_submitted"
+  | "email_received"
+  | "output_extracted"
+  | "visual_state_changed";
 
 export type EvidenceCheck = {
   type: EvidenceCheckType;
-  /** text_found: substring; url_reached: URL; file_downloaded: filename substring. */
+  /** text_found/element_visible/form_submitted/email_received: substring;
+   * url_reached: URL; file_downloaded/output_extracted: filename substring. */
   value?: string;
 };
 
@@ -23,11 +29,16 @@ export type EvidenceCheckResult = {
   detail: string;
 };
 
-const CHECK_TYPES: EvidenceCheckType[] = [
+export const CHECK_TYPES: EvidenceCheckType[] = [
   "text_found",
   "url_reached",
   "file_downloaded",
   "screenshot_captured",
+  "element_visible",
+  "form_submitted",
+  "email_received",
+  "output_extracted",
+  "visual_state_changed",
 ];
 
 const IMAGE_EXT = /\.(png|jpe?g)$/i;
@@ -78,6 +89,67 @@ export function evaluateEvidenceChecks(
           check,
           verdict: ok ? "pass" : "fail",
           detail: ok ? "screenshot artifact captured" : "no screenshot artifact",
+        };
+      }
+      case "element_visible": {
+        // The guest agent reports what it saw in its step summaries, so an element
+        // is "visible" when a step mentioned it. Screenshot-level detection can
+        // tighten this later; the evidence basis is stated in the detail.
+        const ok = !!check.value && eventText.toLowerCase().includes(check.value.toLowerCase());
+        return {
+          check,
+          verdict: ok ? "pass" : "fail",
+          detail: ok
+            ? `agent reported seeing "${check.value}"`
+            : `no step reported "${check.value ?? ""}"`,
+        };
+      }
+      case "form_submitted": {
+        const lower = eventText.toLowerCase();
+        const submitted = /\bsubmit(ted|ting)?\b/.test(lower);
+        const ok = submitted && (!check.value || lower.includes(check.value.toLowerCase()));
+        return {
+          check,
+          verdict: ok ? "pass" : "fail",
+          detail: ok
+            ? `a step reported submitting${check.value ? ` "${check.value}"` : " a form"}`
+            : `no step reported submitting${check.value ? ` "${check.value}"` : " a form"}`,
+        };
+      }
+      case "email_received": {
+        // otp_email nodes report `fetched OTP into param "<name>"` on success.
+        const ok =
+          /fetched OTP into param/.test(eventText) ||
+          (!!check.value && eventText.toLowerCase().includes(check.value.toLowerCase()));
+        return {
+          check,
+          verdict: ok ? "pass" : "fail",
+          detail: ok ? "an expected email was received and read" : "no email/OTP was received",
+        };
+      }
+      case "output_extracted": {
+        const files = artifacts.filter((a) => !IMAGE_EXT.test(a.path));
+        const ok = check.value
+          ? files.some((a) => a.path.toLowerCase().includes(check.value!.toLowerCase())) ||
+            eventText.toLowerCase().includes(check.value.toLowerCase())
+          : files.length > 0;
+        return {
+          check,
+          verdict: ok ? "pass" : "fail",
+          detail: ok
+            ? `extracted output${check.value ? ` matching "${check.value}"` : ""} captured`
+            : `no extracted output${check.value ? ` matching "${check.value}"` : ""}`,
+        };
+      }
+      case "visual_state_changed": {
+        const shots = new Set(artifacts.filter((a) => IMAGE_EXT.test(a.path)).map((a) => a.path));
+        const ok = shots.size >= 2;
+        return {
+          check,
+          verdict: ok ? "pass" : "fail",
+          detail: ok
+            ? `${shots.size} screenshots captured across the run (before/after available)`
+            : "fewer than two screenshots — cannot show a visual change",
         };
       }
     }

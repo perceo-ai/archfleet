@@ -1,5 +1,6 @@
 import { getDb } from "@/lib/fleet/db/db";
 import {
+  activationReadiness,
   automationHealth,
   deleteAutomation,
   getAutomation,
@@ -27,6 +28,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     environment: automation.environmentId ? getEnvironment(db, automation.environmentId) : undefined,
     triggers: listTriggers(db, automation.workflowId),
     runs: listRuns(db, 20, { automationId: id }),
+    activation: activationReadiness(db, automation),
     ...automationHealth(db, id),
   });
 }
@@ -38,6 +40,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const existing = getAutomation(db, id);
   if (!existing) return Response.json({ error: "automation not found" }, { status: 404 });
   const patch = (await req.json().catch(() => ({}))) as Partial<Automation>;
+  // Draft lifecycle gate: drafts only activate after a successful, reviewed run.
+  if (patch.status === "active" && existing.status === "draft") {
+    const readiness = activationReadiness(db, existing);
+    if (!readiness.ok) {
+      return Response.json({ error: readiness.reason, activation: readiness }, { status: 409 });
+    }
+  }
   const editable: (keyof Automation)[] = [
     "name",
     "goal",

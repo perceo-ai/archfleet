@@ -52,6 +52,10 @@ export type OrchestratorDeps = {
   emailOtp?: (config: import("./otp-email").EmailOtpConfig) => Promise<string | null>;
   /** Called before each node executes — lets the caller persist live progress. */
   onProgress?: (nodeId: string, nodeName: string) => void;
+  /** Called as each event is emitted — lets the caller stream events to the run view. */
+  onEvent?: (event: RunEvent, seq: number) => void;
+  /** Called as each artifact lands — lets the run view show screenshots while running. */
+  onArtifact?: (artifact: RunArtifact) => void;
 };
 
 /** A node's branch outcome, used to pick the next edge. */
@@ -62,6 +66,9 @@ export type RunWorkflowInput = {
   secrets: Secret[];
   params: WorkflowParam[];
   runId: string;
+  /** Start traversal at this node instead of the start node — checkpoint retry
+   * (re-run from the failed step) and resuming past a completed takeover. */
+  startNodeId?: string;
 };
 
 /** Walk the happy path (success/always edges) from the start node. */
@@ -132,12 +139,14 @@ export async function runWorkflow(
   const events: RunEvent[] = [];
   let seq = 0;
   const emit = (level: RunEvent["level"], message: string) => {
-    events.push({
+    const event: RunEvent = {
       id: `evt_${runId}_${seq++}`,
       level,
       timestamp: deps.now(),
       message: redactSecrets(message, secrets),
-    });
+    };
+    events.push(event);
+    deps.onEvent?.(event, seq - 1);
   };
 
   // computer_use + browser + scripted-desktop tasks all run on the VM's :0 desktop.
@@ -184,10 +193,14 @@ export async function runWorkflow(
   // to the operator, so it is secret-redacted like events.
   let pausedReason: string | undefined;
 
+  const addArtifact = (artifact: RunArtifact) => {
+    artifacts.push(artifact);
+    deps.onArtifact?.(artifact);
+  };
   const collectArtifacts = (nodeId: string, paths: string[]) => {
     for (const path of paths) {
       emit("info", `Artifact: ${path}.`);
-      artifacts.push({ id: `art_${runId}_${artifacts.length}`, runId, nodeId, type: "file", path, createdAt: deps.now() });
+      addArtifact({ id: `art_${runId}_${artifacts.length}`, runId, nodeId, type: "file", path, createdAt: deps.now() });
     }
   };
 
@@ -382,8 +395,10 @@ export async function runWorkflow(
         if (report.artifacts.length && deps.fetchArtifacts) {
           try {
             const fetched = await deps.fetchArtifacts(guestConn, report.artifacts, runId, node.id);
-            artifacts.push(...fetched);
-            for (const f of fetched) emit("info", `Artifact: ${f.path}.`);
+            for (const f of fetched) {
+              addArtifact(f);
+              emit("info", `Artifact: ${f.path}.`);
+            }
           } catch (e) {
             emit("warn", `Artifact fetch failed for "${node.name}": ${String(e)}`);
             collectArtifacts(node.id, report.artifacts);
@@ -441,8 +456,10 @@ export async function runWorkflow(
   // (success / failure), or an 'always' edge. Supports failure branches, pause,
   // and recovery paths — not just a linear happy path.
   const byId = new Map(workflow.nodes.map((n) => [n.id, n]));
+  const resumeNode = input.startNodeId ? byId.get(input.startNodeId) : undefined;
   let current: WorkflowNode | undefined =
-    workflow.nodes.find((n) => n.type === "start") ?? workflow.nodes[0];
+    resumeNode ?? workflow.nodes.find((n) => n.type === "start") ?? workflow.nodes[0];
+  if (resumeNode) emit("info", `Resuming from "${resumeNode.name}".`);
   const maxSteps = workflow.nodes.length * 4 + 10;
   let steps = 0;
   let currentStep: string | undefined;

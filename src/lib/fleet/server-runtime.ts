@@ -17,16 +17,31 @@ import { runWorkflow, type OrchestratorDeps } from "./orchestrator";
 import type { GuestConnection } from "./computer-use";
 import type { RunArtifact } from "./types";
 import { getDb, type Db } from "./db/db";
-import { saveRun, getRun, claimQueuedRun, deferRun, setRunProgress } from "./db/runs-repo";
+import {
+  saveRun,
+  getRun,
+  claimQueuedRun,
+  deferRun,
+  setRunProgress,
+  appendRunEvent,
+  appendRunArtifact,
+} from "./db/runs-repo";
 import { getWorkflow } from "./db/workflows-repo";
 import { getAutomation, getAutomationByWorkflowId } from "./db/automations-repo";
 import { evaluateEvidenceChecks } from "./evidence-checks";
 import { touchEnvironment } from "./db/environments-repo";
 import { addEvidence } from "./db/evidence-repo";
-import { getOpenTakeoverForRun, openTakeover } from "./db/takeovers-repo";
+import {
+  getOpenTakeoverForRun,
+  openTakeover,
+  markTakeoverNotified,
+  markTakeoverEscalated,
+  listStaleOpenTakeovers,
+} from "./db/takeovers-repo";
 import { loadSecrets } from "./db/secrets-repo";
+import { recordRunMetric } from "./db/run-metrics-repo";
 import { seedFleetState } from "./seed";
-import { notifyRun } from "./notify";
+import { notifyRun, notifyTakeoverEscalation } from "./notify";
 import { fetchEmailOtpImap } from "./email-imap";
 import type { TriggerExecute } from "./triggers/triggers-runtime";
 import type { FleetState, TriggerSource, Workflow, WorkflowRun } from "./types";
@@ -194,8 +209,13 @@ export function enqueueManualRun(
     prRef: opts.prRef,
   };
   saveRun(db, run);
-  if (opts.params && Object.keys(opts.params).length) {
-    db.prepare("UPDATE cuf_runs SET params_json=? WHERE id=?").run(JSON.stringify(opts.params), run.id);
+  // Reserved `__` keys (e.g. __resumeFrom) are internal run-control state only the
+  // action route may set — caller params must not skip workflow steps.
+  const safeParams = Object.fromEntries(
+    Object.entries(opts.params ?? {}).filter(([key]) => !key.startsWith("__")),
+  );
+  if (Object.keys(safeParams).length) {
+    db.prepare("UPDATE cuf_runs SET params_json=? WHERE id=?").run(JSON.stringify(safeParams), run.id);
   }
   return run;
 }
@@ -222,15 +242,40 @@ export async function executeRunById(db: Db, runId: string, now = () => new Date
     getWorkflow(db, existing.workflowId) ??
     state.workflows.find((w) => w.id === existing.workflowId) ??
     state.workflows[0];
+  // Checkpoint retry / takeover resume: `__resumeFrom` in the run params names the
+  // node to start from (set by POST /api/runs/:id/action).
+  const paramRow = db.prepare("SELECT params_json FROM cuf_runs WHERE id=?").get(runId) as
+    | { params_json: string }
+    | undefined;
+  const storedParams = JSON.parse(paramRow?.params_json || "{}") as Record<string, unknown>;
+  const resumeFrom = storedParams.__resumeFrom;
   const run = await runWorkflow(
-    { workflow, secrets: resolveSecrets(db, state), params: resolveParams(db, state, runId), runId },
+    {
+      workflow,
+      secrets: resolveSecrets(db, state),
+      params: resolveParams(db, state, runId),
+      runId,
+      startNodeId: typeof resumeFrom === "string" ? resumeFrom : undefined,
+    },
     {
       ...buildRunDeps(state, now),
       onProgress: (_nodeId, nodeName) => setRunProgress(db, runId, nodeName),
+      // Stream events + artifacts into the db as they happen so the run view is a
+      // live "watch it run" surface, not a post-hoc report. Same ids as the final
+      // saveRun, so the settle-time write replaces these rows.
+      onEvent: (event, seq) => appendRunEvent(db, runId, event, seq),
+      onArtifact: (artifact) => appendRunArtifact(db, artifact),
     },
   );
   // Carry linkage the orchestrator doesn't know about, and summarize settled runs.
   const settled = run.status !== "queued";
+  // A checkpoint is single-use: once the run actually executed, clear it so a
+  // later plain retry starts from the beginning instead of silently skipping
+  // prerequisite steps. A no-VM requeue keeps it — the resume hasn't happened yet.
+  if (resumeFrom !== undefined && settled) {
+    delete storedParams.__resumeFrom;
+    db.prepare("UPDATE cuf_runs SET params_json=? WHERE id=?").run(JSON.stringify(storedParams), runId);
+  }
   const lastEvent = run.events[run.events.length - 1];
   const merged: WorkflowRun = {
     ...run,
@@ -244,15 +289,59 @@ export async function executeRunById(db: Db, runId: string, now = () => new Date
   };
   saveRun(db, merged);
   recordRunSideEffects(db, merged, now);
+  // Telemetry for later optimization (queue wait + execution time). existing
+  // .startedAt is the enqueue time; run.startedAt is when execution began.
+  if (settled) {
+    const enqueuedAt = new Date(existing.startedAt).getTime();
+    const execStart = new Date(run.startedAt).getTime();
+    const execEnd = run.finishedAt ? new Date(run.finishedAt).getTime() : undefined;
+    recordRunMetric(db, {
+      runId,
+      automationId: merged.automationId,
+      environmentId: merged.environmentId,
+      vmId: merged.vmId,
+      status: merged.status,
+      queuedMs: Number.isFinite(execStart - enqueuedAt) ? Math.max(0, execStart - enqueuedAt) : undefined,
+      executionMs: execEnd != null && Number.isFinite(execEnd - execStart) ? Math.max(0, execEnd - execStart) : undefined,
+      createdAt: now(),
+    });
+  }
   // No VM available -> stays queued; back off so the worker retries later instead
   // of spinning on it.
   if (run.status === "queued") {
     const backoffMs = Number(process.env.CUF_RUN_BACKOFF_MS ?? "30000");
     deferRun(db, runId, new Date(Date.now() + backoffMs).toISOString());
   }
-  // Page an operator when a human is needed (or on failure).
+  // Page an operator when a human is needed (or on failure), and record on the
+  // takeover that the page actually went out (shown in the paused run view).
   const vm = realVmsFromEnv().find((v) => v.id === run.vmId);
-  await notifyRun(run, { xrdp: vm?.xrdp });
+  const notified = await notifyRun(run, { xrdp: vm?.xrdp });
+  if (notified && merged.status === "paused") {
+    const takeover = getOpenTakeoverForRun(db, runId);
+    if (takeover) markTakeoverNotified(db, takeover.id, now());
+  }
+}
+
+/** Re-page the operator for takeovers nobody responded to within
+ * CUF_TAKEOVER_ESCALATE_MIN (default 30) minutes. Called from the worker loop;
+ * each takeover escalates at most once. Returns how many reminders were sent. */
+export async function escalateStaleTakeovers(
+  db: Db = getDb(),
+  now = () => new Date().toISOString(),
+): Promise<number> {
+  const minutes = Number(process.env.CUF_TAKEOVER_ESCALATE_MIN ?? "30");
+  const cutoff = new Date(new Date(now()).getTime() - minutes * 60_000).toISOString();
+  let escalated = 0;
+  for (const takeover of listStaleOpenTakeovers(db, cutoff)) {
+    const waitedMinutes = Math.round(
+      (new Date(now()).getTime() - new Date(takeover.openedAt).getTime()) / 60_000,
+    );
+    if (await notifyTakeoverEscalation(takeover, waitedMinutes)) {
+      markTakeoverEscalated(db, takeover.id, now());
+      escalated++;
+    }
+  }
+  return escalated;
 }
 
 /** Post-run bookkeeping: evidence rows from artifacts, a takeover record when the
@@ -312,6 +401,9 @@ export async function processPendingRuns(db: Db = getDb(), max = 5): Promise<num
     await executeRunById(db, runId);
     processed++;
   }
+  // Piggyback on the worker cadence: remind the operator about takeovers nobody
+  // has picked up. Best-effort — never fails the queue drain.
+  await escalateStaleTakeovers(db).catch(() => undefined);
   return processed;
 }
 
