@@ -96,7 +96,7 @@ describe("publishPrComment", () => {
     seed(db);
     const httpFetch = vi.fn(async () => new Response("{}", { status: 201 }));
     const result = await publishPrComment(db, "acme/app#42", {
-      env: { CUF_GITHUB_TOKEN: "tok" },
+      env: { CUF_GITHUB_TOKEN: "tok", CUF_GITHUB_REPO: "acme/app" },
       httpFetch: httpFetch as unknown as typeof fetch,
     });
     expect(result.posted).toBe(true);
@@ -112,11 +112,33 @@ describe("publishPrComment", () => {
     seed(db);
     const httpFetch = vi.fn(async () => new Response("bad creds", { status: 401 }));
     const result = await publishPrComment(db, "acme/app#42", {
-      env: { CUF_GITHUB_TOKEN: "tok" },
+      env: { CUF_GITHUB_TOKEN: "tok", CUF_GITHUB_REPO: "acme/app" },
       httpFetch: httpFetch as unknown as typeof fetch,
     });
     expect(result.posted).toBe(false);
     expect(result.reason).toContain("401");
+    db.close();
+  });
+
+  it("refuses to post to repos outside the CUF_GITHUB_REPO allowlist", async () => {
+    const db = openDb(":memory:");
+    seed(db);
+    const httpFetch = vi.fn(async () => new Response("{}", { status: 201 }));
+    // Caller-supplied repo that the operator never allowed.
+    const denied = await publishPrComment(db, "evil/elsewhere#1", {
+      env: { CUF_GITHUB_TOKEN: "tok", CUF_GITHUB_REPO: "acme/app" },
+      httpFetch: httpFetch as unknown as typeof fetch,
+    });
+    expect(denied.posted).toBe(false);
+    expect(denied.reason).toContain("allowlist");
+    expect(httpFetch).not.toHaveBeenCalled();
+    // Token configured but no allowlist at all — nothing is ever posted.
+    const noList = await publishPrComment(db, "acme/app#42", {
+      env: { CUF_GITHUB_TOKEN: "tok" },
+      httpFetch: httpFetch as unknown as typeof fetch,
+    });
+    expect(noList.posted).toBe(false);
+    expect(httpFetch).not.toHaveBeenCalled();
     db.close();
   });
 });

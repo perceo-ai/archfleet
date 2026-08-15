@@ -83,7 +83,9 @@ export function parsePrRef(prRef: string, fallbackRepo?: string): { repo?: strin
 }
 
 /** Publish the evidence summary as a PR comment. Needs CUF_GITHUB_TOKEN and a
- * repo (from an `org/repo#N` prRef or CUF_GITHUB_REPO). Without them it still
+ * repo (from an `org/repo#N` prRef or the CUF_GITHUB_REPO allowlist). Comments
+ * only go to repos in CUF_GITHUB_REPO (comma-separated) — callers pick the PR,
+ * the operator picks where the token may write. Without token/repo it still
  * returns the markdown so the caller can post it through its own channel. */
 export async function publishPrComment(
   db: Db,
@@ -93,10 +95,21 @@ export async function publishPrComment(
   const env = opts.env ?? process.env;
   const { markdown } = buildPrEvidenceSummary(db, { prRef });
   const token = env.CUF_GITHUB_TOKEN ?? env.GITHUB_TOKEN;
-  const { repo, number } = parsePrRef(prRef, opts.repo ?? env.CUF_GITHUB_REPO);
+  const allowedRepos = (env.CUF_GITHUB_REPO ?? "")
+    .split(",")
+    .map((r) => r.trim())
+    .filter(Boolean);
+  const { repo, number } = parsePrRef(prRef, opts.repo ?? allowedRepos[0]);
   if (!token) return { posted: false, markdown, reason: "no CUF_GITHUB_TOKEN configured" };
   if (!repo || !number) {
     return { posted: false, markdown, reason: "no repo — pass org/repo#N or set CUF_GITHUB_REPO" };
+  }
+  if (!allowedRepos.includes(repo)) {
+    return {
+      posted: false,
+      markdown,
+      reason: `repo ${repo} is not in the CUF_GITHUB_REPO allowlist`,
+    };
   }
   const doFetch = opts.httpFetch ?? fetch;
   const res = await doFetch(`https://api.github.com/repos/${repo}/issues/${number}/comments`, {

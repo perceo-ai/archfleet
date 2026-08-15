@@ -58,6 +58,18 @@ describe("async run queue", () => {
     db.close();
   });
 
+  it("enqueue strips reserved __ params so callers cannot skip workflow steps", () => {
+    const db = openDb(":memory:");
+    ensureSeeded(db);
+    const run = enqueueManualRun(undefined, {
+      db,
+      params: { url: "https://x", __resumeFrom: "end", __anything: "nope" },
+    });
+    const row = db.prepare("SELECT params_json FROM cuf_runs WHERE id=?").get(run.id) as { params_json: string };
+    expect(JSON.parse(row.params_json)).toEqual({ url: "https://x" });
+    db.close();
+  });
+
   it("processPendingRuns claims + executes queued runs to a terminal state", async () => {
     const db = openDb(":memory:");
     // A no-op start->end workflow: executes instantly with no VM or CLI spawn,
@@ -83,6 +95,36 @@ describe("async run queue", () => {
     expect(listRuns(db)).toHaveLength(2);
     // both reached a terminal success (no executable nodes)
     expect(listRuns(db).every((r) => r.status === "succeeded")).toBe(true);
+    db.close();
+  });
+
+  it("consumes __resumeFrom once the run settles (later retries start fresh)", async () => {
+    const db = openDb(":memory:");
+    const { saveWorkflow } = await import("./db/workflows-repo");
+    saveWorkflow(db, {
+      id: "wf_noop",
+      name: "Noop",
+      description: "",
+      enabled: true,
+      triggerKinds: ["manual"],
+      nodes: [
+        { id: "start", type: "start", name: "S", position: { x: 0, y: 0 }, config: {} },
+        { id: "end", type: "end", name: "E", position: { x: 1, y: 0 }, config: {} },
+      ],
+      edges: [{ id: "e1", from: "start", to: "end", condition: "always" }],
+    });
+    const run = enqueueManualRun("wf_noop", { db });
+    // The action route (not caller params) sets the checkpoint.
+    db.prepare("UPDATE cuf_runs SET params_json=? WHERE id=?").run(
+      JSON.stringify({ __resumeFrom: "end" }),
+      run.id,
+    );
+    await processPendingRuns(db, 1);
+    expect(listRuns(db)[0].status).toBe("succeeded");
+    const row = db.prepare("SELECT params_json FROM cuf_runs WHERE id=?").get(run.id) as {
+      params_json: string;
+    };
+    expect(JSON.parse(row.params_json)).toEqual({});
     db.close();
   });
 });

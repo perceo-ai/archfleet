@@ -134,12 +134,46 @@ describe("automations repo", () => {
     // Reviewed but the verdict was fail — still not activatable.
     expect(activationReadiness(db, a).ok).toBe(false);
 
+    // Re-reviews append NEW rows (unique ids); the latest verdict wins, so a
+    // corrected fail stops blocking.
+    addEvidence(db, {
+      id: "ev2",
+      runId: "r1",
+      automationId: "auto_1",
+      type: "criteria_review",
+      description: a.successCriteria[0],
+      verdict: "pass",
+      createdAt: "2026-08-12T01:06:00.000Z",
+    });
+    expect(activationReadiness(db, a).ok).toBe(true);
+    db.close();
+  });
+
+  it("requires EVERY criterion reviewed pass, not just one", () => {
+    const db = openDb(":memory:");
+    const a = automation("auto_1", {
+      status: "draft",
+      successCriteria: ["Dashboard visible", "Report downloaded"],
+    });
+    saveAutomation(db, a);
+    saveRun(db, run("r1", "auto_1", { status: "succeeded" }));
     addEvidence(db, {
       id: "ev1",
       runId: "r1",
       automationId: "auto_1",
       type: "criteria_review",
-      description: a.successCriteria[0],
+      description: "Dashboard visible",
+      verdict: "pass",
+      createdAt: "2026-08-12T01:05:00.000Z",
+    });
+    // One of two criteria reviewed — still blocked.
+    expect(activationReadiness(db, a).ok).toBe(false);
+    addEvidence(db, {
+      id: "ev2",
+      runId: "r1",
+      automationId: "auto_1",
+      type: "criteria_review",
+      description: "Report downloaded",
       verdict: "pass",
       createdAt: "2026-08-12T01:06:00.000Z",
     });

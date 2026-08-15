@@ -17,9 +17,10 @@ export async function GET(req: Request) {
 }
 
 // POST /api/evidence/pr-comment — publish the summary as a GitHub PR comment.
-// Body: { pr, repo? }. Needs CUF_GITHUB_TOKEN (+ repo via `org/repo#N` pr,
-// body.repo, or CUF_GITHUB_REPO); without them, returns the markdown unposted so
-// the caller can publish it through its own channel.
+// Body: { pr, repo? }. Needs CUF_GITHUB_TOKEN, and the resolved repo must be in
+// the CUF_GITHUB_REPO allowlist (comma-separated) — callers cannot point the
+// token at arbitrary repos. Otherwise returns the markdown unposted so the
+// caller can publish it through its own channel.
 export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as { pr?: string | number; repo?: string };
   if (body.pr == null) return Response.json({ error: "pr is required" }, { status: 400 });

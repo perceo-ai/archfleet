@@ -209,8 +209,13 @@ export function enqueueManualRun(
     prRef: opts.prRef,
   };
   saveRun(db, run);
-  if (opts.params && Object.keys(opts.params).length) {
-    db.prepare("UPDATE cuf_runs SET params_json=? WHERE id=?").run(JSON.stringify(opts.params), run.id);
+  // Reserved `__` keys (e.g. __resumeFrom) are internal run-control state only the
+  // action route may set — caller params must not skip workflow steps.
+  const safeParams = Object.fromEntries(
+    Object.entries(opts.params ?? {}).filter(([key]) => !key.startsWith("__")),
+  );
+  if (Object.keys(safeParams).length) {
+    db.prepare("UPDATE cuf_runs SET params_json=? WHERE id=?").run(JSON.stringify(safeParams), run.id);
   }
   return run;
 }
@@ -238,11 +243,12 @@ export async function executeRunById(db: Db, runId: string, now = () => new Date
     state.workflows.find((w) => w.id === existing.workflowId) ??
     state.workflows[0];
   // Checkpoint retry / takeover resume: `__resumeFrom` in the run params names the
-  // node to start from (set by POST /api/runs/:id/action, consumed once here).
+  // node to start from (set by POST /api/runs/:id/action).
   const paramRow = db.prepare("SELECT params_json FROM cuf_runs WHERE id=?").get(runId) as
     | { params_json: string }
     | undefined;
-  const resumeFrom = (JSON.parse(paramRow?.params_json || "{}") as Record<string, unknown>).__resumeFrom;
+  const storedParams = JSON.parse(paramRow?.params_json || "{}") as Record<string, unknown>;
+  const resumeFrom = storedParams.__resumeFrom;
   const run = await runWorkflow(
     {
       workflow,
@@ -263,6 +269,13 @@ export async function executeRunById(db: Db, runId: string, now = () => new Date
   );
   // Carry linkage the orchestrator doesn't know about, and summarize settled runs.
   const settled = run.status !== "queued";
+  // A checkpoint is single-use: once the run actually executed, clear it so a
+  // later plain retry starts from the beginning instead of silently skipping
+  // prerequisite steps. A no-VM requeue keeps it — the resume hasn't happened yet.
+  if (resumeFrom !== undefined && settled) {
+    delete storedParams.__resumeFrom;
+    db.prepare("UPDATE cuf_runs SET params_json=? WHERE id=?").run(JSON.stringify(storedParams), runId);
+  }
   const lastEvent = run.events[run.events.length - 1];
   const merged: WorkflowRun = {
     ...run,
