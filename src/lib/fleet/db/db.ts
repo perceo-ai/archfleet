@@ -7,6 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { COLUMN_MIGRATIONS, SCHEMA_SQL, ensureColumns } from "./schema";
+import { ensureSeeded } from "./init-db";
 
 export type Db = DatabaseSync;
 
@@ -31,6 +32,9 @@ let singleton: Db | undefined;
 
 /** Process-wide database singleton at the configured path. */
 export function getDb(): Db {
-  if (!singleton) singleton = openDb(defaultDbPath());
+  if (!singleton) {
+    singleton = openDb(defaultDbPath());
+    ensureSeeded(singleton);
+  }
   return singleton;
 }
