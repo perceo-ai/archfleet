@@ -13,9 +13,11 @@ import { ExternalLink, Play, RefreshCw, Square } from "lucide-react";
 import { sendJson, usePolling } from "@/lib/ui/api";
 import { duration, timeAgo } from "@/lib/ui/format";
 import { runStatusTone, statusLabel } from "@/components/fleet/status-colors";
+import { AutomationCopilot } from "@/components/automations/AutomationCopilot";
 import { diagnoseFailure } from "@/lib/fleet/run-diagnosis";
 import { formatEvidenceChecks, parseEvidenceChecks } from "@/lib/fleet/evidence-checks";
-import type { Automation, EvidenceItem, HumanTakeover, WorkflowRun } from "@/lib/fleet/types";
+import type { AutomationDraft } from "@/lib/fleet/automation-draft";
+import type { Automation, EvidenceItem, HumanTakeover, Workflow, WorkflowRun } from "@/lib/fleet/types";
 
 const btnGhost =
   "inline-flex h-9 items-center gap-2 rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-3 text-xs font-semibold text-white hover:bg-white/[0.08] disabled:opacity-50";
@@ -31,6 +33,8 @@ export function RunView({ id }: { id: string }) {
   const takeovers = usePolling<HumanTakeover[]>(`/api/takeovers?status=open`, 5000);
   const [automation, setAutomation] = useState<Automation | null>(null);
   const [automationEdit, setAutomationEdit] = useState<Automation | null>(null);
+  const [workflow, setWorkflow] = useState<Workflow | null>(null);
+  const [workflowEdit, setWorkflowEdit] = useState<Workflow | null>(null);
   const [desktopUrl, setDesktopUrl] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
   const [message, setMessage] = useState<string | null>(null);
@@ -47,6 +51,10 @@ export function RunView({ id }: { id: string }) {
         if (!d?.automation) return;
         setAutomation(d.automation as Automation);
         setAutomationEdit((prev) => prev ?? (d.automation as Automation));
+        if (d.workflow) {
+          setWorkflow(d.workflow as Workflow);
+          setWorkflowEdit((prev) => prev ?? (d.workflow as Workflow));
+        }
       })
       .catch(() => undefined);
   }, [automationId]);
@@ -141,7 +149,15 @@ export function RunView({ id }: { id: string }) {
     if (!automationEdit) return false;
     setMessage(null);
     try {
-      await sendJson(`/api/automations/${automationEdit.id}`, "PATCH", automationEdit);
+      if (workflowEdit) {
+        await sendJson("/api/automations", "POST", {
+          automation: automationEdit,
+          workflow: workflowEdit,
+        });
+        setWorkflow(workflowEdit);
+      } else {
+        await sendJson(`/api/automations/${automationEdit.id}`, "PATCH", automationEdit);
+      }
       setAutomation(automationEdit);
       setMessage("Automation saved.");
       return true;
@@ -161,6 +177,34 @@ export function RunView({ id }: { id: string }) {
 
   const patchAutomation = (fields: Partial<Automation>) =>
     setAutomationEdit((a) => (a ? { ...a, ...fields } : a));
+
+  function applyCopilotDraft(draft: AutomationDraft) {
+    if (!automationEdit) return;
+    const proposedAutomation: Automation = {
+      ...automationEdit,
+      name: draft.automation.name,
+      goal: draft.automation.goal,
+      category: draft.automation.category,
+      target: draft.automation.target,
+      specMarkdown: draft.automation.specMarkdown,
+      successCriteria: draft.automation.successCriteria,
+      requiredSecrets: draft.automation.requiredSecrets,
+      mfaExpectation: draft.automation.mfaExpectation,
+      artifactPolicy: draft.automation.artifactPolicy,
+      retryPolicy: draft.automation.retryPolicy,
+      takeoverPolicy: draft.automation.takeoverPolicy,
+      triggerSuggestion: draft.automation.triggerSuggestion,
+      riskNotes: draft.automation.riskNotes,
+      evidenceChecks: draft.automation.evidenceChecks,
+    };
+    setAutomationEdit(proposedAutomation);
+    setWorkflowEdit({
+      ...draft.workflow,
+      id: automationEdit.workflowId,
+      name: draft.workflow.name || automationEdit.name,
+    });
+    setMessage("Copilot proposal applied. Review it, then save or save and rerun.");
+  }
 
   const criteriaReviews = new Map(
     (evidence.data ?? [])
@@ -432,72 +476,81 @@ export function RunView({ id }: { id: string }) {
 
         <aside className="grid content-start gap-5">
           {automationEdit ? (
-            <section className="glass glass-border rounded-[5px]">
-              <div className="border-b border-white/[0.08] px-4 py-3">
-                <h2 className="text-sm font-semibold text-white">Edit automation</h2>
-                <p className="mt-1 text-xs text-white/45">Tune the spec here, then rerun from this screen.</p>
-              </div>
-              <div className="grid gap-3 p-4 text-xs text-white/60">
-                <label className="grid gap-1">
-                  <span className="font-semibold text-white/80">Goal</span>
-                  <input
-                    value={automationEdit.goal}
-                    onChange={(e) => patchAutomation({ goal: e.target.value })}
-                    className="rounded-[5px] border border-white/[0.08] bg-[#161616] px-3 py-2 text-sm text-white"
-                  />
-                </label>
-                <label className="grid gap-1">
-                  <span className="font-semibold text-white/80">Steps</span>
-                  <textarea
-                    rows={6}
-                    value={automationEdit.specMarkdown}
-                    onChange={(e) => patchAutomation({ specMarkdown: e.target.value })}
-                    className="rounded-[5px] border border-white/[0.08] bg-[#161616] px-3 py-2 text-sm text-white"
-                  />
-                </label>
-                <label className="grid gap-1">
-                  <span className="font-semibold text-white/80">Success criteria</span>
-                  <textarea
-                    rows={3}
-                    value={automationEdit.successCriteria.join("\n")}
-                    onChange={(e) =>
-                      patchAutomation({ successCriteria: e.target.value.split("\n").filter(Boolean) })
-                    }
-                    className="rounded-[5px] border border-white/[0.08] bg-[#161616] px-3 py-2 text-sm text-white"
-                  />
-                </label>
-                <label className="grid gap-1">
-                  <span className="font-semibold text-white/80">Automated checks</span>
-                  <textarea
-                    rows={3}
-                    value={formatEvidenceChecks(automationEdit.evidenceChecks ?? [])}
-                    onChange={(e) => patchAutomation({ evidenceChecks: parseEvidenceChecks(e.target.value) })}
-                    className="rounded-[5px] border border-white/[0.08] bg-[#161616] px-3 py-2 text-sm text-white"
-                  />
-                </label>
-                <label className="grid gap-1">
-                  <span className="font-semibold text-white/80">Human takeover points</span>
-                  <input
-                    value={automationEdit.takeoverPolicy}
-                    onChange={(e) => patchAutomation({ takeoverPolicy: e.target.value })}
-                    className="rounded-[5px] border border-white/[0.08] bg-[#161616] px-3 py-2 text-sm text-white"
-                  />
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  <button type="button" onClick={() => void saveAutomationInline()} className={btnGhost}>
-                    Save
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void saveAndRerun()}
-                    className="perceo-primary inline-flex h-9 items-center gap-2 rounded-[5px] px-3 text-xs font-semibold"
-                  >
-                    <Play className="h-4 w-4" aria-hidden="true" />
-                    Save and rerun
-                  </button>
+            <>
+              <AutomationCopilot
+                automation={automationEdit}
+                workflow={workflowEdit ?? workflow}
+                run={data}
+                onApplyDraft={applyCopilotDraft}
+                title="Run copilot"
+              />
+              <section className="glass glass-border rounded-[5px]">
+                <div className="border-b border-white/[0.08] px-4 py-3">
+                  <h2 className="text-sm font-semibold text-white">Review changes</h2>
+                  <p className="mt-1 text-xs text-white/45">Tune the applied proposal here, then rerun from this screen.</p>
                 </div>
-              </div>
-            </section>
+                <div className="grid gap-3 p-4 text-xs text-white/60">
+                  <label className="grid gap-1">
+                    <span className="font-semibold text-white/80">Goal</span>
+                    <input
+                      value={automationEdit.goal}
+                      onChange={(e) => patchAutomation({ goal: e.target.value })}
+                      className="rounded-[5px] border border-white/[0.08] bg-[#161616] px-3 py-2 text-sm text-white"
+                    />
+                  </label>
+                  <label className="grid gap-1">
+                    <span className="font-semibold text-white/80">Steps</span>
+                    <textarea
+                      rows={6}
+                      value={automationEdit.specMarkdown}
+                      onChange={(e) => patchAutomation({ specMarkdown: e.target.value })}
+                      className="rounded-[5px] border border-white/[0.08] bg-[#161616] px-3 py-2 text-sm text-white"
+                    />
+                  </label>
+                  <label className="grid gap-1">
+                    <span className="font-semibold text-white/80">Success criteria</span>
+                    <textarea
+                      rows={3}
+                      value={automationEdit.successCriteria.join("\n")}
+                      onChange={(e) =>
+                        patchAutomation({ successCriteria: e.target.value.split("\n").filter(Boolean) })
+                      }
+                      className="rounded-[5px] border border-white/[0.08] bg-[#161616] px-3 py-2 text-sm text-white"
+                    />
+                  </label>
+                  <label className="grid gap-1">
+                    <span className="font-semibold text-white/80">Automated checks</span>
+                    <textarea
+                      rows={3}
+                      value={formatEvidenceChecks(automationEdit.evidenceChecks ?? [])}
+                      onChange={(e) => patchAutomation({ evidenceChecks: parseEvidenceChecks(e.target.value) })}
+                      className="rounded-[5px] border border-white/[0.08] bg-[#161616] px-3 py-2 text-sm text-white"
+                    />
+                  </label>
+                  <label className="grid gap-1">
+                    <span className="font-semibold text-white/80">Human takeover points</span>
+                    <input
+                      value={automationEdit.takeoverPolicy}
+                      onChange={(e) => patchAutomation({ takeoverPolicy: e.target.value })}
+                      className="rounded-[5px] border border-white/[0.08] bg-[#161616] px-3 py-2 text-sm text-white"
+                    />
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={() => void saveAutomationInline()} className={btnGhost}>
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void saveAndRerun()}
+                      className="perceo-primary inline-flex h-9 items-center gap-2 rounded-[5px] px-3 text-xs font-semibold"
+                    >
+                      <Play className="h-4 w-4" aria-hidden="true" />
+                      Save and rerun
+                    </button>
+                  </div>
+                </div>
+              </section>
+            </>
           ) : null}
 
           {data.status === "succeeded" && artifacts.some((a) => !isImage(a.path)) ? (

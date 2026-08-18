@@ -15,8 +15,10 @@ import {
   runStatusTone,
   statusLabel,
 } from "@/components/fleet/status-colors";
+import { AutomationCopilot } from "@/components/automations/AutomationCopilot";
 import { WorkflowCanvas } from "@/components/fleet/WorkflowCanvas";
 import { formatEvidenceChecks, parseEvidenceChecks } from "@/lib/fleet/evidence-checks";
+import type { AutomationDraft } from "@/lib/fleet/automation-draft";
 import type { RunSummary } from "@/lib/fleet/db/runs-repo";
 import type {
   Automation,
@@ -76,6 +78,7 @@ export function AutomationDetail({ id }: { id: string }) {
   const detail = usePolling<Detail>(`/api/automations/${id}`, 8000);
   const [tab, setTab] = useState<Tab>("spec");
   const [edit, setEdit] = useState<Automation | null>(null);
+  const [workflowEdit, setWorkflowEdit] = useState<Workflow | null>(null);
   const [environments, setEnvironments] = useState<PreparedEnvironment[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [webhookToken, setWebhookToken] = useState<string | null>(null);
@@ -88,6 +91,10 @@ export function AutomationDetail({ id }: { id: string }) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setEdit((prev) => prev ?? automation ?? null);
   }, [automation]);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setWorkflowEdit((prev) => prev ?? detail.data?.workflow ?? null);
+  }, [detail.data?.workflow]);
   useEffect(() => {
     getJson<PreparedEnvironment[]>("/api/environments")
       .then(setEnvironments)
@@ -109,7 +116,14 @@ export function AutomationDetail({ id }: { id: string }) {
     if (!edit) return;
     setMessage(null);
     try {
-      await sendJson(`/api/automations/${id}`, "PATCH", edit);
+      if (workflowEdit) {
+        await sendJson("/api/automations", "POST", {
+          automation: edit,
+          workflow: workflowEdit,
+        });
+      } else {
+        await sendJson(`/api/automations/${id}`, "PATCH", edit);
+      }
       setMessage("Saved.");
       await detail.refresh();
     } catch (e) {
@@ -134,6 +148,35 @@ export function AutomationDetail({ id }: { id: string }) {
     } catch (e) {
       setMessage(String(e));
     }
+  }
+
+  function applyCopilotDraft(draft: AutomationDraft) {
+    if (!edit) return;
+    const current = edit;
+    const proposedAutomation: Automation = {
+      ...current,
+      name: draft.automation.name,
+      goal: draft.automation.goal,
+      category: draft.automation.category,
+      target: draft.automation.target,
+      specMarkdown: draft.automation.specMarkdown,
+      successCriteria: draft.automation.successCriteria,
+      requiredSecrets: draft.automation.requiredSecrets,
+      mfaExpectation: draft.automation.mfaExpectation,
+      artifactPolicy: draft.automation.artifactPolicy,
+      retryPolicy: draft.automation.retryPolicy,
+      takeoverPolicy: draft.automation.takeoverPolicy,
+      triggerSuggestion: draft.automation.triggerSuggestion,
+      riskNotes: draft.automation.riskNotes,
+      evidenceChecks: draft.automation.evidenceChecks,
+    };
+    setEdit(proposedAutomation);
+    setWorkflowEdit({
+      ...draft.workflow,
+      id: current.workflowId,
+      name: draft.workflow.name || current.name,
+    });
+    setMessage("Copilot proposal applied. Review it, then save the spec or run now.");
   }
 
   async function addTrigger(type: "schedule" | "webhook") {
@@ -237,8 +280,19 @@ export function AutomationDetail({ id }: { id: string }) {
       ) : null}
 
       {tab === "spec" ? (
-        <section className="glass glass-border mt-4 rounded-[5px]">
-          <div className="grid gap-4 px-4 py-4 md:grid-cols-2">
+        <section className="mt-4 grid gap-4 lg:grid-cols-[minmax(340px,0.85fr)_minmax(0,1.15fr)]">
+          <AutomationCopilot
+            automation={edit}
+            workflow={workflowEdit ?? workflow}
+            onApplyDraft={applyCopilotDraft}
+            title="Automation copilot"
+          />
+          <div className="glass glass-border rounded-[5px]">
+            <div className="border-b border-white/[0.08] px-4 py-3">
+              <h2 className="text-sm font-semibold text-white">Review spec</h2>
+              <p className="mt-1 text-xs text-white/45">Use chat for revisions, then adjust exact fields here.</p>
+            </div>
+            <div className="grid gap-4 px-4 py-4 md:grid-cols-2">
             <Field label="Name">
               <input className={inputCls} value={edit.name} onChange={(e) => patch({ name: e.target.value })} />
             </Field>
@@ -391,6 +445,7 @@ export function AutomationDetail({ id }: { id: string }) {
                 Add webhook
               </button>
             </div>
+          </div>
           </div>
         </section>
       ) : null}

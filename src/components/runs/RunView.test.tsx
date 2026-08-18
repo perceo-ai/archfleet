@@ -26,6 +26,15 @@ const AUTOMATION = {
     createdAt: "t",
     updatedAt: "t",
   },
+  workflow: {
+    id: "wf_1",
+    name: "Portal login check",
+    description: "",
+    enabled: false,
+    triggerKinds: ["manual"],
+    nodes: [],
+    edges: [],
+  },
 };
 
 function baseRun(overrides: Record<string, unknown>) {
@@ -99,7 +108,8 @@ describe("RunView", () => {
     expect(screen.getAllByText("Dashboard visible after login").length).toBeGreaterThan(1);
     expect(screen.getByRole("button", { name: /Mark passed: Dashboard visible after login/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Rerun" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Edit automation" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Run copilot" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Review changes" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save and rerun" })).toBeInTheDocument();
     expect(screen.getByAltText("shot.png")).toHaveAttribute("src", "/api/runs/r1/artifacts/shot.png");
   });
