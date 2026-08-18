@@ -373,7 +373,10 @@ export async function runWorkflow(
         let syncedRunnerDir: string | undefined;
         if (deps.syncGuestRunner) {
           try {
-            syncedRunnerDir = await deps.syncGuestRunner(baseConn);
+            syncedRunnerDir = await deps.syncGuestRunner({
+              ...baseConn,
+              identityFile: deps.sshIdentityFile,
+            });
           } catch (e) {
             emit("warn", `Runner sync failed for "${node.name}": ${String(e)}.`);
           }
