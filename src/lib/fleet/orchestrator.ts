@@ -41,6 +41,8 @@ export type OrchestratorDeps = {
     runId: string,
     nodeId: string,
   ) => Promise<RunArtifact[]>;
+  /** Sync the checked-in guest runner to the VM after snapshot revert. */
+  syncGuestRunner?: (conn: GuestConnection) => Promise<string | undefined>;
   /** Run a shell_task command (controller-side). Absent = shell disabled. */
   shellExec?: (
     command: string,
@@ -368,7 +370,17 @@ export async function runWorkflow(
           node.type === "browser_task" ? "browser" : node.type === "script_task" ? "script" : "computer-use";
         emit("info", `Running ${kind} node "${node.name}" on ${vm.name}.`);
         const baseConn = vm.ssh ?? { host: vm.xrdp.host, port: 22, username: vm.xrdp.username };
-        const runnerPath = runnerByType[node.type];
+        let syncedRunnerDir: string | undefined;
+        if (deps.syncGuestRunner) {
+          try {
+            syncedRunnerDir = await deps.syncGuestRunner(baseConn);
+          } catch (e) {
+            emit("warn", `Runner sync failed for "${node.name}": ${String(e)}.`);
+          }
+        }
+        const runnerPath = syncedRunnerDir
+          ? `${syncedRunnerDir}/${node.type === "browser_task" ? "browser_runner.py" : node.type === "script_task" ? "desktop_runner.py" : "cli.py"}`
+          : runnerByType[node.type];
         const guestConn = {
           ...baseConn,
           identityFile: deps.sshIdentityFile,
