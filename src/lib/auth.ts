@@ -81,10 +81,29 @@ export async function authOk(
   if (!expected) return true; // auth disabled
   const fromHeader = authHeader?.replace(/^Bearer\s+/i, "").trim();
   if (fromHeader && fromHeader === expected) return true;
+  if (fromHeader && (await verifySession(expected, fromHeader))) return true;
   if (cookieVal && cookieVal === expected) return true; // legacy token cookie
   return Boolean(await verifySession(expected, cookieVal));
 }
 
 export function sessionCookie(value: string, maxAge = 604800): string {
   return `${AUTH_COOKIE}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`;
+}
+
+export async function createApiBearerToken(
+  secret: string,
+  input: { name: string; role: AuthRole; ttlSeconds?: number },
+): Promise<{ token: string; expiresAt: string }> {
+  const ttl = input.ttlSeconds ?? 60 * 60 * 24 * 90;
+  const exp = Math.floor(Date.now() / 1000) + ttl;
+  const name = input.name.trim() || "api-token";
+  return {
+    token: await signSession(secret, {
+      sub: `api:${name}:${crypto.randomUUID()}`,
+      username: `token:${name}`,
+      role: input.role,
+      exp,
+    }),
+    expiresAt: new Date(exp * 1000).toISOString(),
+  };
 }

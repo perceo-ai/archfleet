@@ -51,6 +51,7 @@ function stubRun(run: Record<string, unknown>, extra: Record<string, unknown> = 
     "/api/evidence?runId=r1": [],
     "/api/takeovers?status=open": [],
     "/api/automations/auto_1": AUTOMATION,
+    "/api/vms/vm1/takeover": { mode: "guacamole", launchUrl: "/guacamole/#/client/qc-1?token=t" },
     ...extra,
   });
 }
@@ -63,6 +64,7 @@ describe("RunView", () => {
     expect(screen.getByText(/step: Log into portal/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Watch live desktop/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Cancel/i })).toBeInTheDocument();
+    expect(await screen.findByTitle("Runner desktop")).toHaveAttribute("src", "/guacamole/#/client/qc-1?token=t");
     expect(screen.getByText(/Assigned to vm1/)).toBeInTheDocument();
   });
 
@@ -93,10 +95,12 @@ describe("RunView", () => {
       }),
     );
     render(<RunView id="r1" />);
-    expect(await screen.findByText("Success criteria")).toBeInTheDocument();
-    expect(screen.getByText("Dashboard visible after login")).toBeInTheDocument();
+    expect((await screen.findAllByText("Success criteria")).length).toBeGreaterThan(1);
+    expect(screen.getAllByText("Dashboard visible after login").length).toBeGreaterThan(1);
     expect(screen.getByRole("button", { name: /Mark passed: Dashboard visible after login/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Rerun" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Edit automation" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save and rerun" })).toBeInTheDocument();
     expect(screen.getByAltText("shot.png")).toHaveAttribute("src", "/api/runs/r1/artifacts/shot.png");
   });
 

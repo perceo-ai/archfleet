@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { authOk, isAuthExempt, signSession, verifySession } from "./auth";
+import { authOk, createApiBearerToken, isAuthExempt, signSession, verifySession } from "./auth";
 
 describe("auth", () => {
   it("disabled when no token configured", async () => {
@@ -17,6 +17,20 @@ describe("auth", () => {
     await expect(authOk("s3cret", undefined, "Bearer s3cret")).resolves.toBe(true);
     await expect(authOk("s3cret", signed)).resolves.toBe(true);
     await expect(verifySession("s3cret", signed)).resolves.toMatchObject({ username: "alice" });
+  });
+
+  it("accepts a signed bearer API token", async () => {
+    const { token, expiresAt } = await createApiBearerToken("s3cret", {
+      name: "ci",
+      role: "operator",
+      ttlSeconds: 60,
+    });
+    await expect(authOk("s3cret", undefined, `Bearer ${token}`)).resolves.toBe(true);
+    await expect(verifySession("s3cret", token)).resolves.toMatchObject({
+      username: "token:ci",
+      role: "operator",
+    });
+    expect(Date.parse(expiresAt)).toBeGreaterThan(Date.now());
   });
 
   it("rejects wrong / missing credentials when a token is set", async () => {

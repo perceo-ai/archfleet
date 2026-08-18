@@ -19,6 +19,10 @@ export default function UsersPage() {
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<User["role"]>("operator");
   const [note, setNote] = useState<string>();
+  const [tokenName, setTokenName] = useState("");
+  const [tokenRole, setTokenRole] = useState<User["role"]>("operator");
+  const [ttlDays, setTtlDays] = useState(90);
+  const [apiToken, setApiToken] = useState<{ token: string; expiresAt: string }>();
 
   async function refresh() {
     const res = await fetch("/api/users");
@@ -56,6 +60,28 @@ export default function UsersPage() {
     await refresh();
   }
 
+  async function createToken() {
+    setNote(undefined);
+    setApiToken(undefined);
+    const res = await fetch("/api/tokens", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: tokenName || "automation-api", role: tokenRole, ttlDays }),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      token?: string;
+      expiresAt?: string;
+      error?: string;
+    };
+    if (!res.ok || !body.token || !body.expiresAt) {
+      setNote(body.error ?? "Could not create token.");
+      return;
+    }
+    setApiToken({ token: body.token, expiresAt: body.expiresAt });
+    setTokenName("");
+    setNote("API token created. Copy it now; it is shown once.");
+  }
+
   useEffect(() => {
     const timer = window.setTimeout(() => void refresh(), 0);
     return () => window.clearTimeout(timer);
@@ -76,6 +102,7 @@ export default function UsersPage() {
       </header>
 
       <section className="mx-auto grid max-w-5xl gap-4 px-6 py-6 lg:grid-cols-[360px_minmax(0,1fr)]">
+        <div className="grid content-start gap-4">
         <div className="glass glass-border rounded-[5px] p-4">
           <h2 className="text-sm font-semibold">Add user</h2>
           <div className="mt-4 space-y-3">
@@ -93,6 +120,31 @@ export default function UsersPage() {
             </button>
           </div>
           {note ? <p className="mt-3 rounded-[5px] border border-[#8b5cf6]/30 bg-[#8b5cf6]/20 px-2 py-1 text-xs text-[#c4b5fd]">{note}</p> : null}
+        </div>
+
+        <div className="glass glass-border rounded-[5px] p-4">
+          <h2 className="text-sm font-semibold">API token</h2>
+          <p className="mt-1 text-xs text-white/45">Create a bearer token for scripts, webhooks, or agents that call Archfleet.</p>
+          <div className="mt-4 space-y-3">
+            <input value={tokenName} onChange={(e) => setTokenName(e.target.value)} placeholder="token name" className="h-9 w-full rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 text-sm text-white placeholder:text-white/30" />
+            <select value={tokenRole} onChange={(e) => setTokenRole(e.target.value as User["role"])} className="h-9 w-full rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 text-sm text-white">
+              <option value="operator">operator</option>
+              <option value="viewer">viewer</option>
+              <option value="admin">admin</option>
+            </select>
+            <input type="number" min={1} max={365} value={ttlDays} onChange={(e) => setTtlDays(Number(e.target.value))} aria-label="Token lifetime in days" className="h-9 w-full rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 text-sm text-white" />
+            <button type="button" onClick={() => void createToken()} className="perceo-primary inline-flex h-9 items-center gap-2 rounded-[5px] px-3 text-sm font-semibold">
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Create token
+            </button>
+          </div>
+          {apiToken ? (
+            <div className="mt-3 rounded-[5px] border border-[#4ade80]/25 bg-[#4ade80]/10 p-2">
+              <p className="text-xs text-[#8add84]">Expires {new Date(apiToken.expiresAt).toLocaleDateString()}</p>
+              <p className="mt-1 break-all font-mono text-[11px] text-white/75">{apiToken.token}</p>
+            </div>
+          ) : null}
+        </div>
         </div>
 
         <div className="glass glass-border rounded-[5px]">

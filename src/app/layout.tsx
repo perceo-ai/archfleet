@@ -3,7 +3,7 @@ import { AppNav } from "@/components/shell/AppNav";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Perceo Archfleet",
+  title: "Archfleet",
   description: "Open computer-use automation: describe a task, run it, keep the evidence.",
 };
 

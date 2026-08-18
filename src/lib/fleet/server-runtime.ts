@@ -391,20 +391,33 @@ function recordRunSideEffects(db: Db, run: WorkflowRun, now: () => string): void
   if (run.environmentId) touchEnvironment(db, run.environmentId, now());
 }
 
+let processingRuns = false;
+
 /** Process up to `max` queued runs. Returns how many were executed. Call from a
- * worker loop (instrumentation) or an external cron (POST /api/runs/process). */
+ * worker loop (instrumentation) or an external cron (POST /api/runs/process).
+ *
+ * The worker loop and manual drain endpoint share this process-wide gate. That
+ * prevents two drain calls from building separate VM daemons and assigning the
+ * same single desktop at the same time.
+ */
 export async function processPendingRuns(db: Db = getDb(), max = 5): Promise<number> {
-  let processed = 0;
-  for (let i = 0; i < max; i++) {
-    const runId = claimQueuedRun(db);
-    if (!runId) break;
-    await executeRunById(db, runId);
-    processed++;
+  if (processingRuns) return 0;
+  processingRuns = true;
+  try {
+    let processed = 0;
+    for (let i = 0; i < max; i++) {
+      const runId = claimQueuedRun(db);
+      if (!runId) break;
+      await executeRunById(db, runId);
+      processed++;
+    }
+    // Piggyback on the worker cadence: remind the operator about takeovers nobody
+    // has picked up. Best-effort — never fails the queue drain.
+    await escalateStaleTakeovers(db).catch(() => undefined);
+    return processed;
+  } finally {
+    processingRuns = false;
   }
-  // Piggyback on the worker cadence: remind the operator about takeovers nobody
-  // has picked up. Best-effort — never fails the queue drain.
-  await escalateStaleTakeovers(db).catch(() => undefined);
-  return processed;
 }
 
 /** Trigger executor: enqueue a run (worker processes it). Keeps triggers fast +
