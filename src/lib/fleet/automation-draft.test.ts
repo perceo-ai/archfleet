@@ -61,14 +61,16 @@ describe("draftAutomation", () => {
     expect(draft.warnings.some((w) => w.toLowerCase().includes("run") && w.toLowerCase().includes("once"))).toBe(true);
   });
 
-  it("falls back to sane defaults when the agent returns junk", async () => {
+  it("falls back to a runnable generic workflow when the agent returns junk", async () => {
     const exec: AgentExec = async () => ({ code: 0, stdout: "cannot help", stderr: "" });
-    const draft = await draftAutomation("do a thing", exec);
-    expect(draft.errors.length).toBeGreaterThan(0);
+    const draft = await draftAutomation("open https://example.com and verify Example Domain", exec);
+    expect(draft.errors).toEqual([]);
     expect(draft.automation.name).toBeTruthy();
-    expect(draft.automation.category).toBe("general");
+    expect(draft.automation.category).toBe("semantic_test");
     expect(draft.automation.status).toBe("draft");
-    expect(draft.workflow.nodes).toEqual([]);
+    expect(draft.automation.target).toBe("https://example.com");
+    expect(draft.workflow.nodes.some((n) => n.type === "computer_use_task")).toBe(true);
+    expect(draft.automation.evidenceChecks).toContainEqual({ type: "screenshot_captured" });
   });
 
   it("keeps automation fields even when only partial JSON is returned", async () => {
