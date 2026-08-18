@@ -69,8 +69,9 @@ describe("draftAutomation", () => {
     expect(draft.automation.category).toBe("semantic_test");
     expect(draft.automation.status).toBe("draft");
     expect(draft.automation.target).toBe("https://example.com");
-    expect(draft.workflow.nodes.some((n) => n.type === "computer_use_task")).toBe(true);
+    expect(draft.workflow.nodes.some((n) => n.type === "browser_task")).toBe(true);
     expect(draft.automation.evidenceChecks).toContainEqual({ type: "screenshot_captured" });
+    expect(draft.automation.evidenceChecks).toContainEqual({ type: "visual_state_changed" });
   });
 
   it("keeps automation fields even when only partial JSON is returned", async () => {

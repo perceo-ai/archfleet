@@ -40,7 +40,7 @@ Given a user's description, output ONLY a JSON object (no prose) with these fiel
   "clarifying_questions": string[],     // ask instead of guessing when underspecified
   "evidence_checks": [{"type":"text_found"|"url_reached"|"file_downloaded"|"screenshot_captured"|"element_visible"|"form_submitted"|"email_received"|"output_extracted"|"visual_state_changed","value"?:string}]
 }
-Node types: start, computer_use_task, cli_agent_task, shell_task, condition, human_takeover, retry_wait, end.
+Node types: start, browser_task, computer_use_task, cli_agent_task, shell_task, condition, human_takeover, retry_wait, end.
 Insert a human_takeover node wherever login/MFA/captcha/device-trust will likely block the agent.
 Rules: exactly one start and one end; every node reachable from start.`;
 
@@ -82,18 +82,35 @@ function slugify(text: string): string {
 }
 
 function extractTarget(prompt: string): string {
-  return prompt.match(/https?:\/\/[^\s,)]+/i)?.[0] ?? "";
+  return (prompt.match(/https?:\/\/[^\s,)]+/i)?.[0] ?? "").replace(/[)\].,;!?]+$/, "");
 }
 
 function fallbackGraph(prompt: string): RawDraft {
   const target = extractTarget(prompt);
-  const taskPrompt = [
-    prompt,
-    "Capture screenshots as evidence.",
-    "Pause for a human if login, MFA, captcha, or device trust blocks progress.",
-  ].join("\n");
-  const evidenceChecks: EvidenceCheck[] = [{ type: "screenshot_captured" }];
-  if (target) evidenceChecks.push({ type: "url_reached", value: target });
+  const evidenceChecks: EvidenceCheck[] = [{ type: "screenshot_captured" }, { type: "visual_state_changed" }];
+  const taskNode = target
+    ? {
+        id: "run_task",
+        type: "browser_task",
+        name: "Open and inspect page",
+        config: {
+          prompt: JSON.stringify([{ goto: target }, { wait: 1000 }]),
+          requiredLabels: ["browser"],
+        },
+      }
+    : {
+        id: "run_task",
+        type: "computer_use_task",
+        name: "Run requested task",
+        config: {
+          prompt: [
+            prompt,
+            "Capture screenshots as evidence.",
+            "Pause for a human if login, MFA, captcha, or device trust blocks progress.",
+          ].join("\n"),
+          requiredLabels: ["browser"],
+        },
+      };
   return {
     name: prompt.slice(0, 60) || "Draft automation",
     goal: prompt,
@@ -102,12 +119,7 @@ function fallbackGraph(prompt: string): RawDraft {
     spec_markdown: `1. Open ${target || "the target app"}.\n2. Complete the requested task: ${prompt}\n3. Capture evidence and verify the success criteria.`,
     nodes: [
       { id: "start", type: "start", name: "Start" },
-      {
-        id: "run_task",
-        type: "computer_use_task",
-        name: "Run requested task",
-        config: { prompt: taskPrompt, requiredLabels: ["browser"] },
-      },
+      taskNode,
       { id: "end", type: "end", name: "End" },
     ],
     edges: [
