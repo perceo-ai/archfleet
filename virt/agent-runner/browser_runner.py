@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from collections.abc import Callable
 
 from agent_runner import RunReport
 
@@ -34,6 +35,20 @@ def parse_steps(instruction: str) -> list[dict]:
     if text.startswith("http://") or text.startswith("https://"):
         return [{"goto": text}]
     raise ValueError("browser_task needs a JSON steps array or a URL")
+
+
+def save_screenshot(page, path: str, fallback: Callable[[str], None] | None = None) -> None:
+    """Save a screenshot, falling back to the visible desktop if Playwright fails."""
+    try:
+        page.screenshot(path=path)
+        return
+    except Exception:
+        if fallback is not None:
+            fallback(path)
+            return
+        import pyautogui  # lazy: needs a display
+
+        pyautogui.screenshot(path)
 
 
 def _run(steps: list[dict], run_id: str) -> RunReport:
@@ -60,7 +75,7 @@ def _run(steps: list[dict], run_id: str) -> RunReport:
                 page.keyboard.press(step["press"])
             # screenshot after every step regardless
             path = f"{art_dir}/step_{i}.png"
-            page.screenshot(path=path)
+            save_screenshot(page, path)
             saved.append(path)
         browser.close()
     return RunReport("succeeded", "browser_done", len(steps), saved)

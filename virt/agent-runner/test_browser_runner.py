@@ -1,6 +1,8 @@
 import unittest
+import tempfile
+from pathlib import Path
 
-from browser_runner import parse_steps
+from browser_runner import parse_steps, save_screenshot
 
 
 class ParseStepsTest(unittest.TestCase):
@@ -22,6 +24,16 @@ class ParseStepsTest(unittest.TestCase):
     def test_rejects_empty(self):
         with self.assertRaises(ValueError):
             parse_steps("   ")
+
+    def test_screenshot_falls_back_when_playwright_capture_fails(self):
+        class Page:
+            def screenshot(self, path):
+                raise RuntimeError("capture failed")
+
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "shot.png"
+            save_screenshot(Page(), str(path), fallback=lambda p: Path(p).write_bytes(b"png"))
+            self.assertEqual(path.read_bytes(), b"png")
 
 
 if __name__ == "__main__":
