@@ -6,6 +6,7 @@ export default async function EnvironmentsPage({
   searchParams: Promise<{ tab?: string }>;
 }) {
   const { tab } = await searchParams;
-  const initialTab = tab === "capacity" || tab === "secrets" ? tab : "environments";
+  // Secrets moved to Settings; an old link still lands somewhere sensible.
+  const initialTab = tab === "capacity" ? "capacity" : "environments";
   return <EnvironmentsPanel initialTab={initialTab} />;
 }

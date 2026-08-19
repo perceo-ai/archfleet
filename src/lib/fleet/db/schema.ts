@@ -178,6 +178,14 @@ CREATE TABLE IF NOT EXISTS cuf_takeovers (
 CREATE INDEX IF NOT EXISTS cuf_takeovers_run ON cuf_takeovers(run_id);
 CREATE INDEX IF NOT EXISTS cuf_takeovers_status ON cuf_takeovers(status);
 
+-- Operator configuration: providers, behaviour defaults, fleet wiring. Values
+-- marked secret in settings.ts live in cuf_secrets instead, never here.
+CREATE TABLE IF NOT EXISTS cuf_settings (
+  key        TEXT PRIMARY KEY,
+  value      TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 -- User-defined node types: the palette anyone can extend without a deploy.
 CREATE TABLE IF NOT EXISTS cuf_node_types (
   id           TEXT PRIMARY KEY,

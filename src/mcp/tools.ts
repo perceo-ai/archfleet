@@ -10,6 +10,7 @@ import { validateWorkflow } from "../lib/fleet/workflow-validation";
 import { listVms } from "../lib/fleet/db/vms-repo";
 import { listSecretMeta, saveSecret } from "../lib/fleet/db/secrets-repo";
 import { deleteNodeType, listNodeTypes, saveNodeType } from "../lib/fleet/db/node-types-repo";
+import { behaviourDefaults } from "../lib/fleet/db/settings-repo";
 import { validateNodeType, type CustomNodeType } from "../lib/fleet/node-types";
 import { checkExpr, evalExpr, type ExprContext } from "../lib/fleet/expr";
 import { createTrigger, listTriggers } from "../lib/fleet/triggers/triggers-repo";
@@ -253,7 +254,7 @@ export const FLEET_TOOLS: FleetTool[] = [
     run: async (db, a) => {
       const { draftAutomation } = await import("../lib/fleet/automation-draft");
       const { spawnAgentExec } = await import("../lib/fleet/ssh-exec");
-      const draft = await draftAutomation(a.prompt as string, spawnAgentExec);
+      const draft = await draftAutomation(a.prompt as string, spawnAgentExec, { defaults: behaviourDefaults(db) });
       if (a.save && draft.errors.length === 0) {
         saveWorkflow(db, draft.workflow);
         saveAutomation(db, draft.automation);

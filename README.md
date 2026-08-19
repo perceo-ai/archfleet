@@ -173,6 +173,8 @@ See `RUNBOOK.md` for the full human-in-the-loop and 2FA playbook, and `ARCHITECT
 - ✅ **Custom nodes without a deploy** — declare a node type's inputs and point it at an HTTP call, a shell command, or an expression. It appears in every automation's step palette immediately. Presets included for API calls, Slack posts, commands and computed values.
 - ✅ **Async + durable runs** — atomic queue claim, backoff/retry when no VM is free, worker loop or external cron.
 - ✅ **Triggers** — manual, cron schedule, and webhook (hashed token).
+- ✅ **Settings that do something** — providers (planner + grounding models), notifications, behaviour defaults new automations inherit, and fleet wiring, all editable in the app. Stored value wins over the environment variable, which wins over the default, so existing deployments keep working and nothing needs a redeploy.
+- ✅ **A setup flow that checks reality** — the Setup tab and the Inbox banner read actual state (is auth on, is the secret store working, is a model connected, are there desktops) and link straight to whatever is missing.
 - ✅ **Encrypted secrets & params** — AES-256-GCM at rest (key derived from `CUF_SECRET_KEY`, kept out of the DB), redacted from all persisted events.
 - ✅ **Runtime 2FA** — RFC 6238 `{{totp.seed}}` codes generated per run, plus an `otp_email` node that reads an IMAP inbox and extracts the code.
 - ✅ **Human-in-the-loop for anything** — a run stops and asks a structured question (input / choice / approval / acknowledge); the answer flows back into it as a param or an encrypted secret. Not just logins: missing data, ambiguous choices, spend approvals.

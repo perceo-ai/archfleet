@@ -23,6 +23,7 @@ import {
   Stat,
 } from "@/components/ui/primitives";
 import { AskPanel } from "@/components/inbox/AskPanel";
+import { SetupBanner } from "@/components/settings/SetupPanel";
 import { parseAsk } from "@/lib/fleet/human-ask";
 import { Viewport } from "@/components/ui/Viewport";
 import { useRunThumbnails } from "@/lib/ui/thumbnails";
@@ -143,6 +144,8 @@ export function InboxPage() {
           </Link>
         </div>
       </div>
+
+      <SetupBanner />
 
       <div className="stats" style={{ marginBottom: 22 }}>
         <Stat value={openTakeovers.length} label="Waiting on you">

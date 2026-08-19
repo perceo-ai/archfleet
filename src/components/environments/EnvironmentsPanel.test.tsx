@@ -53,7 +53,7 @@ describe("EnvironmentsPanel", () => {
     expect(screen.getByText(/LLM Setup Flow/i)).toBeInTheDocument();
   });
 
-  it("folds fleet capacity and secrets in as tabs", async () => {
+  it("folds fleet capacity in as a tab", async () => {
     stub();
     render(<EnvironmentsPanel />);
     expect(await screen.findByText("Portal — logged in")).toBeInTheDocument();
@@ -61,9 +61,13 @@ describe("EnvironmentsPanel", () => {
     fireEvent.click(screen.getByRole("tab", { name: /Capacity/ }));
     expect(await screen.findByText("vm-01")).toBeInTheDocument();
     expect(screen.getByText("Profile readiness")).toBeInTheDocument();
+  });
 
-    fireEvent.click(screen.getByRole("tab", { name: /Secrets/ }));
-    expect(await screen.findByText("portal_password")).toBeInTheDocument();
+  it("leaves secrets to Settings rather than owning a second copy", async () => {
+    stub();
+    render(<EnvironmentsPanel />);
+    await screen.findByText("Portal — logged in");
+    expect(screen.queryByRole("tab", { name: /Secrets/ })).not.toBeInTheDocument();
   });
 
   it("opens the prepare-an-environment drawer", async () => {

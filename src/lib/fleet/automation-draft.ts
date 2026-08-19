@@ -159,7 +159,14 @@ function fallbackGraph(prompt: string): RawDraft {
 export async function draftAutomation(
   prompt: string,
   agentExec: AgentExec,
-  opts: { id?: string; provider?: AgentProvider; now?: () => string } = {},
+  opts: {
+    id?: string;
+    provider?: AgentProvider;
+    now?: () => string;
+    /** Operator defaults from Settings › Behaviour, used when the draft does
+     * not state its own policy. */
+    defaults?: { retryPolicy?: string; takeoverPolicy?: string; artifactPolicy?: string };
+  } = {},
 ): Promise<AutomationDraft> {
   const now = opts.now ?? (() => new Date().toISOString());
   const slug = opts.id ?? slugify(prompt);
@@ -202,9 +209,18 @@ export async function draftAutomation(
     successCriteria: strList(effectiveRaw.success_criteria),
     requiredSecrets: strList(effectiveRaw.required_secrets),
     mfaExpectation: str(effectiveRaw.mfa_expectation) || undefined,
-    artifactPolicy: str(effectiveRaw.artifact_policy, "Capture a screenshot at every task step."),
-    retryPolicy: str(effectiveRaw.retry_policy, "No automatic retries until reviewed."),
-    takeoverPolicy: str(effectiveRaw.takeover_policy, "Pause for a human on login, MFA, or captcha."),
+    artifactPolicy: str(
+      effectiveRaw.artifact_policy,
+      opts.defaults?.artifactPolicy ?? "Capture a screenshot at every task step.",
+    ),
+    retryPolicy: str(
+      effectiveRaw.retry_policy,
+      opts.defaults?.retryPolicy ?? "No automatic retries until reviewed.",
+    ),
+    takeoverPolicy: str(
+      effectiveRaw.takeover_policy,
+      opts.defaults?.takeoverPolicy ?? "Pause for a human on login, MFA, or captcha.",
+    ),
     triggerSuggestion: str(effectiveRaw.trigger_suggestion) || undefined,
     riskNotes: strList(effectiveRaw.risk_notes),
     evidenceChecks: checkList(effectiveRaw.evidence_checks),

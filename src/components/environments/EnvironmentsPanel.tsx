@@ -30,7 +30,7 @@ import {
 } from "@/components/ui/primitives";
 import type { FleetVm, PreparedEnvironment } from "@/lib/fleet/types";
 
-type Tab = "environments" | "capacity" | "secrets";
+type Tab = "environments" | "capacity";
 
 type ProfileStatus = {
   profiles: Record<
@@ -67,7 +67,6 @@ export function EnvironmentsPanel({ initialTab = "environments" }: { initialTab?
   const vms = usePolling<FleetVm[]>("/api/vms", 8000);
   const profiles = usePolling<ProfileStatus>("/api/profile-status", 30000);
   const health = usePolling<Health>("/api/health", 30000);
-  const secrets = usePolling<{ name: string; scope: string }[]>("/api/secrets", 60000);
 
   const [tab, setTab] = useState<Tab>(initialTab);
   const [prepOpen, setPrepOpen] = useState(false);
@@ -80,8 +79,6 @@ export function EnvironmentsPanel({ initialTab = "environments" }: { initialTab?
   const [mfaExpectations, setMfaExpectations] = useState("");
   const [profileRef, setProfileRef] = useState("");
 
-  const [secretName, setSecretName] = useState("");
-  const [secretValue, setSecretValue] = useState("");
 
   const list = environments.data ?? [];
   const vmList = vms.data ?? [];
@@ -146,22 +143,6 @@ export function EnvironmentsPanel({ initialTab = "environments" }: { initialTab?
     }
   }
 
-  async function createSecret() {
-    setMessage(null);
-    try {
-      await sendJson("/api/secrets", "POST", {
-        name: secretName,
-        scope: "workflow",
-        value: secretValue,
-      });
-      setSecretName("");
-      setSecretValue("");
-      await secrets.refresh();
-    } catch (e) {
-      setMessage(String(e));
-    }
-  }
-
   return (
     <div className="page-pad wide">
       <div className="page-head">
@@ -186,7 +167,6 @@ export function EnvironmentsPanel({ initialTab = "environments" }: { initialTab?
           options={[
             { key: "environments", label: "Environments", count: list.length },
             { key: "capacity", label: "Capacity", count: vmList.length },
-            { key: "secrets", label: "Secrets", count: (secrets.data ?? []).length },
           ]}
         />
       </div>
@@ -417,65 +397,6 @@ export function EnvironmentsPanel({ initialTab = "environments" }: { initialTab?
         </div>
       ) : null}
 
-      {tab === "secrets" ? (
-        <div className="stack">
-          <Card>
-            <CardHead
-              title="Secrets"
-              subtitle="Write-only. Values are injected at run time and redacted from logs and screenshots."
-            />
-            {(secrets.data ?? []).length === 0 ? (
-              <Empty>No secrets stored yet.</Empty>
-            ) : (
-              <table className="data">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Scope</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(secrets.data ?? []).map((s) => (
-                    <tr key={s.name}>
-                      <td className="mono">{s.name}</td>
-                      <td>
-                        <Chip>{s.scope}</Chip>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-            <div className="card-foot hstack-w">
-              <input
-                className="input"
-                style={{ maxWidth: 220 }}
-                aria-label="Secret name"
-                placeholder="name"
-                value={secretName}
-                onChange={(e) => setSecretName(e.target.value)}
-              />
-              <input
-                className="input"
-                style={{ maxWidth: 220 }}
-                aria-label="Secret value"
-                type="password"
-                placeholder="value"
-                value={secretValue}
-                onChange={(e) => setSecretValue(e.target.value)}
-              />
-              <button
-                type="button"
-                className="btn btn-primary btn-sm"
-                disabled={!secretName.trim() || !secretValue}
-                onClick={() => void createSecret()}
-              >
-                Add secret
-              </button>
-            </div>
-          </Card>
-        </div>
-      ) : null}
 
       <Drawer
         open={prepOpen}

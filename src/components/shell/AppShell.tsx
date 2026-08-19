@@ -114,7 +114,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </nav>
 
         <div className="rail-bottom">
-          <Link href="/users" className="nav-item">
+          <Link href="/settings" className="nav-item">
             <Settings className="ico" aria-hidden="true" />
             <span className="hide-collapsed">Settings</span>
           </Link>
@@ -144,6 +144,7 @@ const CRUMB_LABELS: Record<string, string> = {
   environments: "Environments",
   runs: "Activity",
   users: "Settings",
+  settings: "Settings",
 };
 
 function Breadcrumbs({ pathname }: { pathname: string }) {

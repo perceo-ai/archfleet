@@ -97,13 +97,42 @@ Four nav items and one workspace. Static HTML demos of every screen live in
 | `/automations/[id]`, `/automations/new` | **The workspace** — its own full-viewport page (no app rail): copilot left, the graph in the middle, live state right. Same screen empty for a new automation |
 | `/activity` | Every run, live and historical, with a 24h volume strip — the audit trail |
 | `/runs/[id]` | One layout, state-dependent: paused (takeover), failed (diagnosis + recovery), succeeded (criteria + evidence). The run is also painted back onto the graph |
-| `/environments` | Environments, **capacity** (the old `/fleet`) and **secrets** as tabs. `/fleet` redirects here |
+| `/environments` | Environments and **capacity** (the old `/fleet`) as tabs. `/fleet` redirects here |
+| `/settings` | Everything you configure: setup checklist, providers, notifications, behaviour defaults, fleet wiring, secrets, node types, people and tokens. `/users` redirects here |
 
 The user-facing object is the **Automation**, and the automation *is* its graph.
 Every node is a button that opens its own modal — a workflow node, the synthetic
 **trigger** node above the flow, or the synthetic **done means** node below it
 (which holds the success criteria and evidence checks). Nothing expands inline,
 so the middle column never grows.
+
+### Configuration and setup
+
+Configuration used to be environment-only, which meant a redeploy to change a
+model and no way to see what was set. `lib/fleet/settings.ts` declares the
+catalogue once — key, group, kind, help, the env var it falls back to — and that
+one declaration drives both the Settings UI and the runtime:
+
+    stored value  →  environment variable  →  built-in default
+
+So an existing deployment behaves exactly as before until someone sets something
+in the app. Values marked `secret` (API keys, the notification webhook) are kept
+in the encrypted secret store, never in `cuf_settings`, and never returned to the
+browser — the UI is told only whether one is set, and where the effective value
+comes from.
+
+What is actually wired, not just displayed: provider settings become the guest
+runner's environment for the planner and grounding models; the notification
+webhook and escalation window are read per run; `behaviour.allow_shell` decides
+whether `shell_task` and shell-backed custom nodes execute at all; and the
+behaviour defaults seed every new automation's retry, takeover and artifact
+policy. A secret that cannot be encrypted (no `CUF_SECRET_KEY`) is reported and
+skipped — the rest of the save still lands.
+
+`lib/fleet/setup-status.ts` computes readiness from real state (auth configured,
+secret store working, a provider connected, desktops and environments that
+exist, a webhook, a first automation). It drives the Setup tab and a banner on
+the Inbox, and every unfinished item links to the page that fixes it.
 
 ### Rules, data flow and custom nodes
 
