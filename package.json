@@ -28,6 +28,9 @@
     "tailwind-merge": "^3.6.0",
     "zod": "^4.4.3"
   },
+  "overrides": {
+    "deepmerge-ts": "^8.0.1"
+  },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^7.0.0",

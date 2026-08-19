@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -37,11 +38,9 @@ export default function LoginPage() {
       <div className="dot-pattern dot-pattern-fade z-0" aria-hidden="true" />
       <form onSubmit={submit} className="glass glass-border relative z-10 w-full max-w-sm rounded-[5px] p-6">
         <div className="mb-5 flex items-center gap-3">
-          <span className="grid h-8 w-8 place-items-center rounded-[6px] bg-gradient-to-b from-[#8b5cf6] to-[#7848e6] text-[11px] font-semibold uppercase text-white">
-            pe
-          </span>
+          <Image src="/perceo-logo.png" alt="" width={32} height={32} className="rounded-[6px]" />
           <div>
-            <h1 className="font-serif text-xl font-bold italic tracking-tight">Perceo Archfleet</h1>
+            <h1 className="font-serif text-xl font-bold italic tracking-tight">Archfleet</h1>
             <p className="text-xs text-white/45">Sign in to continue</p>
           </div>
         </div>

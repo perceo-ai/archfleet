@@ -6,9 +6,9 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Sparkles } from "lucide-react";
 import { getJson, sendJson } from "@/lib/ui/api";
 import { categoryLabel } from "@/lib/ui/format";
+import { AutomationCopilot } from "@/components/automations/AutomationCopilot";
 import type { AutomationDraft } from "@/lib/fleet/automation-draft";
 import type { WorkflowRun } from "@/lib/fleet/types";
 
@@ -20,46 +20,6 @@ const CATEGORIES = [
   "account_setup",
   "report_download",
   "marketing",
-];
-
-// Common patterns (strategy doc "Prompt-to-Automation Draft"). Templates seed the
-// description; natural language stays the primary path.
-const TEMPLATES: { label: string; prompt: string }[] = [
-  {
-    label: "Product flow test",
-    prompt:
-      "Test that a user can <do the core flow, e.g. sign up, create a project, invite a teammate> on <app URL>. Succeed only if <what the final screen must show>. Capture a screenshot at each step.",
-  },
-  {
-    label: "Release smoke",
-    prompt:
-      "Run a smoke check of <app URL> before a release: log in, visit <key pages>, and verify each renders without errors. Capture screenshots as evidence.",
-  },
-  {
-    label: "Form fill",
-    prompt:
-      "Open <form URL> and fill the form with <field values or where to get them>, submit it, and confirm the confirmation message appears.",
-  },
-  {
-    label: "Data extraction",
-    prompt:
-      "Log into <site> and extract <the data you need, e.g. this month's invoices> into a file. Download or save the results as artifacts.",
-  },
-  {
-    label: "Account setup",
-    prompt:
-      "Create a new account on <site> using <email/credentials source>, complete onboarding, and pause for me when MFA or email verification appears.",
-  },
-  {
-    label: "Report download",
-    prompt:
-      "Log into <portal> and download the <weekly/monthly> <report name> report. Save the file as an artifact and confirm the totals page rendered.",
-  },
-  {
-    label: "Marketing workflow",
-    prompt:
-      "In <tool>, <the marketing task, e.g. schedule this week's newsletter from the draft folder>, and capture a screenshot of the final scheduled state.",
-  },
 ];
 
 function Field(props: { label: string; hint?: string; children: React.ReactNode }) {
@@ -77,7 +37,6 @@ const inputCls =
 
 export function DraftComposer() {
   const router = useRouter();
-  const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<AutomationDraft | null>(null);
@@ -96,19 +55,6 @@ export function DraftComposer() {
 
   const patchAutomation = (fields: Partial<AutomationDraft["automation"]>) =>
     setDraft((d) => (d ? { ...d, automation: { ...d.automation, ...fields } } : d));
-
-  async function createDraft() {
-    setBusy("draft");
-    setError(null);
-    try {
-      const result = await sendJson<AutomationDraft>("/api/automations/draft", "POST", { prompt });
-      setDraft(result);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(null);
-    }
-  }
 
   async function save(runOnce: boolean) {
     if (!draft) return;
@@ -161,50 +107,18 @@ export function DraftComposer() {
   }
 
   return (
-    <main className="mx-auto w-full max-w-4xl px-5 py-6 md:px-12">
-      <h1 className="text-2xl font-semibold tracking-tight text-white">New automation</h1>
+    <main className="mx-auto w-full max-w-7xl px-5 py-6 md:px-12">
+      <h1 className="text-2xl font-semibold tracking-tight text-white">Automation copilot</h1>
       <p className="mt-1 text-sm text-zinc-400">
-        Describe the browser or desktop task in plain language. You review a draft before anything
-        is saved or run.
+        Chat with the copilot, review the proposed automation, then run it once from here.
       </p>
+      {error ? <p className="mt-3 text-sm text-[#fca5a5]">{error}</p> : null}
 
-      <section className="glass glass-border mt-5 rounded-[5px] p-4">
-        <div className="mb-3 flex flex-wrap gap-2" aria-label="Templates">
-          {TEMPLATES.map((t) => (
-            <button
-              key={t.label}
-              type="button"
-              onClick={() => setPrompt(t.prompt)}
-              className="rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2.5 py-1 text-xs font-semibold text-white/60 transition hover:text-white"
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-        <label className="grid gap-2">
-          <span className="text-sm font-semibold text-white">What should this automation do?</span>
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            rows={4}
-            placeholder="e.g. Log into portal.example.com, download the weekly usage report, and confirm the totals page renders."
-            className={inputCls}
-          />
-        </label>
-        <button
-          type="button"
-          disabled={!prompt.trim() || busy === "draft"}
-          onClick={() => void createDraft()}
-          className="perceo-primary mt-3 inline-flex h-10 items-center gap-2 rounded-[5px] px-4 text-sm font-semibold disabled:opacity-50"
-        >
-          <Sparkles className="h-4 w-4" aria-hidden="true" />
-          {busy === "draft" ? "Drafting…" : "Draft automation"}
-        </button>
-        {error ? <p className="mt-3 text-sm text-[#fca5a5]">{error}</p> : null}
-      </section>
+      <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(360px,0.9fr)_minmax(0,1.1fr)]">
+        <AutomationCopilot onApplyDraft={setDraft} title="Chat to build" />
 
-      {draft ? (
-        <section className="glass glass-border mt-5 rounded-[5px]">
+        {draft ? (
+          <section className="glass glass-border rounded-[5px]">
           <div className="border-b border-white/[0.08] px-4 py-3">
             <h2 className="text-sm font-semibold text-white">Review the draft</h2>
             <p className="mt-1 text-xs text-white/45">
@@ -407,7 +321,17 @@ export function DraftComposer() {
             </span>
           </div>
         </section>
-      ) : null}
+        ) : (
+          <section className="glass glass-border grid min-h-[420px] place-items-center rounded-[5px] px-6 text-center">
+            <div>
+              <h2 className="text-sm font-semibold text-white">No proposal yet</h2>
+              <p className="mt-2 max-w-sm text-sm text-white/45">
+                Ask the copilot for the browser or desktop work you want. The proposed automation appears here for review before anything is saved.
+              </p>
+            </div>
+          </section>
+        )}
+      </div>
     </main>
   );
 }

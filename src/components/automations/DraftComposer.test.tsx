@@ -42,13 +42,14 @@ describe("DraftComposer", () => {
   it("drafts from a prompt and shows the review card", async () => {
     stubFetch({ "/api/automations/draft": DRAFT });
     render(<DraftComposer />);
-    fireEvent.change(screen.getByPlaceholderText(/Log into portal/i), {
+    fireEvent.change(screen.getByPlaceholderText(/What should this automation do/i), {
       target: { value: "download the weekly report" },
     });
-    fireEvent.click(screen.getByRole("button", { name: /Draft automation/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Apply proposal/i }));
     expect(await screen.findByText("Review the draft")).toBeInTheDocument();
     expect(screen.getByDisplayValue("Download the weekly report")).toBeInTheDocument();
-    expect(screen.getByText("Which report exactly?", { exact: false })).toBeInTheDocument();
+    expect(screen.getAllByText("Which report exactly?", { exact: false }).length).toBeGreaterThan(0);
     expect(screen.getByText(/Secrets this automation needs/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Save \+ run once/i })).toBeEnabled();
   });
@@ -61,9 +62,10 @@ describe("DraftComposer", () => {
       "/api/secrets": { id: "sec_1" },
     });
     render(<DraftComposer />);
-    fireEvent.change(screen.getByPlaceholderText(/Log into portal/i), { target: { value: "x" } });
-    fireEvent.click(screen.getByRole("button", { name: /Draft automation/i }));
-    await screen.findByText("Review the draft");
+    fireEvent.change(screen.getByPlaceholderText(/What should this automation do/i), { target: { value: "x" } });
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Apply proposal/i }));
+    expect(await screen.findByText("Review the draft")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Save \+ run once/i }));
     await waitFor(() => expect(push).toHaveBeenCalledWith("/runs/run_1"));
   });

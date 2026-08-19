@@ -12,7 +12,7 @@ import { execVirshRunner } from "./vm-daemon/exec-runner";
 import { realVmsFromEnv } from "./vm-daemon/fleet-config";
 import { mkdirSync } from "node:fs";
 import { basename } from "node:path";
-import { spawnExecRunner, spawnAgentExec, scpFetch, spawnShellExec } from "./ssh-exec";
+import { spawnExecRunner, spawnAgentExec, scpFetch, scpPushDir, spawnShellExec } from "./ssh-exec";
 import { runWorkflow, type OrchestratorDeps } from "./orchestrator";
 import type { GuestConnection } from "./computer-use";
 import type { RunArtifact } from "./types";
@@ -119,10 +119,21 @@ function buildRunDeps(state: FleetState, now: () => string): OrchestratorDeps {
     env: guestEnv(),
     sshIdentityFile: process.env.CUF_SSH_KEY,
     fetchArtifacts: makeFetchArtifacts(now),
+    syncGuestRunner: makeSyncGuestRunner(),
     // shell_task is off unless explicitly enabled (runs arbitrary controller commands).
     shellExec: process.env.CUF_ALLOW_SHELL === "1" ? spawnShellExec : undefined,
     httpFetch: fetch,
     emailOtp: fetchEmailOtpImap,
+  };
+}
+
+function makeSyncGuestRunner(): OrchestratorDeps["syncGuestRunner"] {
+  return async (conn: GuestConnection) => {
+    const localDir = `${process.cwd()}/virt/agent-runner`;
+    const remoteDir = "/tmp/cuf-agent-runner";
+    const res = await scpPushDir(conn, localDir, remoteDir);
+    if (res.code !== 0) throw new Error(res.stderr.trim() || `scp exited ${res.code}`);
+    return remoteDir;
   };
 }
 
@@ -391,20 +402,33 @@ function recordRunSideEffects(db: Db, run: WorkflowRun, now: () => string): void
   if (run.environmentId) touchEnvironment(db, run.environmentId, now());
 }
 
+let processingRuns = false;
+
 /** Process up to `max` queued runs. Returns how many were executed. Call from a
- * worker loop (instrumentation) or an external cron (POST /api/runs/process). */
+ * worker loop (instrumentation) or an external cron (POST /api/runs/process).
+ *
+ * The worker loop and manual drain endpoint share this process-wide gate. That
+ * prevents two drain calls from building separate VM daemons and assigning the
+ * same single desktop at the same time.
+ */
 export async function processPendingRuns(db: Db = getDb(), max = 5): Promise<number> {
-  let processed = 0;
-  for (let i = 0; i < max; i++) {
-    const runId = claimQueuedRun(db);
-    if (!runId) break;
-    await executeRunById(db, runId);
-    processed++;
+  if (processingRuns) return 0;
+  processingRuns = true;
+  try {
+    let processed = 0;
+    for (let i = 0; i < max; i++) {
+      const runId = claimQueuedRun(db);
+      if (!runId) break;
+      await executeRunById(db, runId);
+      processed++;
+    }
+    // Piggyback on the worker cadence: remind the operator about takeovers nobody
+    // has picked up. Best-effort — never fails the queue drain.
+    await escalateStaleTakeovers(db).catch(() => undefined);
+    return processed;
+  } finally {
+    processingRuns = false;
   }
-  // Piggyback on the worker cadence: remind the operator about takeovers nobody
-  // has picked up. Best-effort — never fails the queue drain.
-  await escalateStaleTakeovers(db).catch(() => undefined);
-  return processed;
 }
 
 /** Trigger executor: enqueue a run (worker processes it). Keeps triggers fast +
