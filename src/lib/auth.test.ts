@@ -46,4 +46,15 @@ describe("auth", () => {
     expect(isAuthExempt("/api/runs")).toBe(false);
     expect(isAuthExempt("/")).toBe(false);
   });
+
+  it("serves the branding assets to signed-out visitors and link crawlers", () => {
+    // The login card shows the mark, the browser wants a tab icon, and an
+    // unfurled link fetches the OG image — all before anyone has a session.
+    for (const asset of ["/perceo-logo.png", "/icon.png", "/apple-icon.png", "/favicon.ico"]) {
+      expect(isAuthExempt(asset)).toBe(true);
+    }
+    // but nothing else in public/ is a blanket hole
+    expect(isAuthExempt("/globe.svg")).toBe(false);
+    expect(isAuthExempt("/api/runs/r1/artifacts/screenshot.png")).toBe(false);
+  });
 });

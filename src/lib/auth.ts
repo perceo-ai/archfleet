@@ -9,13 +9,23 @@ export type AuthSession = {
   exp: number;
 };
 
-/** Paths reachable without auth (login flow + static assets). */
+/** Branding assets the login page and the outside world need before anyone has
+ * signed in: the mark on the sign-in card, the tab icon, the home-screen icon,
+ * and the image a link preview fetches. They are a logo, not data. */
+const PUBLIC_ASSETS = new Set([
+  "/perceo-logo.png",
+  "/icon.png",
+  "/apple-icon.png",
+  "/favicon.ico",
+]);
+
+/** Paths reachable without auth (login flow + static and branding assets). */
 export function isAuthExempt(path: string): boolean {
   return (
     path === "/login" ||
     path.startsWith("/api/auth") ||
     path.startsWith("/_next") ||
-    path === "/favicon.ico"
+    PUBLIC_ASSETS.has(path)
   );
 }
 
