@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Field } from "@/components/ui/primitives";
+import { Logo } from "@/components/ui/Logo";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -37,9 +38,7 @@ export default function LoginPage() {
     <main style={{ display: "grid", placeItems: "center", minHeight: "100vh", padding: 16 }}>
       <form onSubmit={submit} className="card" style={{ width: "100%", maxWidth: 380 }}>
         <div className="card-head">
-          <span className="mark" aria-hidden="true">
-            A
-          </span>
+          <Logo size={30} />
           <div className="grow">
             <h2 className="wordmark" style={{ fontSize: 17 }}>
               Archfleet

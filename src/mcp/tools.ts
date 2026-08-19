@@ -35,6 +35,7 @@ import {
   resolveTakeover,
 } from "../lib/fleet/db/takeovers-repo";
 import { pauseRunIfActive } from "../lib/fleet/db/runs-repo";
+import { resumeRunAfterPause } from "../lib/fleet/run-resume";
 import { parseAsk, validateAnswers } from "../lib/fleet/human-ask";
 import { applyAskAnswers } from "../lib/fleet/ask-answers";
 import type { Automation, AutomationStatus, EvidenceType, TakeoverStatus, Workflow } from "../lib/fleet/types";
@@ -397,7 +398,9 @@ export const FLEET_TOOLS: FleetTool[] = [
         }
       }
       // Transition the run first — if it already moved on, keep the takeover open.
-      if (a.action === "resume" && !retryRun(db, takeover.runId)) {
+      // Resuming continues after the step that asked, so the same question is
+      // not put again.
+      if (a.action === "resume" && !resumeRunAfterPause(db, takeover.runId)) {
         return { ok: false, error: "run not in a state to resume" };
       }
       if (a.action === "cancel" && !cancelRun(db, takeover.runId)) {

@@ -1,6 +1,7 @@
 import { getDb } from "@/lib/fleet/db/db";
 import { getTakeover, resolveTakeover } from "@/lib/fleet/db/takeovers-repo";
-import { cancelRun, getRun, retryRun } from "@/lib/fleet/db/runs-repo";
+import { cancelRun, getRun } from "@/lib/fleet/db/runs-repo";
+import { resumeRunAfterPause } from "@/lib/fleet/run-resume";
 import { applyAskAnswers } from "@/lib/fleet/ask-answers";
 import { parseAsk, splitAnswers, summarizeAnswers, validateAnswers } from "@/lib/fleet/human-ask";
 
@@ -60,7 +61,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     }
   }
 
-  if (action === "resume" && !retryRun(db, takeover.runId)) {
+  // Continue *after* the step that asked — a bare re-queue would re-run the
+  // takeover node and ask the same question again.
+  if (action === "resume" && !resumeRunAfterPause(db, takeover.runId)) {
     return Response.json({ error: "run not in a state to resume" }, { status: 409 });
   }
   if (action === "cancel" && !cancelRun(db, takeover.runId)) {

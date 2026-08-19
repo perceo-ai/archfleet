@@ -181,6 +181,9 @@ export type WorkflowRun = {
   currentStep?: string;
   /** Why the run paused — set when status is "paused". */
   pausedReason?: string;
+  /** The resolved question the run is waiting on, with templates filled in.
+   * Runtime only: the takeover row is what persists it. */
+  pausedAsk?: import("./human-ask").HumanAsk;
   /** One-line outcome written when the run finishes. */
   resultSummary?: string;
   /** Branch this run is associated with (semantic tests / Archductor triggers). */

@@ -69,6 +69,10 @@ export type OrchestratorDeps = {
   sleep?: (ms: number) => Promise<void>;
   /** User-defined node types, by id — how a `custom` node knows what to run. */
   customNodeTypes?: Record<string, CustomNodeType>;
+  /** A param a node computed. The caller persists it so the value survives a
+   * pause: a run that stops to ask a question and comes back must still know
+   * what it worked out before it stopped. */
+  onParam?: (name: string, value: string | number | boolean | null) => void;
 };
 
 /** A node's branch outcome, used to pick the next edge. */
@@ -238,6 +242,8 @@ export async function runWorkflow(
   // Why the run paused (human_takeover prompt / guest needs_human reason) — shown
   // to the operator, so it is secret-redacted like events.
   let pausedReason: string | undefined;
+  // The resolved question, handed to whoever opens the takeover.
+  let pausedAsk: import("./human-ask").HumanAsk | undefined;
 
   const addArtifact = (artifact: RunArtifact) => {
     artifacts.push(artifact);
@@ -343,13 +349,33 @@ export async function runWorkflow(
           return "failure";
         }
       }
-      case "human_takeover":
+      case "human_takeover": {
         emit("warn", `Node "${node.name}": paused for human takeover.`);
-        pausedReason = redactSecrets(
-          node.config.prompt || `Human takeover requested at "${node.name}".`,
-          secrets,
-        );
+        // The question the node actually asks wins over the legacy prompt: a
+        // node authored with config.ask alone must not pause with boilerplate.
+        // Templates in it are resolved here — the person answering should read
+        // "Approve $2,480", not "Approve {{param.amount}}".
+        const resolve = (text: string | undefined) =>
+          text ? redactSecrets(fillPrompt(text), secrets) : text;
+        const ask = node.config.ask;
+        if (ask) {
+          pausedAsk = {
+            ...ask,
+            question: resolve(ask.question) ?? ask.question,
+            detail: resolve(ask.detail),
+            fields: ask.fields?.map((f) => ({
+              ...f,
+              label: resolve(f.label) ?? f.label,
+              placeholder: resolve(f.placeholder),
+            })),
+            options: ask.options?.map((o) => ({ ...o, label: resolve(o.label) ?? o.label })),
+          };
+        }
+        pausedReason =
+          pausedAsk?.question?.trim() ||
+          redactSecrets(node.config.prompt || `Human takeover requested at "${node.name}".`, secrets);
         return "paused";
+      }
       case "condition": {
         // A written rule beats asking a model: deterministic, free, and it can
         // read what earlier steps produced.
@@ -616,7 +642,12 @@ export async function runWorkflow(
         for (const [name, source] of Object.entries(assign)) {
           try {
             const value = evalExpr(source, runContext());
-            paramMap[name] = value === null || typeof value === "object" ? JSON.stringify(value) : value;
+            const stored = value === null || typeof value === "object" ? JSON.stringify(value) : value;
+            paramMap[name] = stored;
+            // Expressions cannot read secrets, so a computed param is safe to
+            // persist in the clear — unlike an answer marked secret, which goes
+            // to the encrypted store instead.
+            deps.onParam?.(name, stored);
             written.push(name);
           } catch (e) {
             emit("warn", `Set "${node.name}": ${name} — ${String(e)}`);
@@ -782,5 +813,6 @@ export async function runWorkflow(
     artifacts,
     currentStep,
     pausedReason: finalStatus === "paused" ? pausedReason : undefined,
+    pausedAsk: finalStatus === "paused" ? pausedAsk : undefined,
   };
 }

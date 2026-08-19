@@ -64,3 +64,62 @@ describe("layoutGraph", () => {
     expect(layout.width).toBeGreaterThan(0);
   });
 });
+
+describe("layoutGraph on a large graph", () => {
+  /** A 60-node graph: a spine with branches that rejoin, like a real automation. */
+  function bigGraph(spine: number): Workflow {
+    const nodes: [string, string][] = [["start", "Start"]];
+    const edges: [string, string][] = [];
+    let previous = "start";
+    for (let i = 1; i <= spine; i++) {
+      const id = `n${i}`;
+      nodes.push([id, `Step ${i}`]);
+      edges.push([previous, id]);
+      // every fifth step forks and rejoins
+      if (i % 5 === 0) {
+        const side = `side${i}`;
+        nodes.push([side, `Side ${i}`]);
+        edges.push([previous, side]);
+        edges.push([side, id]);
+      }
+      previous = id;
+    }
+    return wf(nodes, edges);
+  }
+
+  it("lays out sixty nodes quickly and keeps every one on the canvas", () => {
+    const workflow = bigGraph(50);
+    const started = performance.now();
+    const layout = layoutGraph(workflow);
+    const took = performance.now() - started;
+
+    // trigger + real nodes + done
+    expect(layout.nodes).toHaveLength(workflow.nodes.length + 2);
+    expect(took).toBeLessThan(250);
+
+    for (const n of layout.nodes) {
+      expect(n.x).toBeGreaterThanOrEqual(0);
+      expect(n.y).toBeGreaterThanOrEqual(0);
+      expect(n.x + 230).toBeLessThanOrEqual(layout.width);
+      expect(n.y + NODE_H).toBeLessThanOrEqual(layout.height);
+    }
+  });
+
+  it("never overlaps two nodes", () => {
+    const layout = layoutGraph(bigGraph(30));
+    const seen = new Set<string>();
+    for (const n of layout.nodes) {
+      const cell = `${Math.round(n.x)}:${Math.round(n.y)}`;
+      expect(seen.has(cell)).toBe(false);
+      seen.add(cell);
+    }
+  });
+
+  it("puts a forked node beside its spine step, not on top of it", () => {
+    const layout = layoutGraph(bigGraph(10));
+    const spine = layout.nodes.find((n) => n.id === "n5")!;
+    const side = layout.nodes.find((n) => n.id === "side5")!;
+    // the side branch starts from n4, so it sits a row above the rejoin
+    expect(side.y).toBeLessThan(spine.y);
+  });
+});

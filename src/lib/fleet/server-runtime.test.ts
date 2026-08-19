@@ -127,6 +127,52 @@ describe("async run queue", () => {
     expect(JSON.parse(row.params_json)).toEqual({});
     db.close();
   });
+
+  it("keeps params a resumed run computed, instead of restoring a stale snapshot", async () => {
+    // The clearing of __resumeFrom used to write back a copy of params read
+    // *before* execution, erasing everything the run had just worked out.
+    const db = openDb(":memory:");
+    const { saveWorkflow } = await import("./db/workflows-repo");
+    saveWorkflow(db, {
+      id: "wf_compute",
+      name: "Compute",
+      description: "",
+      enabled: true,
+      triggerKinds: ["manual"],
+      nodes: [
+        { id: "start", type: "start", name: "S", position: { x: 0, y: 0 }, config: {} },
+        {
+          id: "set",
+          type: "set_params",
+          name: "Work it out",
+          position: { x: 0, y: 1 },
+          config: { assign: { total: "40 + 2", note: '"after the pause"' } },
+        },
+        { id: "end", type: "end", name: "E", position: { x: 0, y: 2 }, config: {} },
+      ],
+      edges: [
+        { id: "e1", from: "start", to: "set", condition: "always" },
+        { id: "e2", from: "set", to: "end", condition: "always" },
+      ],
+    });
+    const run = enqueueManualRun("wf_compute", { db });
+    db.prepare("UPDATE cuf_runs SET params_json=? WHERE id=?").run(
+      JSON.stringify({ __resumeFrom: "set", answered: "earlier" }),
+      run.id,
+    );
+
+    await processPendingRuns(db, 1);
+
+    const row = db.prepare("SELECT params_json FROM cuf_runs WHERE id=?").get(run.id) as {
+      params_json: string;
+    };
+    expect(JSON.parse(row.params_json)).toEqual({
+      answered: "earlier",
+      total: 42,
+      note: "after the pause",
+    });
+    db.close();
+  });
 });
 describe("automation-aware run lifecycle", () => {
   async function seedTakeoverWorkflow(db: import("./db/db").Db) {

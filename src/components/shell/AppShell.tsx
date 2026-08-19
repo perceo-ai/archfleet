@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { usePolling } from "@/lib/ui/api";
 import { CommandPalette, PaletteTrigger } from "@/components/shell/CommandPalette";
+import { Logo } from "@/components/ui/Logo";
 import type { Automation, HumanTakeover } from "@/lib/fleet/types";
 
 const NAV: { href: string; label: string; icon: LucideIcon }[] = [
@@ -59,10 +60,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="app">
       <aside className="rail">
         <div className="rail-top">
-          <Link href="/" className="hstack" style={{ gap: 9 }}>
-            <span className="mark" aria-hidden="true">
-              A
-            </span>
+          <Link href="/" className="hstack" style={{ gap: 9 }} aria-label="Archfleet home">
+            <Logo />
             <span className="wordmark hide-collapsed">Archfleet</span>
           </Link>
         </div>

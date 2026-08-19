@@ -233,6 +233,21 @@ export function enqueueManualRun(
   return run;
 }
 
+/** Write one computed param into the run's stored params. */
+function mergeRunParam(
+  db: Db,
+  runId: string,
+  name: string,
+  value: string | number | boolean | null,
+): void {
+  const row = db.prepare("SELECT params_json FROM cuf_runs WHERE id=?").get(runId) as
+    | { params_json: string }
+    | undefined;
+  const params = JSON.parse(row?.params_json || "{}") as Record<string, unknown>;
+  params[name] = value;
+  db.prepare("UPDATE cuf_runs SET params_json=? WHERE id=?").run(JSON.stringify(params), runId);
+}
+
 /** Merge run-level params (from params_json) over the workflow/global seed params. */
 function resolveParams(db: Db, state: FleetState, runId: string): FleetState["params"] {
   const row = db.prepare("SELECT params_json FROM cuf_runs WHERE id=?").get(runId) as
@@ -276,6 +291,9 @@ export async function executeRunById(db: Db, runId: string, now = () => new Date
       // minute ago is usable by the next run, no restart.
       customNodeTypes: nodeTypeRegistry(db),
       onProgress: (_nodeId, nodeName) => setRunProgress(db, runId, nodeName),
+      // Persist computed params as they are set, so they survive a pause and
+      // show up on the run record.
+      onParam: (name, value) => mergeRunParam(db, runId, name, value),
       // Stream events + artifacts into the db as they happen so the run view is a
       // live "watch it run" surface, not a post-hoc report. Same ids as the final
       // saveRun, so the settle-time write replaces these rows.
@@ -289,8 +307,14 @@ export async function executeRunById(db: Db, runId: string, now = () => new Date
   // later plain retry starts from the beginning instead of silently skipping
   // prerequisite steps. A no-VM requeue keeps it — the resume hasn't happened yet.
   if (resumeFrom !== undefined && settled) {
-    delete storedParams.__resumeFrom;
-    db.prepare("UPDATE cuf_runs SET params_json=? WHERE id=?").run(JSON.stringify(storedParams), runId);
+    // Re-read: the run has been writing computed params since `storedParams`
+    // was snapshotted, and writing the stale copy back would erase them.
+    const latest = db.prepare("SELECT params_json FROM cuf_runs WHERE id=?").get(runId) as
+      | { params_json: string }
+      | undefined;
+    const params = JSON.parse(latest?.params_json || "{}") as Record<string, unknown>;
+    delete params.__resumeFrom;
+    db.prepare("UPDATE cuf_runs SET params_json=? WHERE id=?").run(JSON.stringify(params), runId);
   }
   const lastEvent = run.events[run.events.length - 1];
   const merged: WorkflowRun = {
@@ -398,7 +422,9 @@ function recordRunSideEffects(db: Db, run: WorkflowRun, now: () => string): void
     const workflow = getWorkflow(db, run.workflowId);
     const pausedNode = workflow?.nodes.find((n) => n.name === run.currentStep);
     const fallback = run.pausedReason ?? "Open the desktop, finish the blocked step, then resume.";
-    const ask = parseAsk(pausedNode?.config.ask ?? run.pausedReason, fallback);
+    // Prefer the ask the orchestrator already resolved against this run — the
+    // node's own copy still has {{param.x}} in it.
+    const ask = parseAsk(run.pausedAsk ?? pausedNode?.config.ask ?? run.pausedReason, fallback);
     openTakeover(db, {
       id: `tk_${run.id}_${now()}`,
       runId: run.id,
