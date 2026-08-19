@@ -34,7 +34,7 @@ import {
   openTakeover,
   resolveTakeover,
 } from "../lib/fleet/db/takeovers-repo";
-import { setRunOutcome, setRunStatus } from "../lib/fleet/db/runs-repo";
+import { pauseRunIfActive } from "../lib/fleet/db/runs-repo";
 import { parseAsk, validateAnswers } from "../lib/fleet/human-ask";
 import { applyAskAnswers } from "../lib/fleet/ask-answers";
 import type { Automation, AutomationStatus, EvidenceType, TakeoverStatus, Workflow } from "../lib/fleet/types";
@@ -444,9 +444,12 @@ export const FLEET_TOOLS: FleetTool[] = [
       if (existing) return { ok: true, alreadyOpen: true, takeover: existing };
 
       const ask = parseAsk(a, `The run needs a human at "${run.currentStep ?? "this step"}".`);
-      if (run.status !== "paused") {
-        setRunStatus(db, run.id, "paused");
-        setRunOutcome(db, run.id, { pausedReason: ask.question });
+      // Conditional, so a run that settled in the meantime is not resurrected.
+      if (run.status !== "paused" && !pauseRunIfActive(db, run.id, ask.question)) {
+        return {
+          ok: false,
+          error: `run finished as ${getRun(db, run.id)?.status ?? "unknown"} before the question could be asked`,
+        };
       }
       const now = new Date().toISOString();
       const takeover = {

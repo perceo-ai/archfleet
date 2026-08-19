@@ -322,9 +322,12 @@ function evaluate(node: Node, ctx: ExprContext): ExprValue {
       return Object.prototype.hasOwnProperty.call(target, key) ? target[key] : null;
     }
     case "call": {
-      const fn = FUNCTIONS[node.name];
-      if (!fn) throw new ExprError(`unknown function "${node.name}"`);
-      return fn(node.args.map((a) => evaluate(a, ctx)));
+      // Own properties only: indexing the map directly would treat inherited
+      // names like `constructor` and `__proto__` as registered functions.
+      if (!Object.prototype.hasOwnProperty.call(FUNCTIONS, node.name)) {
+        throw new ExprError(`unknown function "${node.name}"`);
+      }
+      return FUNCTIONS[node.name](node.args.map((a) => evaluate(a, ctx)));
     }
     case "unary": {
       const value = evaluate(node.on, ctx);
@@ -431,10 +434,45 @@ export function evalRule(
   }
 }
 
-/** Syntax check for the editor — no context needed. */
+/** Every function name an expression calls, so validation can reject unknown
+ * ones at save time rather than at 3am. */
+function calledFunctions(node: Node, out: string[] = []): string[] {
+  switch (node.k) {
+    case "call":
+      out.push(node.name);
+      node.args.forEach((a) => calledFunctions(a, out));
+      break;
+    case "member":
+      calledFunctions(node.on, out);
+      calledFunctions(node.name, out);
+      break;
+    case "unary":
+      calledFunctions(node.on, out);
+      break;
+    case "binary":
+      calledFunctions(node.left, out);
+      calledFunctions(node.right, out);
+      break;
+    case "cond":
+      calledFunctions(node.test, out);
+      calledFunctions(node.yes, out);
+      calledFunctions(node.no, out);
+      break;
+    default:
+      break;
+  }
+  return out;
+}
+
+/** Syntax check for the editor — no context needed. Catches unknown functions
+ * too, so what saves is what runs. */
 export function checkExpr(source: string): string | undefined {
   try {
-    parse(lex(source));
+    const ast = parse(lex(source));
+    const unknown = calledFunctions(ast).find(
+      (name) => !Object.prototype.hasOwnProperty.call(FUNCTIONS, name),
+    );
+    if (unknown) return `unknown function "${unknown}"`;
     return undefined;
   } catch (e) {
     return e instanceof Error ? e.message : String(e);

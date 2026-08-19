@@ -71,6 +71,13 @@ describe("evalExpr", () => {
     expect(val('params["prototype"]')).toBe(null);
   });
 
+  it("does not treat inherited object properties as callable functions", () => {
+    expect(() => val("constructor(1)")).toThrow(/unknown function/);
+    expect(() => val("__proto__(1)")).toThrow(/unknown function/);
+    expect(() => val('hasOwnProperty("len")')).toThrow(/unknown function/);
+    expect(() => val("toString()")).toThrow(/unknown function/);
+  });
+
   it("rejects malformed input rather than guessing", () => {
     expect(() => val("params.")).toThrow();
     expect(() => val("1 +")).toThrow();
@@ -99,5 +106,11 @@ describe("checkExpr", () => {
   it("reports a syntax error for the editor, or nothing when it parses", () => {
     expect(checkExpr('params.region == "eu"')).toBeUndefined();
     expect(checkExpr("params.region ==")).toBeTruthy();
+  });
+
+  it("rejects unknown functions at save time, exactly as evaluation would", () => {
+    expect(checkExpr("nope(1)")).toMatch(/unknown function "nope"/);
+    expect(checkExpr("constructor(1)")).toMatch(/unknown function "constructor"/);
+    expect(checkExpr('contains(lower(params.region), "e")')).toBeUndefined();
   });
 });

@@ -1,5 +1,5 @@
 import { getDb } from "@/lib/fleet/db/db";
-import { getRun, setRunOutcome, setRunStatus } from "@/lib/fleet/db/runs-repo";
+import { getRun, pauseRunIfActive } from "@/lib/fleet/db/runs-repo";
 import { getOpenTakeoverForRun, openTakeover } from "@/lib/fleet/db/takeovers-repo";
 import { parseAsk } from "@/lib/fleet/human-ask";
 
@@ -34,10 +34,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     return Response.json({ takeover: existing, alreadyOpen: true }, { status: 200 });
   }
 
-  // Hold the desktop where it is, so the human lands on the same screen.
-  if (run.status !== "paused") {
-    setRunStatus(db, id, "paused");
-    setRunOutcome(db, id, { pausedReason: ask.question });
+  // Hold the desktop where it is, so the human lands on the same screen. The
+  // pause is conditional: the run may have settled between the read above and
+  // now, and a completed run must not be dragged back to paused (nor left with
+  // an open takeover nobody can answer).
+  if (run.status !== "paused" && !pauseRunIfActive(db, id, ask.question)) {
+    const settled = getRun(db, id);
+    return Response.json(
+      { error: `run finished as ${settled?.status ?? "unknown"} before the question could be asked` },
+      { status: 409 },
+    );
   }
 
   const now = new Date().toISOString();
