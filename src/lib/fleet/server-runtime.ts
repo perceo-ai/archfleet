@@ -27,6 +27,7 @@ import {
   appendRunArtifact,
 } from "./db/runs-repo";
 import { getWorkflow } from "./db/workflows-repo";
+import { nodeTypeRegistry } from "./db/node-types-repo";
 import { getAutomation, getAutomationByWorkflowId } from "./db/automations-repo";
 import { evaluateEvidenceChecks } from "./evidence-checks";
 import { touchEnvironment } from "./db/environments-repo";
@@ -39,6 +40,7 @@ import {
   listStaleOpenTakeovers,
 } from "./db/takeovers-repo";
 import { loadSecrets } from "./db/secrets-repo";
+import { parseAsk } from "./human-ask";
 import { recordRunMetric } from "./db/run-metrics-repo";
 import { seedFleetState } from "./seed";
 import { notifyRun, notifyTakeoverEscalation } from "./notify";
@@ -270,6 +272,9 @@ export async function executeRunById(db: Db, runId: string, now = () => new Date
     },
     {
       ...buildRunDeps(state, now),
+      // Whatever node types are installed right now — a definition saved a
+      // minute ago is usable by the next run, no restart.
+      customNodeTypes: nodeTypeRegistry(db),
       onProgress: (_nodeId, nodeName) => setRunProgress(db, runId, nodeName),
       // Stream events + artifacts into the db as they happen so the run view is a
       // live "watch it run" surface, not a post-hoc report. Same ids as the final
@@ -388,13 +393,20 @@ function recordRunSideEffects(db: Db, run: WorkflowRun, now: () => string): void
     });
   }
   if (run.status === "paused" && !getOpenTakeoverForRun(db, run.id)) {
+    // The paused node decides what to ask for: a code, a choice, an approval,
+    // or just "go finish this". Anything else falls back to acknowledge.
+    const workflow = getWorkflow(db, run.workflowId);
+    const pausedNode = workflow?.nodes.find((n) => n.name === run.currentStep);
+    const fallback = run.pausedReason ?? "Open the desktop, finish the blocked step, then resume.";
+    const ask = parseAsk(pausedNode?.config.ask ?? run.pausedReason, fallback);
     openTakeover(db, {
       id: `tk_${run.id}_${now()}`,
       runId: run.id,
       environmentId: run.environmentId,
       vmId: run.vmId,
       reason: `Paused at "${run.currentStep ?? "unknown step"}"`,
-      requestedAction: run.pausedReason ?? "Open the desktop and finish the blocked step, then resume.",
+      requestedAction: ask.question,
+      ask,
       status: "open",
       openedAt: now(),
     });

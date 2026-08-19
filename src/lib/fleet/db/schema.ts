@@ -171,10 +171,26 @@ CREATE TABLE IF NOT EXISTS cuf_takeovers (
   resolved_at      TEXT,
   operator_notes   TEXT,
   notified_at      TEXT,
-  escalated_at     TEXT
+  escalated_at     TEXT,
+  ask_json         TEXT,   -- structured request: input | choice | approval | acknowledge
+  answers_json     TEXT    -- what the human answered (never secret values)
 );
 CREATE INDEX IF NOT EXISTS cuf_takeovers_run ON cuf_takeovers(run_id);
 CREATE INDEX IF NOT EXISTS cuf_takeovers_status ON cuf_takeovers(status);
+
+-- User-defined node types: the palette anyone can extend without a deploy.
+CREATE TABLE IF NOT EXISTS cuf_node_types (
+  id           TEXT PRIMARY KEY,
+  name         TEXT NOT NULL,
+  description  TEXT NOT NULL DEFAULT '',
+  icon         TEXT,
+  base         TEXT NOT NULL,          -- http | shell | expression
+  fields_json  TEXT NOT NULL DEFAULT '[]',
+  template     TEXT NOT NULL DEFAULT '',
+  success_expr TEXT,
+  created_at   TEXT NOT NULL,
+  updated_at   TEXT NOT NULL
+);
 
 -- Per-run resource telemetry, collected for later optimization surfaces (boot
 -- time, warm pools, queue tuning). Backend-only: the UX stays automation-first.
@@ -244,6 +260,8 @@ export const COLUMN_MIGRATIONS: Record<string, Record<string, string>> = {
   cuf_takeovers: {
     notified_at: "TEXT",
     escalated_at: "TEXT",
+    ask_json: "TEXT",
+    answers_json: "TEXT",
   },
 };
 

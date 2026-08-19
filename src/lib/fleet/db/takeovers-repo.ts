@@ -4,13 +4,14 @@
 
 import type { Db } from "./db";
 import type { HumanTakeover, TakeoverStatus } from "../types";
+import { parseAsk } from "../human-ask";
 
 export function openTakeover(db: Db, t: HumanTakeover): void {
   db.prepare(
     `INSERT OR REPLACE INTO cuf_takeovers
        (id, run_id, environment_id, vm_id, reason, requested_action, status, opened_at, resolved_at,
-        operator_notes, notified_at, escalated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+        operator_notes, notified_at, escalated_at, ask_json, answers_json)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   ).run(
     t.id,
     t.runId,
@@ -24,6 +25,8 @@ export function openTakeover(db: Db, t: HumanTakeover): void {
     t.operatorNotes ?? null,
     t.notifiedAt ?? null,
     t.escalatedAt ?? null,
+    t.ask ? JSON.stringify(t.ask) : null,
+    t.answers ? JSON.stringify(t.answers) : null,
   );
 }
 
@@ -41,6 +44,13 @@ function rowToTakeover(row: Record<string, unknown>): HumanTakeover {
     operatorNotes: (row.operator_notes as string) ?? undefined,
     notifiedAt: (row.notified_at as string) ?? undefined,
     escalatedAt: (row.escalated_at as string) ?? undefined,
+    // Rows written before asks existed still render: the reason becomes the question.
+    ask: row.ask_json
+      ? parseAsk(JSON.parse(row.ask_json as string), row.reason as string)
+      : parseAsk(row.requested_action as string, row.reason as string),
+    answers: row.answers_json
+      ? (JSON.parse(row.answers_json as string) as Record<string, string>)
+      : undefined,
   };
 }
 
@@ -81,13 +91,23 @@ export function getOpenTakeoverForRun(db: Db, runId: string): HumanTakeover | un
 export function resolveTakeover(
   db: Db,
   id: string,
-  fields: { operatorNotes?: string; resolvedAt?: string },
+  fields: { operatorNotes?: string; resolvedAt?: string; answers?: Record<string, string> },
 ): boolean {
   const res = db
     .prepare(
-      "UPDATE cuf_takeovers SET status='resolved', resolved_at=?, operator_notes=COALESCE(?, operator_notes) WHERE id=? AND status='open'",
+      `UPDATE cuf_takeovers
+          SET status='resolved',
+              resolved_at=?,
+              operator_notes=COALESCE(?, operator_notes),
+              answers_json=COALESCE(?, answers_json)
+        WHERE id=? AND status='open'`,
     )
-    .run(fields.resolvedAt ?? new Date().toISOString(), fields.operatorNotes ?? null, id);
+    .run(
+      fields.resolvedAt ?? new Date().toISOString(),
+      fields.operatorNotes ?? null,
+      fields.answers ? JSON.stringify(fields.answers) : null,
+      id,
+    );
   return res.changes === 1;
 }
 

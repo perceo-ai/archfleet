@@ -147,13 +147,13 @@ See `.env.example` for the full list.
 
 ## How it works
 
-1. **Author.** Describe the task in plain language on **New automation** — archfleet drafts the whole automation (goal, steps, secrets, success criteria, risk notes, workflow graph) for review. Power users can still edit the React Flow graph on the automation's Advanced tab or draft a bare graph with `plan_workflow`.
+1. **Author.** Describe the task in plain language to the copilot in the automation workspace — archfleet drafts the whole automation (goal, graph, secrets, success criteria, risk notes) and lays it out as a graph for review. The graph *is* the automation: each node opens its own modal, the trigger sits above it and the “done means” criteria below. Power users can also draft a bare graph with `plan_workflow`.
 2. **Prepare.** The Environments page wraps profile ops: it starts the source VM, opens its desktop, waits for manual login/2FA, captures the source, clones it, and writes fleet JSON for labels such as `profile:bank`. Automations reference the result as a **prepared environment**.
 3. **Trigger.** Run manually (Run button / `POST /api/runs`), on a cron schedule, or via webhook (`POST /api/webhooks/:token`, whose JSON body becomes run params).
 4. **Enqueue.** `POST /api/runs` returns `202` with a `queued` run. A worker drains the queue — the always-on server does it via the `instrumentation` loop; serverless/multi-instance hosts POST `/api/runs/process` on a cron. Claims are atomic, so multiple workers are safe.
 5. **Acquire & reset.** The vm-daemon shells out to `virsh` to acquire an idle VM and restore its warm memory snapshot (~1–3s), giving each run a clean desktop.
 6. **Execute.** The orchestrator dispatches each node: computer-use tasks run Agent S on the guest `:0` desktop over SSH; browser/script tasks run deterministic step lists; CLI-agent/shell/api tasks run on the controller. Every task resolves `{{secret.x}}` / `{{param.x}}` / `{{totp.x}}` at runtime, and all values are redacted from persisted logs.
-7. **Pause for a human.** On a `human_takeover` node — or a task failing into one — the run pauses, the VM is held (no reset), and archfleet pages `CUF_NOTIFY_WEBHOOK`. Take over on the same live desktop with **Open desktop** in the sidebar.
+7. **Ask a human.** On a `human_takeover` node — or any executor calling `POST /api/runs/:id/ask` / the `ask_human` MCP tool — the run stops and asks a *question*: a value, a choice, an approval, or just a hand. The VM is held (no reset) and archfleet pages `CUF_NOTIFY_WEBHOOK`. Answer it inline from the inbox; plain answers come back as `{{param.x}}`, answers marked secret as encrypted `{{secret.x}}`.
 8. **Resume & review.** `POST /api/runs/:id/action` with `retry` / `resume` / `cancel`. Every step's screenshot is captured on the guest and scp-fetched to `data/artifacts/<runId>/`, shown as thumbnails and downloadable at `GET /api/runs/:id/artifacts/:name`.
 
 See `RUNBOOK.md` for the full human-in-the-loop and 2FA playbook, and `ARCHITECTURE.md` for the layer/deploy topology.
@@ -161,17 +161,21 @@ See `RUNBOOK.md` for the full human-in-the-loop and 2FA playbook, and `ARCHITECT
 ## Features
 
 - ✅ **Automations as the main object** — intent + workflow + trigger + prepared environment + success criteria + run history, drafted from plain language and reviewed before anything runs.
+- ✅ **Inbox instead of a dashboard** — the landing page is the work queue: takeovers with inline resume, failed runs grouped by root cause (one fix, one retry), drafts awaiting activation.
 - ✅ **State-dependent run view** — live desktop + current step while running; takeover reason, held desktop, operator notes while paused; criteria review + evidence when done; failure point + recovery paths on failure.
 - ✅ **Evidence store** — screenshots/files/logs per run plus human pass/fail criteria reviews, queryable by run, automation, or associated PR/branch.
 - ✅ **Automated evidence checks** — `text_found` / `url_reached` / `file_downloaded` / `screenshot_captured` assertions evaluated after every run and recorded as pass/fail evidence.
 - ✅ **PR/branch association** — runs accept `branch`/`pr` (API body or webhook payload); semantic-test evidence is retrievable per PR for review (`GET /api/evidence?pr=42`).
 - ✅ **Prepared environments** — the user-facing wrapper over profile VMs (logins, device trust, warm snapshots).
-- ✅ **Visual workflow editor** — React Flow canvas, validated before save (Advanced tab).
-- ✅ **Node types** — `computer_use_task` (Agent S, LLM), `script_task` (scripted pyautogui, no LLM), `browser_task` (Playwright step list, no LLM), `cli_agent_task` (Claude Code / Codex), `shell_task` (gated), `api_call`, `otp_email`, `human_takeover`, `condition`, `retry_wait`.
+- ✅ **Graph-first workspace** — the automation is its graph, on its own full-viewport page (copilot left, canvas centre, live state right). The last run is painted onto the nodes, so a failure has a location, not just a step number.
+- ✅ **Node types** — `computer_use_task` (Agent S, LLM), `script_task` (scripted pyautogui, no LLM), `browser_task` (Playwright step list, no LLM), `cli_agent_task` (Claude Code / Codex), `shell_task` (gated), `api_call`, `otp_email`, `human_takeover`, `condition`, `switch`, `wait`, `set_params`, `retry_wait`, plus any `custom` type you define.
+- ✅ **A real rules engine** — every step's output is readable by later steps as `steps["Step name"]`, and `condition` / `switch` / `wait` / `set_params` branch on expressions (`steps["Fetch"].body.total > 1000 && params.region == "eu"`). Parsed and evaluated in-process — no `eval`, no prototype access — and validated when the workflow is saved, not at 3am.
+- ✅ **Custom nodes without a deploy** — declare a node type's inputs and point it at an HTTP call, a shell command, or an expression. It appears in every automation's step palette immediately. Presets included for API calls, Slack posts, commands and computed values.
 - ✅ **Async + durable runs** — atomic queue claim, backoff/retry when no VM is free, worker loop or external cron.
 - ✅ **Triggers** — manual, cron schedule, and webhook (hashed token).
 - ✅ **Encrypted secrets & params** — AES-256-GCM at rest (key derived from `CUF_SECRET_KEY`, kept out of the DB), redacted from all persisted events.
 - ✅ **Runtime 2FA** — RFC 6238 `{{totp.seed}}` codes generated per run, plus an `otp_email` node that reads an IMAP inbox and extracts the code.
+- ✅ **Human-in-the-loop for anything** — a run stops and asks a structured question (input / choice / approval / acknowledge); the answer flows back into it as a param or an encrypted secret. Not just logins: missing data, ambiguous choices, spend approvals.
 - ✅ **XRDP human-takeover** — pause + hold VM + page operator; land on the same `:0` desktop the agent was driving.
 - ✅ **Task profile operations** — browser-first setup, update, and recovery for logged-in task goldens.
 - ✅ **Model-free demo backend** — `CUF_AGENT_BACKEND=mock` proves the whole stack end to end.

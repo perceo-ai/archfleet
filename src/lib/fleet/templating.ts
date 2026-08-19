@@ -8,17 +8,44 @@
 // Prefer params for anything non-sensitive.
 
 import { generateTotp } from "./totp";
+import { evalExpr, type ExprContext, type ExprValue } from "./expr";
 
 export type TemplateValues = {
   secrets: Record<string, string>;
   params: Record<string, string | number | boolean | null>;
+  /** A custom node's own inputs, referenced as {{field.x}}. */
+  fields?: Record<string, string>;
+  /** Everything an expression can see: params, steps, run. Enables {{= ... }}. */
+  context?: ExprContext;
 };
 
-// {{secret.x}}, {{param.x}}, or {{totp.x}} (x = a secret holding a base32 TOTP seed).
-const PLACEHOLDER = /\{\{\s*(secret|param|totp)\.([a-zA-Z0-9_.-]+)\s*\}\}/g;
+// {{secret.x}}, {{param.x}}, {{field.x}}, or {{totp.x}} (x = a secret holding a
+// base32 TOTP seed).
+const PLACEHOLDER = /\{\{\s*(secret|param|totp|field)\.([a-zA-Z0-9_.-]+)\s*\}\}/g;
+
+// {{= expression }} — the general form: anything the rules engine can evaluate,
+// e.g. {{= steps["Fetch"].body.total > 1000 ? "large" : "small" }}.
+const EXPRESSION = /\{\{=\s*([\s\S]+?)\s*\}\}/g;
+
+function renderValue(value: ExprValue): string {
+  if (value === null) return "";
+  return typeof value === "object" ? JSON.stringify(value) : String(value);
+}
 
 export function resolveTemplate(text: string, values: TemplateValues): string {
-  return text.replace(PLACEHOLDER, (whole, kind: string, name: string) => {
+  const withExpressions = values.context
+    ? text.replace(EXPRESSION, (whole, source: string) => {
+        try {
+          return renderValue(evalExpr(source, values.context!));
+        } catch {
+          return whole; // leave a broken expression visible rather than blanking it
+        }
+      })
+    : text;
+  return withExpressions.replace(PLACEHOLDER, (whole, kind: string, name: string) => {
+    if (kind === "field") {
+      return values.fields && name in values.fields ? values.fields[name] : whole;
+    }
     if (kind === "secret") {
       return name in values.secrets ? values.secrets[name] : whole;
     }

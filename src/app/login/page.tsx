@@ -1,8 +1,8 @@
 "use client";
 
-import Image from "next/image";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Field } from "@/components/ui/primitives";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -34,66 +34,73 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="grid-lines relative grid min-h-screen place-items-center overflow-hidden bg-[#312F2F] px-4 text-white">
-      <div className="dot-pattern dot-pattern-fade z-0" aria-hidden="true" />
-      <form onSubmit={submit} className="glass glass-border relative z-10 w-full max-w-sm rounded-[5px] p-6">
-        <div className="mb-5 flex items-center gap-3">
-          <Image src="/perceo-logo.png" alt="" width={32} height={32} className="rounded-[6px]" />
-          <div>
-            <h1 className="font-serif text-xl font-bold italic tracking-tight">Archfleet</h1>
-            <p className="text-xs text-white/45">Sign in to continue</p>
+    <main style={{ display: "grid", placeItems: "center", minHeight: "100vh", padding: 16 }}>
+      <form onSubmit={submit} className="card" style={{ width: "100%", maxWidth: 380 }}>
+        <div className="card-head">
+          <span className="mark" aria-hidden="true">
+            A
+          </span>
+          <div className="grow">
+            <h2 className="wordmark" style={{ fontSize: 17 }}>
+              Archfleet
+            </h2>
+            <p>Sign in to continue</p>
           </div>
         </div>
 
-        {useToken ? (
-          <label className="block text-xs font-medium text-white/60">
-            Bootstrap token
-            <input
-              type="password"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              autoFocus
-              className="mt-1 h-9 w-full rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 text-sm text-white outline-none focus:border-[#8b5cf6]"
-            />
-          </label>
-        ) : (
-          <div className="space-y-3">
-            <label className="block text-xs font-medium text-white/60">
-              Username
+        <div className="card-body stack-s">
+          {useToken ? (
+            <Field label="Bootstrap token">
               <input
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                autoFocus
-                className="mt-1 h-9 w-full rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 text-sm text-white outline-none focus:border-[#8b5cf6]"
-              />
-            </label>
-            <label className="block text-xs font-medium text-white/60">
-              Password
-              <input
+                className="input"
                 type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="mt-1 h-9 w-full rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 text-sm text-white outline-none focus:border-[#8b5cf6]"
+                aria-label="Bootstrap token"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                autoFocus
               />
-            </label>
-          </div>
-        )}
+            </Field>
+          ) : (
+            <>
+              <Field label="Username">
+                <input
+                  className="input"
+                  aria-label="Username"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  autoFocus
+                />
+              </Field>
+              <Field label="Password">
+                <input
+                  className="input"
+                  type="password"
+                  aria-label="Password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              </Field>
+            </>
+          )}
 
-        {error ? <p className="mt-3 rounded-[5px] border border-[#f87171]/30 bg-[#f87171]/20 px-2 py-1 text-xs text-[#fca5a5]">{error}</p> : null}
-        <button
-          type="submit"
-          disabled={busy}
-          className="perceo-primary mt-4 h-9 w-full rounded-[5px] px-3 text-sm font-semibold disabled:opacity-60"
-        >
-          {busy ? "Signing in..." : "Sign in"}
-        </button>
-        <button
-          type="button"
-          onClick={() => setUseToken((v) => !v)}
-          className="mt-3 w-full text-center text-xs text-white/45 hover:text-white"
-        >
-          {useToken ? "Use username and password" : "Use bootstrap token"}
-        </button>
+          {error ? (
+            <p className="t-sm" style={{ color: "var(--danger)", margin: 0 }} role="alert">
+              {error}
+            </p>
+          ) : null}
+
+          <button type="submit" className="btn btn-primary" disabled={busy} style={{ width: "100%" }}>
+            {busy ? "Signing in…" : "Sign in"}
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => setUseToken((v) => !v)}
+            style={{ width: "100%" }}
+          >
+            {useToken ? "Use username and password" : "Use a bootstrap token"}
+          </button>
+        </div>
       </form>
     </main>
   );

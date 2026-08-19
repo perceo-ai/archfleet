@@ -28,3 +28,19 @@ export function categoryLabel(category: string): string {
   const text = category.replace(/_/g, " ");
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
+
+/** Guided schedule choices — users pick a cadence, not a cron string. */
+export const SCHEDULE_PRESETS: { key: string; label: string; cron: string }[] = [
+  { key: "15min", label: "Every 15 minutes", cron: "*/15 * * * *" },
+  { key: "hourly", label: "Every hour", cron: "0 * * * *" },
+  { key: "daily", label: "Every day at 9:00", cron: "0 9 * * *" },
+  { key: "weekdays", label: "Weekdays at 9:00", cron: "0 9 * * 1-5" },
+  { key: "weekly", label: "Mondays at 9:00", cron: "0 9 * * 1" },
+  { key: "monthly", label: "1st of the month at 9:00", cron: "0 9 1 * *" },
+];
+
+/** Human-readable cadence for a stored cron, falling back to the raw string. */
+export function cadenceLabel(cron: string | undefined): string {
+  if (!cron) return "";
+  return SCHEDULE_PRESETS.find((p) => p.cron === cron)?.label ?? cron;
+}

@@ -10,6 +10,13 @@ import { redactSecrets } from "./redaction";
 import { runComputerUseTask, type ExecRunner, type GuestReport, type GuestConnection } from "./computer-use";
 import { runCliAgent, type AgentExec, type AgentRunResult } from "./cli-agent-runner";
 import { resolveTemplate } from "./templating";
+import { evalExpr, evalRule, type ExprContext, type ExprValue } from "./expr";
+import {
+  evaluateSuccessExpr,
+  missingRequiredFields,
+  resolveFields,
+  type CustomNodeType,
+} from "./node-types";
 import type { AgentProvider } from "./types";
 import type { VmDaemon } from "./vm-daemon/daemon";
 import type {
@@ -58,10 +65,29 @@ export type OrchestratorDeps = {
   onEvent?: (event: RunEvent, seq: number) => void;
   /** Called as each artifact lands — lets the run view show screenshots while running. */
   onArtifact?: (artifact: RunArtifact) => void;
+  /** Pause for `wait` nodes. Injected so tests do not actually sleep. */
+  sleep?: (ms: number) => Promise<void>;
+  /** User-defined node types, by id — how a `custom` node knows what to run. */
+  customNodeTypes?: Record<string, CustomNodeType>;
 };
 
 /** A node's branch outcome, used to pick the next edge. */
 type Outcome = "success" | "failure" | "paused";
+
+/** Read a response once, as JSON when it parses, otherwise as text. Capped so a
+ * huge download cannot end up in the run record. */
+async function readResponseBody(res: Response): Promise<ExprValue> {
+  try {
+    const text = (await res.text()).slice(0, 100_000);
+    try {
+      return JSON.parse(text) as ExprValue;
+    } catch {
+      return text;
+    }
+  } catch {
+    return null;
+  }
+}
 
 export type RunWorkflowInput = {
   workflow: Workflow;
@@ -187,7 +213,25 @@ export async function runWorkflow(
   const paramMap = Object.fromEntries(params.map((p) => [p.name, p.value]));
   // Resolve {{secret.x}}/{{param.x}} in a node prompt. Values reach the guest so
   // the agent can type them; events are still secret-redacted before persistence.
-  const fillPrompt = (text: string) => resolveTemplate(text, { secrets: secretMap, params: paramMap });
+  // What every rule and template can see. `steps` accumulates each node's output
+  // as it runs, so a later node can branch on what an earlier one produced.
+  const stepOutputs: Record<string, ExprValue> = {};
+  const runContext = (): ExprContext => ({
+    params: paramMap as unknown as ExprValue,
+    steps: stepOutputs as unknown as ExprValue,
+    run: { id: runId, workflow: workflow.name, startedAt } as unknown as ExprValue,
+  });
+  const fillPrompt = (text: string, fields?: Record<string, string>) =>
+    resolveTemplate(text, {
+      secrets: secretMap,
+      params: paramMap,
+      fields,
+      context: runContext(),
+    });
+  /** Record what a node produced, for `steps["Name"]` in later expressions. */
+  const setOutput = (node: WorkflowNode, output: ExprValue) => {
+    stepOutputs[node.name] = output;
+  };
   const artifacts: RunArtifact[] = [];
   let pastWork = "";
   let finalStatus: RunStatus = "succeeded";
@@ -208,6 +252,8 @@ export async function runWorkflow(
 
   // The most recent executable task node — retry_wait re-runs it.
   let lastTaskNode: WorkflowNode | undefined;
+  // Which labelled branch the last switch picked, for `case:<label>` edges.
+  let switchChoice: string | undefined;
 
   // Execute one node, returning a branch outcome. Emits events + collects
   // artifacts as side effects.
@@ -259,6 +305,11 @@ export async function runWorkflow(
           });
           emit(res.ok ? "info" : "warn", `API ${spec.method ?? "GET"} ${spec.url} -> ${res.status}.`);
           pastWork += `\n${node.name}: HTTP ${res.status}`;
+          setOutput(node, {
+            status: res.status,
+            ok: res.ok,
+            body: await readResponseBody(res),
+          });
           return res.ok ? "success" : "failure";
         } catch (e) {
           emit("error", `Node "${node.name}" api_call error: ${String(e)}`);
@@ -300,6 +351,16 @@ export async function runWorkflow(
         );
         return "paused";
       case "condition": {
+        // A written rule beats asking a model: deterministic, free, and it can
+        // read what earlier steps produced.
+        if (node.config.expr?.trim()) {
+          const { value, error } = evalRule(node.config.expr, runContext());
+          if (error) emit("warn", `Condition "${node.name}": ${error} — treated as false.`);
+          emit("info", `Condition "${node.name}" -> ${value ? "success" : "failure"}.`);
+          setOutput(node, value);
+          pastWork += `\n${node.name}: ${value}`;
+          return value ? "success" : "failure";
+        }
         if (node.config.provider) {
           if (!deps.agentExec) {
             emit("error", `Condition "${node.name}": no CLI-agent executor configured.`);
@@ -348,9 +409,10 @@ export async function runWorkflow(
           emit("error", `Node "${node.name}": shell execution not enabled.`);
           return "failure";
         }
-        const res = await deps.shellExec(node.config.prompt ?? "", { env });
+        const res = await deps.shellExec(fillPrompt(node.config.prompt ?? ""), { env });
         emit(res.code === 0 ? "info" : "warn", `Shell "${node.name}" exited ${res.code}.`);
         pastWork += `\n${node.name}: exit ${res.code}`;
+        setOutput(node, { code: res.code, stdout: res.stdout, stderr: res.stderr });
         return res.code === 0 ? "success" : "failure";
       }
       case "browser_task":
@@ -462,8 +524,195 @@ export async function runWorkflow(
         pastWork += `\n${node.name}: ${typeof result.structuredOutput === "string" ? result.structuredOutput : "done"}`;
         return "success";
       }
+      case "switch": {
+        const cases = node.config.cases ?? [];
+        for (const branch of cases) {
+          const { value, error } = evalRule(branch.expr, runContext());
+          if (error) emit("warn", `Switch "${node.name}" case "${branch.label}": ${error}.`);
+          if (value) {
+            emit("info", `Switch "${node.name}" -> "${branch.label}".`);
+            setOutput(node, branch.label);
+            pastWork += `\n${node.name}: ${branch.label}`;
+            switchChoice = branch.label;
+            return "success";
+          }
+        }
+        emit("info", `Switch "${node.name}": no case matched.`);
+        setOutput(node, null);
+        switchChoice = undefined;
+        return "failure";
+      }
+      case "wait": {
+        const sleep = deps.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
+        const until = node.config.untilExpr?.trim();
+        const step = Math.max(250, Math.min(node.config.waitMs ?? 1000, 30_000));
+        if (!until) {
+          const ms = Math.max(0, node.config.waitMs ?? 0);
+          emit("info", `Waiting ${Math.round(ms / 1000)}s at "${node.name}".`);
+          await sleep(ms);
+          setOutput(node, { waitedMs: ms });
+          return "success";
+        }
+        // "Wait until X" is only meaningful if something can change while we
+        // wait, so the node re-runs a probe each interval and the rule reads the
+        // probe's latest result: poll the export endpoint until it says ready.
+        const probeSpec = node.config.prompt?.trim();
+        const budget = node.config.timeoutMs ?? 300_000;
+        let waited = 0;
+
+        const probe = async (): Promise<void> => {
+          if (!probeSpec) return;
+          if (!deps.httpFetch) {
+            emit("error", `Wait "${node.name}": HTTP not enabled, cannot poll.`);
+            return;
+          }
+          try {
+            const spec = JSON.parse(fillPrompt(probeSpec)) as {
+              url?: string;
+              method?: string;
+              headers?: Record<string, string>;
+              body?: unknown;
+            };
+            if (!spec.url) return;
+            const res = await deps.httpFetch(spec.url, {
+              method: spec.method ?? "GET",
+              headers: spec.headers,
+              body: spec.body != null ? JSON.stringify(spec.body) : undefined,
+            });
+            setOutput(node, { status: res.status, ok: res.ok, body: await readResponseBody(res) });
+          } catch (e) {
+            emit("warn", `Wait "${node.name}": probe failed — ${String(e)}`);
+          }
+        };
+
+        for (;;) {
+          await probe();
+          const { value, error } = evalRule(until, runContext());
+          if (error) emit("warn", `Wait "${node.name}": ${error} — treated as not yet true.`);
+          if (value) {
+            emit("info", `Wait "${node.name}": condition met after ${Math.round(waited / 1000)}s.`);
+            return "success";
+          }
+          if (waited >= budget) {
+            emit("warn", `Wait "${node.name}": timed out after ${Math.round(waited / 1000)}s.`);
+            return "failure";
+          }
+          if (!probeSpec) {
+            // Nothing to re-check: the answer can never change, so spinning for
+            // the full timeout would just burn the run's clock.
+            emit(
+              "warn",
+              `Wait "${node.name}": the condition is false and there is nothing to poll — add a probe request to re-check it.`,
+            );
+            return "failure";
+          }
+          await sleep(step);
+          waited += step;
+        }
+      }
+      case "set_params": {
+        const assign = node.config.assign ?? {};
+        const written: string[] = [];
+        for (const [name, source] of Object.entries(assign)) {
+          try {
+            const value = evalExpr(source, runContext());
+            paramMap[name] = value === null || typeof value === "object" ? JSON.stringify(value) : value;
+            written.push(name);
+          } catch (e) {
+            emit("warn", `Set "${node.name}": ${name} — ${String(e)}`);
+          }
+        }
+        emit("info", `Set "${node.name}": ${written.length ? written.join(", ") : "nothing to set"}.`);
+        setOutput(node, Object.fromEntries(written.map((n) => [n, paramMap[n] as ExprValue])));
+        return written.length === Object.keys(assign).length ? "success" : "failure";
+      }
+      case "custom":
+        return runCustomNode(node);
       default:
         return "success";
+    }
+  };
+
+  /** A user-defined node type: template its inputs, then run it on whichever
+   * primitive it was built from. */
+  const runCustomNode = async (node: WorkflowNode): Promise<Outcome> => {
+    const type = deps.customNodeTypes?.[node.config.customTypeId ?? ""];
+    if (!type) {
+      emit("error", `Node "${node.name}": unknown node type "${node.config.customTypeId}".`);
+      return "failure";
+    }
+    // Field values are themselves templates — someone writing "Total {{= steps.Fetch.body.total }}"
+    // into a message box means it, so resolve those before rendering the type's
+    // own template with them.
+    const fields = Object.fromEntries(
+      Object.entries(resolveFields(type, node.config.fields)).map(([name, value]) => [
+        name,
+        fillPrompt(value),
+      ]),
+    );
+    const missing = missingRequiredFields(type, fields);
+    if (missing.length) {
+      emit("error", `Node "${node.name}": missing ${missing.join(", ")}.`);
+      return "failure";
+    }
+    const rendered = fillPrompt(type.template, fields);
+
+    const settle = (outcome: Outcome): Outcome => {
+      const override = evaluateSuccessExpr(type, runContext());
+      if (override === undefined || outcome === "paused") return outcome;
+      return override ? "success" : "failure";
+    };
+
+    if (type.base === "expression") {
+      try {
+        const value = evalExpr(rendered, runContext()) as ExprValue;
+        setOutput(node, value);
+        emit("info", `Node "${node.name}" (${type.name}) computed a value.`);
+        return settle(value === null || value === false ? "failure" : "success");
+      } catch (e) {
+        emit("error", `Node "${node.name}" (${type.name}): ${String(e)}`);
+        return "failure";
+      }
+    }
+
+    if (type.base === "shell") {
+      if (!deps.shellExec) {
+        emit("error", `Node "${node.name}" (${type.name}): shell execution not enabled.`);
+        return "failure";
+      }
+      const res = await deps.shellExec(rendered, { env });
+      emit(res.code === 0 ? "info" : "warn", `Node "${node.name}" (${type.name}) exited ${res.code}.`);
+      setOutput(node, { code: res.code, stdout: res.stdout, stderr: res.stderr });
+      return settle(res.code === 0 ? "success" : "failure");
+    }
+
+    if (!deps.httpFetch) {
+      emit("error", `Node "${node.name}" (${type.name}): HTTP not enabled.`);
+      return "failure";
+    }
+    let spec: { url?: string; method?: string; headers?: Record<string, string>; body?: unknown };
+    try {
+      spec = JSON.parse(rendered);
+    } catch {
+      emit("error", `Node "${node.name}" (${type.name}): template did not render valid JSON.`);
+      return "failure";
+    }
+    if (!spec.url) {
+      emit("error", `Node "${node.name}" (${type.name}): no url.`);
+      return "failure";
+    }
+    try {
+      const res = await deps.httpFetch(spec.url, {
+        method: spec.method ?? "GET",
+        headers: spec.headers,
+        body: spec.body != null ? JSON.stringify(spec.body) : undefined,
+      });
+      emit(res.ok ? "info" : "warn", `Node "${node.name}" (${type.name}) -> ${res.status}.`);
+      setOutput(node, { status: res.status, ok: res.ok, body: await readResponseBody(res) });
+      return settle(res.ok ? "success" : "failure");
+    } catch (e) {
+      emit("error", `Node "${node.name}" (${type.name}) error: ${String(e)}`);
+      return "failure";
     }
   };
 
@@ -494,6 +743,9 @@ export async function runWorkflow(
       }
       const outEdges = workflow.edges.filter((e) => e.from === node.id);
       const edge =
+        (node.type === "switch" && switchChoice
+          ? outEdges.find((e) => e.condition === `case:${switchChoice}`)
+          : undefined) ??
         outEdges.find((e) => e.condition === outcome) ??
         outEdges.find((e) => e.condition === "always");
       if (!edge) {

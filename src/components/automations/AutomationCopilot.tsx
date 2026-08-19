@@ -1,32 +1,28 @@
 "use client";
 
-import { useState } from "react";
-import { Bot, Sparkles, User } from "lucide-react";
+// The copilot column. It edits the automation directly: every reply that changes
+// something arrives as a proposal you apply or dismiss, never as a silent edit.
+
+import { useEffect, useRef, useState } from "react";
+import { Paperclip } from "lucide-react";
 import { sendJson } from "@/lib/ui/api";
 import type { AutomationDraft } from "@/lib/fleet/automation-draft";
 import type { Automation, Workflow, WorkflowRun } from "@/lib/fleet/types";
 
-type ChatMessage = {
-  role: "user" | "assistant";
-  content: string;
-};
+type ChatMessage = { role: "user" | "assistant"; content: string };
 
-type AutomationCopilotProps = {
-  automation?: Automation | null;
-  workflow?: Workflow | null;
-  run?: WorkflowRun | null;
-  onApplyDraft: (draft: AutomationDraft) => void;
-  title?: string;
-};
-
-const quickPrompts = [
+const QUICK_PROMPTS = [
   "Make this pause for login or MFA instead of failing.",
   "Tighten the success criteria and evidence checks.",
   "Add screenshots after every important state change.",
-  "Turn this into a resilient smoke test I can rerun.",
 ];
 
-function contextPrompt(message: string, automation?: Automation | null, workflow?: Workflow | null, run?: WorkflowRun | null): string {
+function contextPrompt(
+  message: string,
+  automation?: Automation | null,
+  workflow?: Workflow | null,
+  run?: WorkflowRun | null,
+): string {
   const context = {
     automation,
     workflow,
@@ -53,16 +49,15 @@ function contextPrompt(message: string, automation?: Automation | null, workflow
 }
 
 function summarizeDraft(draft: AutomationDraft): string {
-  const bits = [
-    `Proposed "${draft.automation.name}".`,
+  return [
+    `Drafted “${draft.automation.name}”.`,
     draft.automation.requiredSecrets.length
       ? `Needs ${draft.automation.requiredSecrets.join(", ")}.`
       : "No new secrets required.",
-    draft.clarifyingQuestions.length
-      ? `Questions: ${draft.clarifyingQuestions.join(" ")}`
-      : "Ready for review.",
-  ];
-  return bits.join(" ");
+    draft.clarifyingQuestions.length ? `Questions: ${draft.clarifyingQuestions.join(" ")}` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 export function AutomationCopilot({
@@ -71,23 +66,34 @@ export function AutomationCopilot({
   run,
   onApplyDraft,
   title = "Copilot",
-}: AutomationCopilotProps) {
+}: {
+  automation?: Automation | null;
+  workflow?: Workflow | null;
+  run?: WorkflowRun | null;
+  onApplyDraft: (draft: AutomationDraft) => void;
+  title?: string;
+}) {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: "assistant",
       content: automation
-        ? "Tell me what should change. I can rewrite the spec, checks, takeover policy, and workflow from this run context."
-        : "Describe the work you want automated. I will draft the automation for you.",
+        ? "Tell me what should change. I can rewrite the graph, the checks and the takeover policy from this run's context."
+        : "Describe what you want done in plain language. I'll lay out the graph, pick a desktop to run it on, and tell you what I still need from you.",
     },
   ]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [proposal, setProposal] = useState<AutomationDraft | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const end = useRef<HTMLDivElement>(null);
 
-  async function askCopilot(text = input) {
+  useEffect(() => {
+    end.current?.scrollIntoView?.({ block: "end" });
+  }, [messages.length, proposal]);
+
+  async function ask(text = input) {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed || busy) return;
     setBusy(true);
     setError(null);
     setInput("");
@@ -106,81 +112,130 @@ export function AutomationCopilot({
   }
 
   return (
-    <section className="glass glass-border rounded-[5px]">
-      <div className="border-b border-white/[0.08] px-4 py-3">
-        <div className="flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-[#c4b5fd]" aria-hidden="true" />
-          <h2 className="text-sm font-semibold text-white">{title}</h2>
-        </div>
+    <div className="ws-left">
+      <div className="ws-head">
+        <span className="mark" style={{ width: 20, height: 20, borderRadius: 5, fontSize: 10 }}>
+          A
+        </span>
+        <span className="strong t-sm grow">{title}</span>
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          onClick={() => {
+            setMessages(messages.slice(0, 1));
+            setProposal(null);
+            setError(null);
+          }}
+        >
+          Clear
+        </button>
       </div>
 
-      <div className="max-h-[340px] space-y-3 overflow-auto p-4">
+      <div className="chat">
         {messages.map((m, i) => (
-          <div key={`${m.role}-${i}`} className={`flex gap-2 ${m.role === "user" ? "justify-end" : ""}`}>
-            {m.role === "assistant" ? <Bot className="mt-1 h-4 w-4 shrink-0 text-[#c4b5fd]" aria-hidden="true" /> : null}
-            <p
-              className={`max-w-[85%] rounded-[5px] px-3 py-2 text-sm leading-5 ${
-                m.role === "user" ? "bg-[#8b5cf6]/25 text-white" : "bg-white/[0.05] text-white/75"
-              }`}
-            >
-              {m.content}
-            </p>
-            {m.role === "user" ? <User className="mt-1 h-4 w-4 shrink-0 text-white/45" aria-hidden="true" /> : null}
+          <div key={`${m.role}-${i}`} className={`msg ${m.role === "user" ? "me" : "bot"}`}>
+            <span className="av">{m.role === "user" ? "You" : "A"}</span>
+            <div className="bubble">{m.content}</div>
           </div>
         ))}
+
+        {busy ? (
+          <div className="msg bot">
+            <span className="av">A</span>
+            <div className="bubble dimmer">Thinking…</div>
+          </div>
+        ) : null}
+
+        {proposal ? (
+          <div className="proposal">
+            <div className="p-head">Proposed change</div>
+            <div className="p-body">
+              <div className="strong">{proposal.automation.name}</div>
+              <div>{proposal.automation.goal}</div>
+              <div className="t-xs faint">
+                {proposal.workflow.nodes.length} nodes · {proposal.automation.successCriteria.length}{" "}
+                criteria · {proposal.automation.evidenceChecks?.length ?? 0} checks
+              </div>
+              {proposal.clarifyingQuestions.map((q) => (
+                <div key={q} className="t-xs" style={{ color: "var(--warn)" }}>
+                  {q}
+                </div>
+              ))}
+            </div>
+            <div className="p-foot">
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={() => {
+                  onApplyDraft(proposal);
+                  setProposal(null);
+                }}
+              >
+                Apply
+              </button>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setProposal(null)}>
+                Dismiss
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {error ? (
+          <p className="t-sm" style={{ color: "var(--danger)" }}>
+            {error}
+          </p>
+        ) : null}
+
+        {messages.length === 1 && !proposal ? (
+          <div className="stack-s">
+            {QUICK_PROMPTS.map((p) => (
+              <button
+                key={p}
+                type="button"
+                className="btn btn-sm"
+                style={{ justifyContent: "flex-start", height: "auto", padding: "6px 9px", textAlign: "left" }}
+                disabled={busy}
+                onClick={() => void ask(p)}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        <div ref={end} />
       </div>
 
-      <div className="border-t border-white/[0.08] p-4">
-        <div className="mb-3 flex flex-wrap gap-2">
-          {quickPrompts.map((p) => (
-            <button
-              key={p}
-              type="button"
-              onClick={() => void askCopilot(p)}
-              disabled={busy}
-              className="rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 py-1 text-left text-[11px] font-semibold text-white/60 hover:text-white disabled:opacity-50"
-            >
-              {p}
-            </button>
-          ))}
-        </div>
-        <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+      <div className="composer">
+        <div className="composer-box">
           <textarea
-            rows={3}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={automation ? "Ask for a change, then apply the proposal..." : "What should this automation do?"}
-            className="rounded-[5px] border border-white/[0.08] bg-[#161616] px-3 py-2 text-sm text-white placeholder:text-white/30"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void ask();
+            }}
+            placeholder={
+              automation ? "Ask for a change, or describe what went wrong…" : "Every Monday, download last week's invoices from…"
+            }
+            aria-label="Message the copilot"
           />
-          <button
-            type="button"
-            onClick={() => void askCopilot()}
-            disabled={!input.trim() || busy}
-            className="perceo-primary h-10 rounded-[5px] px-4 text-sm font-semibold disabled:opacity-50 sm:self-end"
-          >
-            {busy ? "Thinking..." : "Ask"}
-          </button>
-        </div>
-        {error ? <p className="mt-2 text-sm text-[#fca5a5]">{error}</p> : null}
-      </div>
-
-      {proposal ? (
-        <div className="border-t border-white/[0.08] bg-[#161616]/50 p-4">
-          <div className="text-sm font-semibold text-white">{proposal.automation.name}</div>
-          <p className="mt-1 text-sm text-white/70">{proposal.automation.goal}</p>
-          <div className="mt-2 text-xs text-white/45">
-            {proposal.automation.successCriteria.length} criteria · {proposal.automation.evidenceChecks?.length ?? 0} checks ·{" "}
-            {proposal.workflow.nodes.length} workflow steps
+          <div className="composer-actions">
+            <span className="t-xs faint hstack" style={{ gap: 5 }}>
+              <Paperclip className="ico" style={{ width: 12, height: 12 }} aria-hidden="true" />
+              ⌘↵ to send
+            </span>
+            <div className="spacer" />
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              disabled={!input.trim() || busy}
+              onClick={() => void ask()}
+            >
+              {busy ? "Thinking…" : "Send"}
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => onApplyDraft(proposal)}
-            className="perceo-primary mt-3 h-9 rounded-[5px] px-3 text-xs font-semibold"
-          >
-            Apply proposal
-          </button>
         </div>
-      ) : null}
-    </section>
+      </div>
+    </div>
   );
 }

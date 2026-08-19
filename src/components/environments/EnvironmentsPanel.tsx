@@ -1,19 +1,49 @@
 "use client";
 
-// Prepared environments: the user-facing wrapper over fleet profiles — a reusable
-// desktop that is already logged in / trusted, ready to run a kind of automation.
-// Preparation itself (golden VM build, capture, clones) runs through the existing
-// profile-ops flow embedded below.
+// Environments, capacity and secrets used to be three top-level ideas for one
+// thing: "a desktop that is ready to do this work". They are one page now —
+// environments are the object, the machines under them are a tab.
 
 import { useState } from "react";
+import { KeyRound, Monitor, Plus, RefreshCw } from "lucide-react";
 import { sendJson, usePolling } from "@/lib/ui/api";
 import { timeAgo } from "@/lib/ui/format";
-import { environmentHealthTone, statusLabel } from "@/components/fleet/status-colors";
+import {
+  environmentHealthTone,
+  statusLabel,
+  vmStatusTone,
+} from "@/components/fleet/status-colors";
 import { ProfileSetupPanel } from "@/components/fleet/ProfileSetupPanel";
-import type { PreparedEnvironment } from "@/lib/fleet/types";
+import { Drawer } from "@/components/ui/Overlay";
+import { Viewport } from "@/components/ui/Viewport";
+import {
+  Banner,
+  Card,
+  CardHead,
+  Chip,
+  Empty,
+  Field,
+  Meter,
+  Pill,
+  Stat,
+  Tabs,
+} from "@/components/ui/primitives";
+import type { FleetVm, PreparedEnvironment } from "@/lib/fleet/types";
 
-const inputCls =
-  "rounded-[5px] border border-white/[0.08] bg-[#161616] px-3 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]/50";
+type Tab = "environments" | "capacity" | "secrets";
+
+type ProfileStatus = {
+  profiles: Record<
+    string,
+    { ready: boolean; vms: { vmId: string; state: string; snapshot: string; snapshotPresent: boolean; ready: boolean }[] }
+  >;
+  vmCount: number;
+};
+
+type Health = {
+  queuedRuns: number;
+  metrics?: { runs: number; avgQueuedMs?: number; avgExecutionMs?: number };
+};
 
 const splitList = (raw: string) =>
   raw
@@ -29,15 +59,45 @@ function parseAccounts(raw: string): { site: string; username?: string }[] {
   });
 }
 
-export function EnvironmentsPanel() {
+const asMinSec = (ms: number | undefined) =>
+  ms == null ? "—" : ms < 60_000 ? `${Math.round(ms / 1000)}s` : `${Math.round(ms / 60_000)}m`;
+
+export function EnvironmentsPanel({ initialTab = "environments" }: { initialTab?: Tab }) {
   const environments = usePolling<PreparedEnvironment[]>("/api/environments?live=1", 30000);
+  const vms = usePolling<FleetVm[]>("/api/vms", 8000);
+  const profiles = usePolling<ProfileStatus>("/api/profile-status", 30000);
+  const health = usePolling<Health>("/api/health", 30000);
+  const secrets = usePolling<{ name: string; scope: string }[]>("/api/secrets", 60000);
+
+  const [tab, setTab] = useState<Tab>(initialTab);
+  const [prepOpen, setPrepOpen] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [accounts, setAccounts] = useState("");
   const [deviceTrust, setDeviceTrust] = useState("");
   const [mfaExpectations, setMfaExpectations] = useState("");
   const [profileRef, setProfileRef] = useState("");
-  const [message, setMessage] = useState<string | null>(null);
+
+  const [secretName, setSecretName] = useState("");
+  const [secretValue, setSecretValue] = useState("");
+
+  const list = environments.data ?? [];
+  const vmList = vms.data ?? [];
+  const online = vmList.filter((v) => v.status !== "stopped" && v.status !== "unhealthy");
+  const busy = vmList.filter((v) => v.status === "running" || v.status === "assigned");
+  const needsAttention = list.filter((e) => e.health === "degraded" || e.health === "recovering");
+
+  /** Desktops backing an environment, via its `profile:<slug>` fleet label. */
+  const desktopsFor = (profileRef: string | undefined) => {
+    if (!profileRef) return { total: 0, busy: 0 };
+    const mine = vmList.filter((v) => v.labels.includes(`profile:${profileRef}`));
+    return {
+      total: mine.length,
+      busy: mine.filter((v) => v.status === "running" || v.status === "assigned").length,
+    };
+  };
 
   async function createEnvironment() {
     setMessage(null);
@@ -51,7 +111,9 @@ export function EnvironmentsPanel() {
         name,
         description,
         profileRef: profileRef || undefined,
-        labels: profileRef ? ["linux-desktop", "browser", `profile:${profileRef}`] : ["linux-desktop", "browser"],
+        labels: profileRef
+          ? ["linux-desktop", "browser", `profile:${profileRef}`]
+          : ["linux-desktop", "browser"],
         state:
           state.accounts.length || state.deviceTrust.length || state.mfaExpectations.length
             ? state
@@ -63,167 +125,471 @@ export function EnvironmentsPanel() {
       setDeviceTrust("");
       setMfaExpectations("");
       setProfileRef("");
+      setPrepOpen(false);
       await environments.refresh();
     } catch (e) {
       setMessage(String(e));
     }
   }
 
-  const list = environments.data ?? [];
+  async function openDesktop(vm: FleetVm) {
+    setMessage(null);
+    try {
+      const res = await sendJson<{ mode: string; launchUrl?: string; downloadUrl?: string }>(
+        `/api/vms/${vm.id}/takeover`,
+        "POST",
+      );
+      if (res.mode === "guacamole" && res.launchUrl) window.open(res.launchUrl, "_blank");
+      else if (res.downloadUrl) window.open(res.downloadUrl, "_blank");
+    } catch (e) {
+      setMessage(String(e));
+    }
+  }
+
+  async function createSecret() {
+    setMessage(null);
+    try {
+      await sendJson("/api/secrets", "POST", {
+        name: secretName,
+        scope: "workflow",
+        value: secretValue,
+      });
+      setSecretName("");
+      setSecretValue("");
+      await secrets.refresh();
+    } catch (e) {
+      setMessage(String(e));
+    }
+  }
 
   return (
-    <main className="mx-auto w-full max-w-7xl px-5 py-6 md:px-12">
-      <h1 className="text-2xl font-semibold tracking-tight text-white">Prepared environments</h1>
-      <p className="mt-1 max-w-2xl text-sm text-zinc-400">
-        A prepared environment is a reusable desktop with browser state, logins, and device trust
-        already in place — the answer to repeated MFA. Automations pick one to run on.
-      </p>
-
-      <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1.4fr)_360px]">
-        <section className="glass glass-border rounded-[5px]">
-          <div className="border-b border-white/[0.08] px-4 py-3">
-            <h2 className="text-sm font-semibold text-white">Environments</h2>
-          </div>
-          <div className="divide-y divide-white/[0.08]">
-            {list.length === 0 ? (
-              <p className="px-4 py-8 text-sm text-white/45">No environments yet — create one on the right.</p>
-            ) : (
-              list.map((env) => (
-                <div key={env.id} className="grid gap-2 px-4 py-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <h3 className="truncate text-base font-semibold text-white">{env.name}</h3>
-                    <span className={`rounded-[5px] px-2 py-0.5 text-xs font-semibold ${environmentHealthTone(env.health)}`}>
-                      {statusLabel(env.health)}
-                    </span>
-                  </div>
-                  {env.description ? <p className="text-sm text-zinc-400">{env.description}</p> : null}
-                  <div className="flex flex-wrap gap-2 text-xs text-white/55">
-                    {(env.state?.accounts ?? []).map((a) => (
-                      <span key={`${a.site}-${a.username ?? ""}`} className="rounded-[5px] border border-[#4ade80]/20 bg-[#4ade80]/10 px-2 py-0.5 text-[#8add84]">
-                        logged in: {a.username ? `${a.username} @ ` : ""}{a.site}
-                        {a.mfa ? ` (${a.mfa})` : ""}
-                      </span>
-                    ))}
-                    {(env.state?.deviceTrust ?? []).map((site) => (
-                      <span key={site} className="rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 py-0.5">
-                        trusted device: {site}
-                      </span>
-                    ))}
-                    {(env.state?.mfaExpectations ?? []).map((m) => (
-                      <span key={m} className="rounded-[5px] border border-[#8b5cf6]/30 bg-[#8b5cf6]/10 px-2 py-0.5 text-[#c4b5fd]">
-                        MFA: {m}
-                      </span>
-                    ))}
-                    {env.state?.browser ? (
-                      <span className="rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 py-0.5">
-                        {env.state.browser}
-                      </span>
-                    ) : null}
-                    {(env.state?.extensions ?? []).map((x) => (
-                      <span key={x} className="rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 py-0.5">
-                        extension: {x}
-                      </span>
-                    ))}
-                    {(env.state?.files ?? []).map((f) => (
-                      <span key={f} className="rounded-[5px] border border-white/[0.08] bg-white/[0.05] px-2 py-0.5">
-                        file: {f}
-                      </span>
-                    ))}
-                    <span>last used {timeAgo(env.lastUsedAt)}</span>
-                    {env.recoveryState ? <span className="text-[#c4b5fd]">{env.recoveryState}</span> : null}
-                  </div>
-                  {env.setupNotes ? <p className="text-xs text-white/40">{env.setupNotes}</p> : null}
-                  {env.profileRef || env.snapshotState || env.warmSnapshot || env.clonedFrom ? (
-                    <details className="text-xs text-white/40">
-                      <summary className="cursor-pointer select-none text-white/35 hover:text-white/60">
-                        Operator details
-                      </summary>
-                      <div className="mt-1 flex flex-wrap gap-2">
-                        {env.profileRef ? <span>profile: {env.profileRef}</span> : null}
-                        {env.snapshotState ? <span>snapshot: {env.snapshotState}</span> : null}
-                        {env.warmSnapshot ? <span>warm snapshot: {env.warmSnapshot}</span> : null}
-                        {env.clonedFrom ? <span>cloned from: {env.clonedFrom}</span> : null}
-                      </div>
-                    </details>
-                  ) : null}
-                </div>
-              ))
-            )}
-          </div>
-        </section>
-
-        <aside className="grid content-start gap-3">
-          <section className="glass rounded-[5px] p-4">
-            <h2 className="text-sm font-semibold text-white">New environment</h2>
-            <div className="mt-3 grid gap-2">
-              <input
-                aria-label="Environment name"
-                className={inputCls}
-                placeholder="Name (e.g. Portal — logged in)"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
-              <input
-                aria-label="Environment description"
-                className={inputCls}
-                placeholder="What state does it hold? (logins, extensions, files)"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-              />
-              <input
-                aria-label="Logged-in accounts"
-                className={inputCls}
-                placeholder="Logged-in accounts (e.g. ops@acme.com @ portal.acme.com)"
-                value={accounts}
-                onChange={(e) => setAccounts(e.target.value)}
-              />
-              <input
-                aria-label="Trusted-device sites"
-                className={inputCls}
-                placeholder="Sites that trust this device (comma-separated)"
-                value={deviceTrust}
-                onChange={(e) => setDeviceTrust(e.target.value)}
-              />
-              <input
-                aria-label="MFA expectations"
-                className={inputCls}
-                placeholder="Where MFA can still appear (comma-separated)"
-                value={mfaExpectations}
-                onChange={(e) => setMfaExpectations(e.target.value)}
-              />
-              <details>
-                <summary className="cursor-pointer select-none text-xs text-white/40 hover:text-white/70">
-                  Operator settings
-                </summary>
-                <input
-                  aria-label="Profile slug"
-                  className={`${inputCls} mt-2 w-full`}
-                  placeholder="Profile slug (optional, e.g. portal)"
-                  value={profileRef}
-                  onChange={(e) => setProfileRef(e.target.value)}
-                />
-              </details>
-              <button
-                type="button"
-                disabled={!name.trim()}
-                onClick={() => void createEnvironment()}
-                className="perceo-primary inline-flex h-9 items-center justify-center rounded-[5px] px-3 text-xs font-semibold disabled:opacity-50"
-              >
-                Create environment
-              </button>
-              {message ? <p className="text-xs text-[#fca5a5]">{message}</p> : null}
-            </div>
-          </section>
-          <section className="glass rounded-[5px] p-4 text-xs leading-5 text-white/50">
-            Preparing the underlying VM (golden build, manual login, capture, clones) happens in the
-            setup flow below. Use the same profile slug so the environment maps to it.
-          </section>
-        </aside>
+    <div className="page-pad wide">
+      <div className="page-head">
+        <div className="grow">
+          <h1 className="t-display">Environments</h1>
+          <p>
+            A desktop that is already signed in, trusted, and ready for a kind of work. Automations
+            pick one; the machines underneath are capacity, not something you name.
+          </p>
+        </div>
+        <button type="button" className="btn btn-primary btn-lg" onClick={() => setPrepOpen(true)}>
+          <Plus className="ico" aria-hidden="true" />
+          Prepare an environment
+        </button>
       </div>
 
-      <section className="mt-6">
-        <ProfileSetupPanel />
-      </section>
-    </main>
+      <div style={{ marginBottom: 18 }}>
+        <Tabs
+          label="Environment views"
+          value={tab}
+          onChange={setTab}
+          options={[
+            { key: "environments", label: "Environments", count: list.length },
+            { key: "capacity", label: "Capacity", count: vmList.length },
+            { key: "secrets", label: "Secrets", count: (secrets.data ?? []).length },
+          ]}
+        />
+      </div>
+
+      {message ? (
+        <p className="t-sm" style={{ color: "var(--danger)", marginBottom: 12 }}>
+          {message}
+        </p>
+      ) : null}
+
+      {tab === "environments" ? (
+        <div className="stack">
+          {needsAttention.length > 0 ? (
+            <Banner
+              tone="warn"
+              title={`${needsAttention.length} ${needsAttention.length === 1 ? "environment needs" : "environments need"} attention`}
+            >
+              {needsAttention.map((e) => e.name).join(", ")} — runs will fail on login until the session
+              is re-captured.
+            </Banner>
+          ) : null}
+
+          {list.length === 0 ? (
+            <Card>
+              <Empty>No environments yet. Prepare one to give automations a logged-in desktop.</Empty>
+            </Card>
+          ) : (
+            <div className="grid-2">
+              {list.map((env) => {
+                const desktops = desktopsFor(env.profileRef);
+                return (
+                <Card key={env.id}>
+                  <CardHead
+                    title={env.name}
+                    subtitle={env.description}
+                    right={
+                      <Pill tone={environmentHealthTone(env.health)}>{statusLabel(env.health)}</Pill>
+                    }
+                  />
+                  <div className="card-body stack-s">
+                    <div className="hstack-w">
+                      {(env.state?.accounts ?? []).map((a) => (
+                        <Chip key={`${a.site}-${a.username ?? ""}`}>
+                          <KeyRound className="ico" aria-hidden="true" />
+                          {a.username ? `${a.username} @ ` : ""}
+                          {a.site}
+                        </Chip>
+                      ))}
+                      {(env.state?.deviceTrust ?? []).map((site) => (
+                        <Chip key={site}>trusted: {site}</Chip>
+                      ))}
+                      {(env.state?.mfaExpectations ?? []).map((m) => (
+                        <Chip key={m}>can interrupt: {m}</Chip>
+                      ))}
+                      {env.state?.browser ? <Chip>{env.state.browser}</Chip> : null}
+                    </div>
+                    {desktops.total > 0 ? (
+                      <>
+                        <div className="hstack" style={{ marginTop: 4 }}>
+                          <span className="t-xs faint grow">Desktops in use</span>
+                          <span className="t-xs t-num dim">
+                            {desktops.busy} of {desktops.total}
+                          </span>
+                        </div>
+                        <Meter
+                          value={(desktops.busy / desktops.total) * 100}
+                          tone={desktops.busy / desktops.total > 0.85 ? "warn" : undefined}
+                        />
+                      </>
+                    ) : null}
+                    <div className="t-xs faint">
+                      last used {timeAgo(env.lastUsedAt)}
+                      {env.recoveryState ? ` · ${env.recoveryState}` : ""}
+                      {env.profileRef ? ` · profile ${env.profileRef}` : ""}
+                    </div>
+                  </div>
+                  <div className="card-foot hstack-w">
+                    {(() => {
+                      const vm = vmList.find(
+                        (v) => env.profileRef && v.labels.includes(`profile:${env.profileRef}`),
+                      );
+                      return vm ? (
+                        <button type="button" className="btn btn-sm" onClick={() => void openDesktop(vm)}>
+                          <Monitor className="ico" aria-hidden="true" />
+                          Open a desktop
+                        </button>
+                      ) : null;
+                    })()}
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      onClick={() => {
+                        void environments.refresh();
+                        void profiles.refresh();
+                      }}
+                    >
+                      <RefreshCw className="ico" aria-hidden="true" />
+                      Re-check health
+                    </button>
+                    <div className="spacer" />
+                    <span className="t-xs faint">
+                      {desktops.total > 0 ? `${desktops.total} desktops` : "no desktops yet"}
+                    </span>
+                  </div>
+                </Card>
+                );
+              })}
+            </div>
+          )}
+
+          <Card>
+            <CardHead
+              title="Preparation"
+              subtitle="Golden build, manual login, capture, clones — the flow that produces the desktops above."
+            />
+            <div className="card-body">
+              <ProfileSetupPanel />
+            </div>
+          </Card>
+        </div>
+      ) : null}
+
+      {tab === "capacity" ? (
+        <div className="stack">
+          <div className="stats">
+            <Stat value={vmList.length} label="Desktops" />
+            <Stat value={online.length} label="Online" />
+            <Stat value={busy.length} label="Busy" />
+            <Stat value={health.data?.queuedRuns ?? "—"} label="Queued runs" />
+            <Stat value={asMinSec(health.data?.metrics?.avgQueuedMs)} label="Avg wait (24h)" />
+            <Stat value={asMinSec(health.data?.metrics?.avgExecutionMs)} label="Avg run (24h)" />
+          </div>
+
+          <Card>
+            <CardHead
+              title="Desktops"
+              subtitle="Operator view — normal users never need this tab."
+              right={
+                <button type="button" className="btn btn-sm" onClick={() => void vms.refresh()}>
+                  <RefreshCw className="ico" aria-hidden="true" />
+                  Refresh
+                </button>
+              }
+            />
+            {vmList.length === 0 ? (
+              <Empty>
+                No desktops configured. Set CUF_GOLDEN_DOMAIN / CUF_FLEET_JSON, or build one from the
+                preparation flow.
+              </Empty>
+            ) : (
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>Desktop</th>
+                    <th>State</th>
+                    <th>Doing</th>
+                    <th className="num">Health</th>
+                    <th className="num" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {vmList.map((vm) => (
+                    <tr key={vm.id}>
+                      <td>
+                        <div className="row-title">{vm.name}</div>
+                        <div className="t-xs faint mono">
+                          {vm.domain ?? "mock"} · {vm.xrdp.host}:{vm.xrdp.port}
+                        </div>
+                      </td>
+                      <td>
+                        <Pill tone={vmStatusTone(vm.status)}>{statusLabel(vm.status)}</Pill>
+                      </td>
+                      <td className="dim truncate">
+                        {vm.assignedRunId ? (
+                          <a href={`/runs/${vm.assignedRunId}`}>{vm.assignedRunId}</a>
+                        ) : (
+                          <span className="faint">{vm.labels.join(", ") || "idle"}</span>
+                        )}
+                      </td>
+                      <td className="num dimmer">{timeAgo(vm.lastHealthAt)}</td>
+                      <td className="num">
+                        <div className="hstack" style={{ justifyContent: "flex-end" }}>
+                          <button type="button" className="btn btn-sm" onClick={() => void openDesktop(vm)}>
+                            <Monitor className="ico" aria-hidden="true" />
+                            Open
+                          </button>
+                          <a className="btn btn-sm" href={`/api/vms/${vm.id}/rdp`}>
+                            .rdp
+                          </a>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </Card>
+
+          <Card>
+            <CardHead
+              title="Profile readiness"
+              subtitle="Warm snapshots present and domains reachable, per profile."
+            />
+            <div className="card-body">
+              {!profiles.data ? (
+                <p className="t-sm faint">
+                  {profiles.error ? "Profile status unavailable (libvirt not reachable)." : "Checking…"}
+                </p>
+              ) : Object.keys(profiles.data.profiles).length === 0 ? (
+                <p className="t-sm faint">No profile-labelled desktops.</p>
+              ) : (
+                <div className="stack-s">
+                  {Object.entries(profiles.data.profiles).map(([slug, p]) => (
+                    <div className="hstack" key={slug}>
+                      <Pill tone={p.ready ? "ok" : "danger"}>{p.ready ? "ready" : "not ready"}</Pill>
+                      <span className="strong t-sm">{slug}</span>
+                      <span className="t-xs faint truncate">
+                        {p.vms
+                          .map((v) => `${v.vmId} (${v.state}${v.snapshotPresent ? "" : ", no snapshot"})`)
+                          .join(", ")}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </Card>
+        </div>
+      ) : null}
+
+      {tab === "secrets" ? (
+        <div className="stack">
+          <Card>
+            <CardHead
+              title="Secrets"
+              subtitle="Write-only. Values are injected at run time and redacted from logs and screenshots."
+            />
+            {(secrets.data ?? []).length === 0 ? (
+              <Empty>No secrets stored yet.</Empty>
+            ) : (
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Scope</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(secrets.data ?? []).map((s) => (
+                    <tr key={s.name}>
+                      <td className="mono">{s.name}</td>
+                      <td>
+                        <Chip>{s.scope}</Chip>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            <div className="card-foot hstack-w">
+              <input
+                className="input"
+                style={{ maxWidth: 220 }}
+                aria-label="Secret name"
+                placeholder="name"
+                value={secretName}
+                onChange={(e) => setSecretName(e.target.value)}
+              />
+              <input
+                className="input"
+                style={{ maxWidth: 220 }}
+                aria-label="Secret value"
+                type="password"
+                placeholder="value"
+                value={secretValue}
+                onChange={(e) => setSecretValue(e.target.value)}
+              />
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={!secretName.trim() || !secretValue}
+                onClick={() => void createSecret()}
+              >
+                Add secret
+              </button>
+            </div>
+          </Card>
+        </div>
+      ) : null}
+
+      <Drawer
+        open={prepOpen}
+        onClose={() => setPrepOpen(false)}
+        width="min(620px, 94vw)"
+        title="Prepare an environment"
+        subtitle="You only do the signing-in part."
+      >
+        {/* Three steps, and only the middle one is yours: sign in on a desktop we
+            hold. Naming it and cloning it are ours. */}
+        <div className="timeline">
+          <div className={`tl-item ${name.trim() ? "done" : "active"}`}>
+            <div className="tl-title">1 · Name it and say what it&apos;s for</div>
+            <div className="tl-meta">Automations pick this name from a list.</div>
+            <div className="stack-s" style={{ marginTop: 10 }}>
+              <Field label="Name">
+                <input
+                  className="input"
+                  aria-label="Environment name"
+                  placeholder="Portal — logged in"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+              </Field>
+              <Field label="What it holds">
+                <input
+                  className="input"
+                  aria-label="Environment description"
+                  placeholder="Logins, extensions, files"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                />
+              </Field>
+              <Field label="Logged-in accounts" hint="e.g. ops@acme.com @ portal.acme.com">
+                <input
+                  className="input"
+                  aria-label="Logged-in accounts"
+                  value={accounts}
+                  onChange={(e) => setAccounts(e.target.value)}
+                />
+              </Field>
+              <Field label="Sites that trust this device" hint="Comma-separated.">
+                <input
+                  className="input"
+                  aria-label="Trusted-device sites"
+                  value={deviceTrust}
+                  onChange={(e) => setDeviceTrust(e.target.value)}
+                />
+              </Field>
+              <Field label="Where MFA can still appear" hint="Comma-separated.">
+                <input
+                  className="input"
+                  aria-label="MFA expectations"
+                  value={mfaExpectations}
+                  onChange={(e) => setMfaExpectations(e.target.value)}
+                />
+              </Field>
+            </div>
+          </div>
+
+          <div className={`tl-item ${name.trim() ? "active" : ""}`}>
+            <div className="tl-title">2 · Sign in on the desktop we hold for you</div>
+            <div className="tl-meta">
+              We open a clean desktop; you log in, pass MFA, tick “trust this device”, then capture.
+              Nothing you type is recorded — only the resulting session state is kept.
+            </div>
+            <div style={{ marginTop: 10 }}>
+              <Viewport
+                alt="A prepared desktop"
+                tag={<Pill tone="accent">your session</Pill>}
+                bar={
+                  <span className="grow t-sm">
+                    {name.trim() ? "Ready when you are." : "Name the environment first."}
+                  </span>
+                }
+              />
+            </div>
+            <Field
+              label="Profile slug"
+              hint="Ties this environment to a fleet profile — use the same slug in the capture flow below."
+            >
+              <input
+                className="input"
+                aria-label="Profile slug"
+                value={profileRef}
+                onChange={(e) => setProfileRef(e.target.value)}
+              />
+            </Field>
+          </div>
+
+          <div className="tl-item">
+            <div className="tl-title">3 · We clone it into ready desktops</div>
+            <div className="tl-meta">
+              Usually a few minutes. After that any automation can pick this environment. Run the
+              capture and clone stages from the preparation panel on this page.
+            </div>
+          </div>
+        </div>
+
+        <div className="hstack" style={{ marginTop: 18 }}>
+          <div className="spacer" />
+          <button type="button" className="btn btn-sm" onClick={() => setPrepOpen(false)}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            disabled={!name.trim()}
+            onClick={() => void createEnvironment()}
+          >
+            Create environment
+          </button>
+        </div>
+      </Drawer>
+    </div>
   );
 }

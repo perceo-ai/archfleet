@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { AppNav } from "@/components/shell/AppNav";
+import { AppShell } from "@/components/shell/AppShell";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -9,11 +9,16 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className="h-full antialiased">
-      <body className="grid-lines relative min-h-screen flex flex-col bg-[#312F2F] text-white">
-        <div className="dot-pattern dot-pattern-fade z-0" aria-hidden="true" />
-        <AppNav />
-        <div className="relative z-10 flex min-h-0 flex-1 flex-col">{children}</div>
+    <html lang="en" data-theme="dark" className="antialiased">
+      <body>
+        {/* Apply the saved theme before paint so light mode does not flash dark. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "try{document.documentElement.dataset.theme=localStorage.getItem('af-theme')==='light'?'light':'dark'}catch(e){}",
+          }}
+        />
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   );

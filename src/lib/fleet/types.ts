@@ -24,7 +24,15 @@ export type NodeKind =
   | "condition"
   | "retry_wait"
   | "artifact"
-  | "end";
+  | "end"
+  // Rules + control flow. These need no VM and no model: they decide, wait,
+  // and compute from what earlier nodes produced.
+  | "switch"
+  | "wait"
+  | "set_params"
+  // A user-defined node type (see node-types-repo) — `config.customTypeId`
+  // names the definition, `config.fields` supplies its inputs.
+  | "custom";
 
 export type TriggerKind = "manual" | "schedule" | "webhook";
 
@@ -42,14 +50,35 @@ export type WorkflowNode = {
     provider?: AgentProvider;
     /** retry_wait: how many times to re-run the preceding task node. */
     maxAttempts?: number;
+    /** human_takeover: what to ask the person, and what to do with the answer.
+     * Anything shaped — a code, a choice, an approval, a corrected value. */
+    ask?: import("./human-ask").HumanAsk;
+    /** condition: the rule to evaluate, e.g. `steps.Fetch.body.total > 0`.
+     * Preferred over the prompt-contains fallback and over asking a model. */
+    expr?: string;
+    /** switch: first matching case wins; its label picks the `case:<label>` edge. */
+    cases?: { label: string; expr: string }[];
+    /** wait: fixed pause before continuing. */
+    waitMs?: number;
+    /** wait: keep waiting until this rule is true (polled), or the timeout hits. */
+    untilExpr?: string;
+    /** set_params: param name -> expression evaluated against the run context. */
+    assign?: Record<string, string>;
+    /** custom: which user-defined node type this is, and its field values. */
+    customTypeId?: string;
+    fields?: Record<string, string>;
   };
 };
+
+/** Which outcome an edge carries. `case:<label>` is a named branch out of a
+ * switch node; everything else is the original success/failure/always. */
+export type EdgeCondition = "success" | "failure" | "always" | `case:${string}`;
 
 export type WorkflowEdge = {
   id: string;
   from: string;
   to: string;
-  condition: "success" | "failure" | "always";
+  condition: EdgeCondition;
 };
 
 export type Workflow = {
@@ -286,6 +315,11 @@ export type HumanTakeover = {
   openedAt: string;
   resolvedAt?: string;
   operatorNotes?: string;
+  /** What the run is actually asking for. Absent on rows written before asks
+   * existed — the UI falls back to an acknowledge ask built from `reason`. */
+  ask?: import("./human-ask").HumanAsk;
+  /** What the human answered, secrets excluded. */
+  answers?: Record<string, string>;
   /** When the operator webhook was actually paged about this takeover. */
   notifiedAt?: string;
   /** When a reminder page was sent because nobody responded. */

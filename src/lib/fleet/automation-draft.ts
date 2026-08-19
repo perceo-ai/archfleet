@@ -40,8 +40,26 @@ Given a user's description, output ONLY a JSON object (no prose) with these fiel
   "clarifying_questions": string[],     // ask instead of guessing when underspecified
   "evidence_checks": [{"type":"text_found"|"url_reached"|"file_downloaded"|"screenshot_captured"|"element_visible"|"form_submitted"|"email_received"|"output_extracted"|"visual_state_changed","value"?:string}]
 }
-Node types: start, browser_task, computer_use_task, cli_agent_task, shell_task, condition, human_takeover, retry_wait, end.
-Insert a human_takeover node wherever login/MFA/captcha/device-trust will likely block the agent.
+Node types: start, browser_task, computer_use_task, cli_agent_task, shell_task, api_call,
+condition, switch, wait, set_params, human_takeover, retry_wait, end.
+Insert a human_takeover node wherever the agent will likely be blocked (login, a verification
+code, an ambiguous choice, a spend that needs approval). Its config.ask states what to ask for:
+{"kind":"input|choice|approval|acknowledge","question":"...","fields":[{"name":"po","label":"PO number","type":"text","secret":false}]}
+Answers come back as {{param.<name>}} (or {{secret.<name>}} when the field is secret).
+
+Rules and data flow — prefer these over asking a model to decide:
+- Every node's result is readable by later nodes as steps["Node name"], e.g.
+  steps["Fetch invoices"].body.total, steps["Sign in"].stdout, steps["Call"].status.
+- condition: config.expr is a rule, e.g. steps["Fetch"].body.total > 1000 && params.region == "eu".
+  True follows the success edge, false the failure edge.
+- switch: config.cases is [{"label":"large","expr":"..."}]; the first true case wins and its edge
+  is condition "case:large". Every case needs its own outgoing edge.
+- wait: config.waitMs pauses; or config.untilExpr plus config.prompt (a JSON request) polls that
+  request until the rule holds, giving up after config.timeoutMs.
+- set_params: config.assign maps a param name to an expression, e.g. {"total":"steps[\"Fetch\"].body.total * 2"}.
+Operators: == != > >= < <= && || ! + - * / % ? : — functions: len lower upper trim contains
+startsWith endsWith matches number string default has json split join replace round abs min max.
+
 Rules: exactly one start and one end; every node reachable from start.`;
 
 export type AutomationDraft = {
