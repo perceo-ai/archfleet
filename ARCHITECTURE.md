@@ -72,14 +72,26 @@ removing them from the fleet permanently. The lease is taken **before** the
 snapshot revert — losing the claim race must mean never having touched the
 domain.
 
-Anything that legitimately outlives the TTL **renews** rather than lapsing:
-`runWorkflow` renews at every node (and fails the run outright if the hold is
-gone, rather than driving a desktop somebody else now owns), and the worker loop
-renews for runs that are `running` or `paused` (`renewHeldRunLeases`). That
-second one matters most for takeovers — a paused run holds its desktop on
-purpose, so the person lands on the same `:0` the agent was driving, and nothing
-inside the orchestrator is still running to renew it. A hold that has already
-lapsed is never resurrected; the desktop may belong to someone else by then.
+Anything that legitimately outlives the TTL **renews** rather than lapsing, at
+three levels, because each covers a case the others structurally cannot:
+
+- **Between nodes** — `runWorkflow` renews as it walks the graph.
+- **During a node** — a heartbeat runs for as long as a single node does. One
+  node can outlive the lease by itself (a `wait` polling for a day), and the
+  worker loop cannot help, because that run is what the worker is blocked on.
+- **Between runs** — the worker loop renews for runs that are `running` or
+  `paused` (`renewHeldRunLeases`). This is the one that matters for takeovers: a
+  paused run holds its desktop on purpose, so the person lands on the same `:0`
+  the agent was driving, and nothing inside the orchestrator is still executing.
+
+Losing the hold fails the run rather than continuing to drive a desktop somebody
+else now owns. A hold that has already lapsed is never resurrected — the desktop
+may belong to someone else by then.
+
+Sessions renew on the same principle, and write their **own** `expires_at`
+forward *before* the guest work starts, not after: the sweeper reads that row, so
+a stale one would let it close the session and release the desktop while the
+batch was still typing into it.
 
 ### Sessions — general computer use for other agents
 

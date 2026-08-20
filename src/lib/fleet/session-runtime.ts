@@ -258,7 +258,12 @@ export async function actOnSession(
     updateSession(db, id, { status: "failed", resultSummary: "lease lost", closedAt: at }, at);
     return fail(409, "lease lost — the desktop was reclaimed. Open a new session.");
   }
+  // Push the SESSION's expiry out now, not after the work. The sweeper reads this
+  // row, so leaving it stale for the length of a slow batch would let it close
+  // the session and release the desktop while these very actions were still
+  // typing into it.
   const expiresAt = new Date(new Date(at).getTime() + ttlMs).toISOString();
+  updateSession(db, id, { expiresAt }, at);
 
   const conn = guestConn(vm);
   let report: GuestReport;

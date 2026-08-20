@@ -973,6 +973,67 @@ describe("lease renewal during a run", () => {
     expect(leases.get("dom-vm1", "2026-08-20T10:01:30.000Z")?.holder).toBe("run_1");
   });
 
+  it("keeps renewing while a single long node runs", async () => {
+    const client = fakeClient({ "dom-vm1": "running" });
+    const base = createVmDaemon(client, [testVm()], { waitForTcp: vi.fn(async () => {}) });
+    const renew = vi.fn((...args: Parameters<typeof base.renew>) => base.renew(...args));
+    const daemon = { ...base, renew };
+
+    // One node that takes far longer than the heartbeat interval — a `wait`
+    // polling for a day, or a slow computer-use task. The worker loop cannot
+    // renew for this run: it is what the worker is blocked on.
+    const slowExec: ExecRunner = async () => {
+      await new Promise((r) => setTimeout(r, 60));
+      return {
+        code: 0,
+        stdout: JSON.stringify({ status: "succeeded", reason: "ok", steps: 1, artifacts: [] }),
+        stderr: "",
+      };
+    };
+
+    const run = await runWorkflow(
+      { workflow: threeStep(), secrets: [], params: [], runId: "run_1" },
+      { daemon, exec: slowExec, now: () => "2026-08-20T10:00:00.000Z", leaseHeartbeatMs: 5 },
+    );
+
+    expect(run.status).toBe("succeeded");
+    // Three per-node renewals plus the heartbeats fired during the slow node.
+    expect(renew.mock.calls.length).toBeGreaterThan(3);
+  });
+
+  it("stops when the heartbeat finds the desktop gone mid-node", async () => {
+    const client = fakeClient({ "dom-vm1": "running" });
+    const leases = createMemoryLeaseStore();
+    const daemon = createVmDaemon(client, [testVm()], {
+      leases,
+      waitForTcp: vi.fn(async () => {}),
+    });
+
+    // The desktop is stolen while the node is still working.
+    const stealingExec: ExecRunner = async () => {
+      leases.release("dom-vm1");
+      leases.claim("dom-vm1", "other", "2999-01-01T00:00:00.000Z");
+      await new Promise((r) => setTimeout(r, 40));
+      return {
+        code: 0,
+        stdout: JSON.stringify({ status: "succeeded", reason: "ok", steps: 1, artifacts: [] }),
+        stderr: "",
+      };
+    };
+
+    const run = await runWorkflow(
+      { workflow: threeStep(), secrets: [], params: [], runId: "run_1" },
+      { daemon, exec: stealingExec, now: () => "2026-08-20T10:00:00.000Z", leaseHeartbeatMs: 5 },
+    );
+
+    expect(run.status).toBe("failed");
+    // Specifically the heartbeat's message: the between-nodes check would also
+    // have caught this, but only after the node had finished driving the desktop.
+    expect(run.events.some((e) => e.message.includes('while "Do it" was running'))).toBe(true);
+    // The thief's desktop was never reverted out from under them.
+    expect(leases.get("dom-vm1", "2026-08-20T10:00:00.000Z")?.holder).toBe("other");
+  });
+
   it("stops rather than driving a desktop it no longer owns", async () => {
     const client = fakeClient({ "dom-vm1": "running" });
     const base = createVmDaemon(client, [testVm()], { waitForTcp: vi.fn(async () => {}) });

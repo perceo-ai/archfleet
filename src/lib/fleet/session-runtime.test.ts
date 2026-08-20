@@ -296,6 +296,36 @@ describe("actOnSession", () => {
     expect(getSession(db, session.id)?.status).toBe("failed");
   });
 
+  it("pushes the session's own expiry out before working, not after", async () => {
+    const { session, factory } = await leased();
+    // A batch that starts near the end of the lease and takes a while. The
+    // sweeper reads the session row, so if the new expiry is only written after
+    // the work, it can close the session and release the desktop these very
+    // actions are still typing into.
+    const duringWork = vi.fn(async (): Promise<ExecResult> => {
+      // 10:35 is past the session's ORIGINAL 10:30 expiry, but inside the one
+      // this action renewed it to (10:25 + 30m).
+      expect(await sweepExpiredSessions(db, () => "2026-08-20T10:35:00.000Z", { daemonFor: factory })).toBe(0);
+      return {
+        code: 0,
+        stdout: JSON.stringify({ status: "succeeded", reason: "ok", steps: 1, artifacts: [] }),
+        stderr: "",
+      };
+    });
+
+    // Opened at 10:00 with a 30m lease; this batch starts at 10:25, near the end.
+    const res = await actOnSession(db, session.id, [{ type: "hello" }], {
+      now: () => "2026-08-20T10:25:00.000Z",
+      daemonFor: factory,
+      exec: duringWork,
+      fetchFile: okFetch,
+    });
+
+    expect(duringWork).toHaveBeenCalled();
+    expect(isSessionError(res)).toBe(false);
+    expect(getSession(db, session.id)?.status).toBe("active");
+  });
+
   it("does not resurrect a session that was closed while the actions ran", async () => {
     const { session, factory } = await leased();
     // The agent (or the sweep) closes the session while the guest is working.
