@@ -27,8 +27,9 @@ const DEFAULT_WARM_SNAPSHOT = "golden-warm";
 const DEFAULT_READY_TIMEOUT_MS = 30_000;
 const DEFAULT_READY_INTERVAL_MS = 500;
 /** Long enough that no honest computer-use run outlives its lease, short enough
- * that a killed controller's desktops come back the same working day. */
-const DEFAULT_LEASE_TTL_MS = 6 * 60 * 60 * 1000;
+ * that a killed controller's desktops come back the same working day. Holders
+ * that legitimately outlive it (a run paused for a human) renew instead. */
+export const DEFAULT_LEASE_TTL_MS = 6 * 60 * 60 * 1000;
 
 export type VmDaemonOptions = {
   readyTimeoutMs?: number;

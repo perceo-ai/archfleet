@@ -282,7 +282,13 @@ export async function actOnSession(
     at,
     opts.fetchFile ?? scpFetch,
   );
-  updateSession(db, id, { status: "active", expiresAt }, at);
+  // The session can be closed while the guest is working. `updateSession` refuses
+  // to reopen a settled one, so this comes back settled rather than "active" —
+  // say so instead of handing back a result for a desktop we no longer hold.
+  const after = updateSession(db, id, { status: "active", expiresAt }, at);
+  if (after && !isOpen(after)) {
+    return fail(409, `session was ${after.status} while the actions were running`);
+  }
   return { report, artifacts: artifacts.map((a) => ({ type: a.type, path: a.path })), expiresAt };
 }
 

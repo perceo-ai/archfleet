@@ -781,6 +781,14 @@ export async function runWorkflow(
     while (current && steps++ < maxSteps) {
       const node = current;
       currentStep = node.name;
+      // A long run must keep saying it is alive, or its lease lapses and another
+      // worker reverts the desktop out from under it. Losing the lease means
+      // somebody else owns this desktop now — stop rather than drive theirs.
+      if (vm && !deps.daemon.renew(vm, runId)) {
+        emit("error", `Lost the desktop ${vm.name} — it was reclaimed while this run was working.`);
+        finalStatus = "failed";
+        break;
+      }
       deps.onProgress?.(node.id, node.name);
       const outcome = await runNode(node);
       if (outcome === "paused") {

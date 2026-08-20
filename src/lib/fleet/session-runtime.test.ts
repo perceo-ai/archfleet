@@ -296,6 +296,31 @@ describe("actOnSession", () => {
     expect(getSession(db, session.id)?.status).toBe("failed");
   });
 
+  it("does not resurrect a session that was closed while the actions ran", async () => {
+    const { session, factory } = await leased();
+    // The agent (or the sweep) closes the session while the guest is working.
+    const exec = vi.fn(async (): Promise<ExecResult> => {
+      await closeSession(db, session.id, { db, now, daemonFor: factory });
+      return {
+        code: 0,
+        stdout: JSON.stringify({ status: "succeeded", reason: "ok", steps: 1, artifacts: [] }),
+        stderr: "",
+      };
+    });
+
+    const res = await actOnSession(db, session.id, [{ click: [1, 2] }], {
+      now,
+      daemonFor: factory,
+      exec,
+      fetchFile: okFetch,
+    });
+
+    // Reporting success here would hand back a result for a desktop we no longer
+    // hold, and leave an "active" session whose lease is gone.
+    expect(isSessionError(res) && res.status).toBe(409);
+    expect(getSession(db, session.id)?.status).toBe("closed");
+  });
+
   it("keeps the lease when the guest call fails, so one flaky ssh does not cost the desktop", async () => {
     const { session, factory, leases } = await leased();
     const exec = vi.fn(async (): Promise<ExecResult> => ({ code: 255, stdout: "", stderr: "ssh: connect refused" }));

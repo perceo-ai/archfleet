@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createVmDaemon } from "./vm-daemon/daemon";
+import { createMemoryLeaseStore } from "./vm-daemon/lease-store";
 import type { DomainState, VirshClient } from "./vm-daemon/virsh";
 import { runWorkflow, planExecution } from "./orchestrator";
 import type { ExecResult, ExecRunner } from "./computer-use";
@@ -881,5 +882,112 @@ describe("environment binding", () => {
       { daemon, exec: okExec, now: () => "2026-08-20T10:00:00.000Z" },
     );
     expect(run.status).toBe("succeeded");
+  });
+});
+
+// A run holds its desktop for as long as it is working, and a paused run holds it
+// until a human arrives. Leases expire, so the holder has to keep saying it is
+// alive — otherwise another worker reverts the desktop mid-run.
+describe("lease renewal during a run", () => {
+  function graph(nodes: Workflow["nodes"], edges: Workflow["edges"]): Workflow {
+    return { id: "wf_renew", name: "Renewing", description: "", enabled: true, triggerKinds: ["manual"], nodes, edges };
+  }
+
+  const threeStep = () =>
+    graph(
+      [
+        { id: "start", type: "start", name: "Start", position: { x: 0, y: 0 }, config: {} },
+        { id: "cu", type: "computer_use_task", name: "Do it", position: { x: 1, y: 0 }, config: {} },
+        { id: "end", type: "end", name: "End", position: { x: 2, y: 0 }, config: {} },
+      ],
+      [
+        { id: "e1", from: "start", to: "cu", condition: "always" },
+        { id: "e2", from: "cu", to: "end", condition: "success" },
+      ],
+    );
+
+  const okExec: ExecRunner = async () => ({
+    code: 0,
+    stdout: JSON.stringify({ status: "succeeded", reason: "ok", steps: 1, artifacts: [] }),
+    stderr: "",
+  });
+
+  it("renews the lease at every node, not just on acquire", async () => {
+    const client = fakeClient({ "dom-vm1": "running" });
+    const base = createVmDaemon(client, [testVm()], { waitForTcp: vi.fn(async () => {}) });
+    const renew = vi.fn((...args: Parameters<typeof base.renew>) => base.renew(...args));
+    const daemon = { ...base, renew };
+
+    const run = await runWorkflow(
+      { workflow: threeStep(), secrets: [], params: [], runId: "run_1" },
+      { daemon, exec: okExec, now: () => "2026-08-20T10:00:00.000Z" },
+    );
+
+    expect(run.status).toBe("succeeded");
+    // start, computer_use_task, end — one renewal each.
+    expect(renew).toHaveBeenCalledTimes(3);
+    expect(renew.mock.calls.every(([, holder]) => holder === "run_1")).toBe(true);
+  });
+
+  it("keeps a desktop held past the original TTL while a run waits for a human", async () => {
+    const client = fakeClient({ "dom-vm1": "running" });
+    const leases = createMemoryLeaseStore();
+    let clock = "2026-08-20T10:00:00.000Z";
+    const daemon = createVmDaemon(client, [testVm()], {
+      leases,
+      leaseTtlMs: 60_000,
+      now: () => clock,
+      waitForTcp: vi.fn(async () => {}),
+    });
+    const wf = graph(
+      [
+        { id: "start", type: "start", name: "S", position: { x: 0, y: 0 }, config: {} },
+        { id: "cu", type: "computer_use_task", name: "Try", position: { x: 1, y: 0 }, config: {} },
+        { id: "ht", type: "human_takeover", name: "Takeover", position: { x: 2, y: 0 }, config: {} },
+        { id: "end", type: "end", name: "E", position: { x: 3, y: 0 }, config: {} },
+      ],
+      [
+        { id: "e1", from: "start", to: "cu", condition: "always" },
+        { id: "e2", from: "cu", to: "ht", condition: "always" },
+        { id: "e3", from: "ht", to: "end", condition: "success" },
+      ],
+    );
+
+    // The takeover node is reached 45s in — inside the original 60s lease.
+    const run = await runWorkflow(
+      { workflow: wf, secrets: [], params: [], runId: "run_1" },
+      {
+        daemon,
+        exec: okExec,
+        now: () => {
+          clock = "2026-08-20T10:00:45.000Z";
+          return clock;
+        },
+      },
+    );
+
+    expect(run.status).toBe("paused");
+    // Had the lease not been renewed at the takeover node it would have lapsed at
+    // 10:01:00, and another worker could revert the desktop the human is about to
+    // land on.
+    expect(leases.get("dom-vm1", "2026-08-20T10:01:30.000Z")?.holder).toBe("run_1");
+  });
+
+  it("stops rather than driving a desktop it no longer owns", async () => {
+    const client = fakeClient({ "dom-vm1": "running" });
+    const base = createVmDaemon(client, [testVm()], { waitForTcp: vi.fn(async () => {}) });
+    // Acquire succeeds, then the hold is lost to another worker.
+    const daemon = { ...base, renew: () => false };
+
+    const exec = vi.fn(okExec);
+    const run = await runWorkflow(
+      { workflow: threeStep(), secrets: [], params: [], runId: "run_1" },
+      { daemon, exec, now: () => "2026-08-20T10:00:00.000Z" },
+    );
+
+    expect(run.status).toBe("failed");
+    expect(run.events.some((e) => e.message.includes("Lost the desktop"))).toBe(true);
+    // Never touched the guest.
+    expect(exec).not.toHaveBeenCalled();
   });
 });

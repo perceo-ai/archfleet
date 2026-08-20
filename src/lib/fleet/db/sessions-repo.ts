@@ -3,7 +3,7 @@
 // process memory the way profile operations do.
 
 import type { Db } from "./db";
-import type { Session, SessionMode, SessionStatus } from "../sessions";
+import { isOpen, type Session, type SessionMode, type SessionStatus } from "../sessions";
 
 export function saveSession(db: Db, session: Session): void {
   db.prepare(
@@ -75,8 +75,13 @@ export function listSessions(
   return rows.map(rowToSession);
 }
 
-/** Patch a live session. Never resurrects a settled one — a late `act` from an
- * agent that did not notice its session ended must not reopen it. */
+/** Patch a live session.
+ *
+ * A settled session is immutable. An `act` that was already in flight when the
+ * session was closed would otherwise write `status: "active"` back over it,
+ * leaving an apparently usable session whose desktop has been released and
+ * possibly re-leased to somebody else. Callers that need to know this happened
+ * should compare the returned status with what they asked for. */
 export function updateSession(
   db: Db,
   id: string,
@@ -85,6 +90,7 @@ export function updateSession(
 ): Session | undefined {
   const current = getSession(db, id);
   if (!current) return undefined;
+  if (!isOpen(current)) return current;
   saveSession(db, { ...current, ...patch, updatedAt: now });
   return getSession(db, id);
 }

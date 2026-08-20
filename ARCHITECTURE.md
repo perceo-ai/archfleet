@@ -72,6 +72,15 @@ removing them from the fleet permanently. The lease is taken **before** the
 snapshot revert — losing the claim race must mean never having touched the
 domain.
 
+Anything that legitimately outlives the TTL **renews** rather than lapsing:
+`runWorkflow` renews at every node (and fails the run outright if the hold is
+gone, rather than driving a desktop somebody else now owns), and the worker loop
+renews for runs that are `running` or `paused` (`renewHeldRunLeases`). That
+second one matters most for takeovers — a paused run holds its desktop on
+purpose, so the person lands on the same `:0` the agent was driving, and nothing
+inside the orchestrator is still running to renew it. A hold that has already
+lapsed is never resurrected; the desktop may belong to someone else by then.
+
 ### Sessions — general computer use for other agents
 
 `lib/fleet/sessions.ts` (pure) + `session-runtime.ts` (I/O). One object, three

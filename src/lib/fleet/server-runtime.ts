@@ -6,7 +6,7 @@
 // daemon has nothing to acquire and the run comes back `queued` — the honest state
 // until `build-golden.sh` has produced a warm VM.
 
-import { createVmDaemon } from "./vm-daemon/daemon";
+import { createVmDaemon, DEFAULT_LEASE_TTL_MS } from "./vm-daemon/daemon";
 import { createVirshClient } from "./vm-daemon/virsh";
 import { execVirshRunner } from "./vm-daemon/exec-runner";
 import { realVmsFromEnv } from "./vm-daemon/fleet-config";
@@ -447,6 +447,37 @@ export async function executeRunById(db: Db, runId: string, now = () => new Date
   }
 }
 
+/** Keep the desktops of runs that are legitimately still holding one.
+ *
+ * A run paused for a human takeover holds its desktop deliberately — that is the
+ * whole point, the person lands on the same `:0` the agent was driving. But
+ * nothing else renews that hold, so without this the lease lapses and another
+ * worker claims and reverts the desktop somebody was about to take over.
+ * Executing runs renew per node inside the orchestrator; this covers the paused
+ * ones, and any run executing in a different worker process.
+ *
+ * A hold that has already lapsed is NOT resurrected — the desktop may belong to
+ * someone else by now. Returns how many were renewed. */
+export function renewHeldRunLeases(
+  db: Db,
+  now: () => string = () => new Date().toISOString(),
+): number {
+  const rows = db
+    .prepare("SELECT id, vm_id FROM cuf_runs WHERE status IN ('running','paused') AND vm_id IS NOT NULL")
+    .all() as { id: string; vm_id: string }[];
+  if (!rows.length) return 0;
+  const domainOf = new Map(fleetVms().map((vm) => [vm.id, vm.domain]));
+  const leases = createDbLeaseStore(db);
+  const at = now();
+  const expiresAt = new Date(new Date(at).getTime() + DEFAULT_LEASE_TTL_MS).toISOString();
+  let renewed = 0;
+  for (const row of rows) {
+    const domain = domainOf.get(row.vm_id);
+    if (domain && leases.renew(domain, row.id, expiresAt, at)) renewed++;
+  }
+  return renewed;
+}
+
 /** Re-page the operator for takeovers nobody responded to within
  * CUF_TAKEOVER_ESCALATE_MIN (default 30) minutes. Called from the worker loop;
  * each takeover escalates at most once. Returns how many reminders were sent. */
@@ -548,6 +579,13 @@ export async function processPendingRuns(db: Db = getDb(), max = 5): Promise<num
       if (!runId) break;
       await executeRunById(db, runId);
       processed++;
+    }
+    // Keep held desktops held. Runs paused for a human own their desktop until
+    // the takeover is resolved, and nothing else renews that lease.
+    try {
+      renewHeldRunLeases(db);
+    } catch {
+      // never fail the queue drain on lease bookkeeping
     }
     // Piggyback on the worker cadence: remind the operator about takeovers nobody
     // has picked up. Best-effort — never fails the queue drain.
