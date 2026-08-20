@@ -246,6 +246,20 @@ export function setRunStatus(db: Db, id: string, status: RunStatus, finishedAt?:
   );
 }
 
+/** Pause a run that is still in flight, atomically. Returns false when the run
+ * already settled — the caller must not then open a takeover against it, and
+ * must not stomp a terminal status written by the worker. */
+export function pauseRunIfActive(db: Db, id: string, reason: string): boolean {
+  const res = db
+    .prepare(
+      `UPDATE cuf_runs
+          SET status='paused', paused_reason=?
+        WHERE id=? AND status IN ('running','queued')`,
+    )
+    .run(reason, id);
+  return res.changes === 1;
+}
+
 /** Record which node is currently executing (live progress for the run view). */
 export function setRunProgress(db: Db, id: string, currentStep: string): void {
   db.prepare("UPDATE cuf_runs SET current_step=? WHERE id=?").run(currentStep, id);

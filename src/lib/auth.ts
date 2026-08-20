@@ -9,13 +9,23 @@ export type AuthSession = {
   exp: number;
 };
 
-/** Paths reachable without auth (login flow + static assets). */
+/** Branding assets the login page and the outside world need before anyone has
+ * signed in: the mark on the sign-in card, the tab icon, the home-screen icon,
+ * and the image a link preview fetches. They are a logo, not data. */
+const PUBLIC_ASSETS = new Set([
+  "/perceo-logo.png",
+  "/icon.png",
+  "/apple-icon.png",
+  "/favicon.ico",
+]);
+
+/** Paths reachable without auth (login flow + static and branding assets). */
 export function isAuthExempt(path: string): boolean {
   return (
     path === "/login" ||
     path.startsWith("/api/auth") ||
     path.startsWith("/_next") ||
-    path === "/favicon.ico"
+    PUBLIC_ASSETS.has(path)
   );
 }
 
@@ -84,6 +94,49 @@ export async function authOk(
   if (fromHeader && (await verifySession(expected, fromHeader))) return true;
   if (cookieVal && cookieVal === expected) return true; // legacy token cookie
   return Boolean(await verifySession(expected, cookieVal));
+}
+
+/** The signing secret, or undefined when auth is switched off entirely. */
+export function authSecretFromEnv(): string | undefined {
+  return process.env.CUF_AUTH_SECRET || process.env.CUF_AUTH_TOKEN;
+}
+
+/** The caller's session, from an API bearer token or the browser cookie. */
+export async function sessionFromRequest(req: Request): Promise<AuthSession | undefined> {
+  const secret = authSecretFromEnv();
+  if (!secret) return undefined;
+  const bearer = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim();
+  const fromHeader = bearer ? await verifySession(secret, bearer) : undefined;
+  if (fromHeader) return fromHeader;
+  const raw = req.headers.get("cookie")?.match(new RegExp(`${AUTH_COOKIE}=([^;]+)`))?.[1];
+  return verifySession(secret, raw ? decodeURIComponent(raw) : undefined);
+}
+
+/** Gate a route on the caller's role. Returns a Response to send when the call
+ * is not allowed, or undefined to proceed.
+ *
+ * `whenDisabled` decides what happens with no secret configured: "allow" keeps
+ * the single-user/dev posture the proxy already has, "deny" keeps a surface
+ * locked even then. */
+export async function requireRole(
+  req: Request,
+  allowed: AuthRole[],
+  whenDisabled: "allow" | "deny" = "allow",
+): Promise<Response | undefined> {
+  if (!authSecretFromEnv()) {
+    return whenDisabled === "allow"
+      ? undefined
+      : Response.json({ error: "authentication is not configured" }, { status: 403 });
+  }
+  const session = await sessionFromRequest(req);
+  if (!session) return Response.json({ error: "sign in required" }, { status: 401 });
+  if (!allowed.includes(session.role)) {
+    return Response.json(
+      { error: `${allowed.join(" or ")} required — you are ${session.role}` },
+      { status: 403 },
+    );
+  }
+  return undefined;
 }
 
 export function sessionCookie(value: string, maxAge = 604800): string {

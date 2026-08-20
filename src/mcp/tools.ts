@@ -9,6 +9,10 @@ import { listWorkflows, getWorkflow, saveWorkflow } from "../lib/fleet/db/workfl
 import { validateWorkflow } from "../lib/fleet/workflow-validation";
 import { listVms } from "../lib/fleet/db/vms-repo";
 import { listSecretMeta, saveSecret } from "../lib/fleet/db/secrets-repo";
+import { deleteNodeType, listNodeTypes, saveNodeType } from "../lib/fleet/db/node-types-repo";
+import { behaviourDefaults } from "../lib/fleet/db/settings-repo";
+import { validateNodeType, type CustomNodeType } from "../lib/fleet/node-types";
+import { checkExpr, evalExpr, type ExprContext } from "../lib/fleet/expr";
 import { createTrigger, listTriggers } from "../lib/fleet/triggers/triggers-repo";
 import { enqueueManualRun, processPendingRuns } from "../lib/fleet/server-runtime";
 import { realVmsFromEnv } from "../lib/fleet/vm-daemon/fleet-config";
@@ -24,7 +28,17 @@ import {
   listEvidenceByRun,
   listEvidenceByRunAssociation,
 } from "../lib/fleet/db/evidence-repo";
-import { getTakeover, listTakeovers, resolveTakeover } from "../lib/fleet/db/takeovers-repo";
+import {
+  getOpenTakeoverForRun,
+  getTakeover,
+  listTakeovers,
+  openTakeover,
+  resolveTakeover,
+} from "../lib/fleet/db/takeovers-repo";
+import { pauseRunIfActive } from "../lib/fleet/db/runs-repo";
+import { resumeRunAfterPause } from "../lib/fleet/run-resume";
+import { parseAsk, validateAnswers } from "../lib/fleet/human-ask";
+import { applyAskAnswers } from "../lib/fleet/ask-answers";
 import type { Automation, AutomationStatus, EvidenceType, TakeoverStatus, Workflow } from "../lib/fleet/types";
 
 export type FleetTool = {
@@ -240,7 +254,7 @@ export const FLEET_TOOLS: FleetTool[] = [
     run: async (db, a) => {
       const { draftAutomation } = await import("../lib/fleet/automation-draft");
       const { spawnAgentExec } = await import("../lib/fleet/ssh-exec");
-      const draft = await draftAutomation(a.prompt as string, spawnAgentExec);
+      const draft = await draftAutomation(a.prompt as string, spawnAgentExec, { defaults: behaviourDefaults(db) });
       if (a.save && draft.errors.length === 0) {
         saveWorkflow(db, draft.workflow);
         saveAutomation(db, draft.automation);
@@ -354,11 +368,13 @@ export const FLEET_TOOLS: FleetTool[] = [
   },
   {
     name: "resolve_takeover",
-    description: "Mark a takeover resolved with optional operator notes. Optionally resume (re-queue) or cancel the paused run.",
+    description:
+      "Answer a run's question and resolve the takeover. `answers` is keyed by the ask's field/answer names; values the ask marked secret are stored encrypted. Optionally resume (re-queue) or cancel the paused run.",
     shape: {
       id: z.string(),
       operatorNotes: z.string().optional(),
       action: z.enum(["resume", "cancel"]).optional(),
+      answers: z.record(z.string(), z.string()).optional(),
     },
     run: (db, a) => {
       const takeover = getTakeover(db, a.id as string);
@@ -369,15 +385,157 @@ export const FLEET_TOOLS: FleetTool[] = [
       if (!a.action && getRun(db, takeover.runId)?.status === "paused") {
         return { ok: false, error: 'run is still paused — pass action: "resume" or "cancel"' };
       }
+      const ask = parseAsk(takeover.ask ?? takeover.requestedAction, takeover.reason);
+      const answers = (a.answers as Record<string, string> | undefined) ?? {};
+      if (a.action !== "cancel") {
+        const errors = validateAnswers(ask, answers);
+        if (errors.length) return { ok: false, error: errors.join(" ") };
+        const landed = applyAskAnswers(db, takeover.runId, ask, answers);
+        if (landed.dropped.length) {
+          return {
+            ok: false,
+            error: `cannot store ${landed.dropped.join(", ")} securely — set CUF_SECRET_KEY. The run is still paused.`,
+          };
+        }
+      }
       // Transition the run first — if it already moved on, keep the takeover open.
-      if (a.action === "resume" && !retryRun(db, takeover.runId)) {
+      // Resuming continues after the step that asked, so the same question is
+      // not put again.
+      if (a.action === "resume" && !resumeRunAfterPause(db, takeover.runId)) {
         return { ok: false, error: "run not in a state to resume" };
       }
       if (a.action === "cancel" && !cancelRun(db, takeover.runId)) {
         return { ok: false, error: "run not in a state to cancel" };
       }
-      resolveTakeover(db, a.id as string, { operatorNotes: a.operatorNotes as string | undefined });
+      resolveTakeover(db, a.id as string, {
+        operatorNotes: a.operatorNotes as string | undefined,
+        answers: a.action === "cancel" ? undefined : answers,
+      });
       return { ok: true, takeover: getTakeover(db, a.id as string) };
+    },
+  },
+  {
+    name: "ask_human",
+    description:
+      "Stop a run and ask a human for something — a value, a choice, an approval, or just a hand. " +
+      "The desktop is held where it is, and the answer comes back to the run as {{param.name}} " +
+      "(or {{secret.name}} for fields marked secret). Use this instead of guessing or failing.",
+    shape: {
+      runId: z.string(),
+      question: z.string(),
+      detail: z.string().optional(),
+      kind: z.enum(["input", "choice", "approval", "acknowledge"]).optional(),
+      fields: z
+        .array(
+          z.object({
+            name: z.string(),
+            label: z.string().optional(),
+            type: z.enum(["text", "textarea", "password", "code", "number", "url", "email"]).optional(),
+            secret: z.boolean().optional(),
+            required: z.boolean().optional(),
+          }),
+        )
+        .optional(),
+      options: z.array(z.string()).optional(),
+    },
+    run: (db, a) => {
+      const run = getRun(db, a.runId as string);
+      if (!run) return { ok: false, error: "run not found" };
+      if (run.status !== "running" && run.status !== "queued" && run.status !== "paused") {
+        return { ok: false, error: `run is ${run.status} — only an in-flight run can ask for help` };
+      }
+      const existing = getOpenTakeoverForRun(db, run.id);
+      if (existing) return { ok: true, alreadyOpen: true, takeover: existing };
+
+      const ask = parseAsk(a, `The run needs a human at "${run.currentStep ?? "this step"}".`);
+      // Conditional, so a run that settled in the meantime is not resurrected.
+      if (run.status !== "paused" && !pauseRunIfActive(db, run.id, ask.question)) {
+        return {
+          ok: false,
+          error: `run finished as ${getRun(db, run.id)?.status ?? "unknown"} before the question could be asked`,
+        };
+      }
+      const now = new Date().toISOString();
+      const takeover = {
+        id: `tk_${run.id}_${now}`,
+        runId: run.id,
+        environmentId: run.environmentId,
+        vmId: run.vmId,
+        reason: `Asked at "${run.currentStep ?? "unknown step"}"`,
+        requestedAction: ask.question,
+        ask,
+        status: "open" as const,
+        openedAt: now,
+      };
+      openTakeover(db, takeover);
+      return { ok: true, takeover };
+    },
+  },
+  {
+    name: "list_node_types",
+    description: "List user-defined node types available to workflows (custom steps).",
+    shape: {},
+    run: (db) => listNodeTypes(db),
+  },
+  {
+    name: "upsert_node_type",
+    description:
+      "Create or replace a custom node type. `base` picks what runs it: http (template is JSON with url/method/headers/body), shell (template is a command), or expression (template is an expression). Fields are declared inputs, referenced in the template as {{field.name}}.",
+    shape: {
+      id: z.string(),
+      name: z.string(),
+      description: z.string().optional(),
+      icon: z.string().optional(),
+      base: z.enum(["http", "shell", "expression"]),
+      fields: z
+        .array(
+          z.object({
+            name: z.string(),
+            label: z.string().optional(),
+            type: z.enum(["text", "textarea", "number", "secret", "select", "boolean"]).optional(),
+            required: z.boolean().optional(),
+            options: z.array(z.string()).optional(),
+            default: z.string().optional(),
+          }),
+        )
+        .optional(),
+      template: z.string(),
+      successExpr: z.string().optional(),
+    },
+    run: (db, a) => {
+      const candidate = {
+        ...a,
+        description: (a.description as string) ?? "",
+        fields: ((a.fields as CustomNodeType["fields"]) ?? []).map((f) => ({
+          ...f,
+          label: f.label || f.name,
+          type: f.type ?? "text",
+        })),
+      } as CustomNodeType;
+      const errors = validateNodeType(candidate);
+      if (errors.length) return { ok: false, errors };
+      return { ok: true, nodeType: saveNodeType(db, candidate) };
+    },
+  },
+  {
+    name: "delete_node_type",
+    description: "Remove a custom node type. Workflows still using it will fail that step.",
+    shape: { id: z.string() },
+    run: (db, a) => ({ ok: deleteNodeType(db, a.id as string) }),
+  },
+  {
+    name: "eval_expression",
+    description:
+      "Check or try a workflow expression (the language used by condition/switch/wait/set steps) against a sample context. Use it to verify a rule before saving it into a graph.",
+    shape: { expression: z.string(), context: z.record(z.string(), z.unknown()).optional() },
+    run: (_db, a) => {
+      const problem = checkExpr(a.expression as string);
+      if (problem) return { ok: false, error: problem };
+      try {
+        return { ok: true, value: evalExpr(a.expression as string, (a.context ?? {}) as ExprContext) };
+      } catch (e) {
+        return { ok: false, error: String(e) };
+      }
     },
   },
   {

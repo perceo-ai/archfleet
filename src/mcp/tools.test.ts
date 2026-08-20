@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { FLEET_TOOLS } from "./tools";
 import { openDb } from "../lib/fleet/db/db";
+import { getRun, saveRun } from "../lib/fleet/db/runs-repo";
 import { ensureSeeded } from "../lib/fleet/db/init-db";
 
 function tool(name: string) {
@@ -238,6 +239,135 @@ describe("actionless takeover resolution", () => {
     };
     expect(resumed.ok).toBe(true);
     expect(getTakeover(db, "tk_open")?.status).toBe("resolved");
+    db.close();
+  });
+});
+
+describe("ask_human", () => {
+  function runningRun(db: ReturnType<typeof openDb>, id: string, status = "running") {
+    ensureSeeded(db);
+    saveRun(db, {
+      id,
+      workflowId: "wf_seed",
+      workflowName: "seeded",
+      status: status as "running",
+      startedAt: "2026-08-12T00:00:00Z",
+      currentStep: "File the invoice",
+      events: [],
+    });
+  }
+
+  it("pauses the run and records a structured question", async () => {
+    const db = openDb(":memory:");
+    runningRun(db, "run_ask");
+
+    const res = (await tool("ask_human").run(db, {
+      runId: "run_ask",
+      question: "Which PO should this be filed under?",
+      fields: [{ name: "po", label: "PO number", type: "text" }],
+    })) as { ok: boolean; takeover: { ask: { kind: string; fields: { name: string }[] } } };
+
+    expect(res.ok).toBe(true);
+    expect(res.takeover.ask.kind).toBe("input");
+    expect(res.takeover.ask.fields[0].name).toBe("po");
+    expect(getRun(db, "run_ask")?.status).toBe("paused");
+    db.close();
+  });
+
+  it("refuses on a run that already finished", async () => {
+    const db = openDb(":memory:");
+    runningRun(db, "run_done", "succeeded");
+    const res = (await tool("ask_human").run(db, { runId: "run_done", question: "?" })) as {
+      ok: boolean;
+    };
+    expect(res.ok).toBe(false);
+    db.close();
+  });
+
+  it("hands the answer back to the run as a param", async () => {
+    const db = openDb(":memory:");
+    runningRun(db, "run_ans");
+    const asked = (await tool("ask_human").run(db, {
+      runId: "run_ans",
+      question: "Which PO?",
+      fields: [{ name: "po", label: "PO", type: "text" }],
+    })) as { takeover: { id: string } };
+
+    const res = (await tool("resolve_takeover").run(db, {
+      id: asked.takeover.id,
+      action: "resume",
+      answers: { po: "PO-4821" },
+    })) as { ok: boolean };
+
+    expect(res.ok).toBe(true);
+    const row = db.prepare("SELECT params_json FROM cuf_runs WHERE id=?").get("run_ans") as {
+      params_json: string;
+    };
+    expect(JSON.parse(row.params_json).po).toBe("PO-4821");
+    db.close();
+  });
+
+  it("rejects an answer that does not satisfy the ask", async () => {
+    const db = openDb(":memory:");
+    runningRun(db, "run_bad");
+    const asked = (await tool("ask_human").run(db, {
+      runId: "run_bad",
+      question: "Which PO?",
+      fields: [{ name: "po", label: "PO", type: "text" }],
+    })) as { takeover: { id: string } };
+
+    const res = (await tool("resolve_takeover").run(db, {
+      id: asked.takeover.id,
+      action: "resume",
+      answers: {},
+    })) as { ok: boolean; error: string };
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/required/i);
+    db.close();
+  });
+});
+
+describe("rules + custom node types", () => {
+  it("checks an expression before it goes into a graph", async () => {
+    const db = openDb(":memory:");
+    const ok = (await tool("eval_expression").run(db, {
+      expression: "steps.Fetch.body.total > 1000",
+      context: { steps: { Fetch: { body: { total: 2480 } } } },
+    })) as { ok: boolean; value: unknown };
+    expect(ok).toEqual({ ok: true, value: true });
+
+    const bad = (await tool("eval_expression").run(db, { expression: "steps. ==" })) as {
+      ok: boolean;
+      error: string;
+    };
+    expect(bad.ok).toBe(false);
+    db.close();
+  });
+
+  it("round-trips a custom node type and rejects a broken one", async () => {
+    const db = openDb(":memory:");
+    const saved = (await tool("upsert_node_type").run(db, {
+      id: "notify",
+      name: "Notify",
+      base: "http",
+      template: '{"url":"{{field.hook}}","method":"POST"}',
+      fields: [{ name: "hook", label: "Hook", type: "secret", required: true }],
+    })) as { ok: boolean };
+    expect(saved.ok).toBe(true);
+    expect(((await tool("list_node_types").run(db, {})) as unknown[]).length).toBe(1);
+
+    const broken = (await tool("upsert_node_type").run(db, {
+      id: "bad",
+      name: "Bad",
+      base: "http",
+      template: "not json",
+    })) as { ok: boolean; errors: string[] };
+    expect(broken.ok).toBe(false);
+    expect(broken.errors.join(" ")).toMatch(/must be JSON/);
+
+    expect((await tool("delete_node_type").run(db, { id: "notify" })) as { ok: boolean }).toEqual({
+      ok: true,
+    });
     db.close();
   });
 });

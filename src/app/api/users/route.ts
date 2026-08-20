@@ -1,20 +1,13 @@
-import { AUTH_COOKIE, verifySession } from "@/lib/auth";
+import { requireRole } from "@/lib/auth";
 import { getDb } from "@/lib/fleet/db/db";
 import { createUser, deleteUser, listUsers } from "@/lib/fleet/db/users-repo";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function authSecret(): string | undefined {
-  return process.env.CUF_AUTH_SECRET || process.env.CUF_AUTH_TOKEN;
-}
-
-async function requireAdmin(req: Request): Promise<Response | undefined> {
-  const raw = req.headers.get("cookie")?.match(new RegExp(`${AUTH_COOKIE}=([^;]+)`))?.[1];
-  const session = await verifySession(authSecret(), raw ? decodeURIComponent(raw) : undefined);
-  if (session?.role === "admin") return undefined;
-  return Response.json({ error: "admin required" }, { status: 403 });
-}
+/** User management stays locked even with auth switched off — it is the one
+ * surface where "no auth configured" must not mean "anyone may". */
+const requireAdmin = (req: Request) => requireRole(req, ["admin"], "deny");
 
 export async function GET(req: Request) {
   const denied = await requireAdmin(req);

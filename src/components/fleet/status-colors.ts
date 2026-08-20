@@ -6,89 +6,105 @@ import type {
   TakeoverStatus,
   VmStatus,
 } from "@/lib/fleet/types";
+import type { Tone } from "@/components/ui/primitives";
 
-// Single source of truth for status badge colors across the app (dark theme).
+// Single status vocabulary for the whole app:
+//   ok green · danger red · info blue (in flight) · human violet (needs a person)
+//   warn amber (stale, not broken yet) · idle grey.
+// Violet is also the brand accent, so it is only ever used for "a human is
+// needed" — primary actions are the gradient button, not a pill.
 
-export function runStatusTone(status: RunStatus | string): string {
+export function runStatusTone(status: RunStatus | string): Tone {
   switch (status) {
     case "succeeded":
-      return "bg-[#4ade80]/20 text-[#8add84] ring-1 ring-[#4ade80]/30";
+      return "ok";
     case "failed":
-      return "bg-[#f87171]/20 text-[#fca5a5] ring-1 ring-[#f87171]/30";
+      return "danger";
     case "paused":
-      return "bg-[#8b5cf6]/20 text-[#c4b5fd] ring-1 ring-[#8b5cf6]/30";
+      return "human";
     case "running":
-      return "bg-[#60a5fa]/20 text-[#9ec5fb] ring-1 ring-[#60a5fa]/30";
-    case "canceled":
-      return "bg-white/10 text-white/60 ring-1 ring-white/10";
-    case "queued":
+      return "info";
     default:
-      return "bg-white/10 text-white/70 ring-1 ring-white/10";
+      return "idle";
   }
 }
 
-export function automationHealthTone(health: AutomationHealth | string): string {
+export function automationHealthTone(health: AutomationHealth | string): Tone {
   switch (health) {
     case "healthy":
-      return "bg-[#4ade80]/20 text-[#8add84] ring-1 ring-[#4ade80]/30";
+      return "ok";
     case "failing":
-      return "bg-[#f87171]/20 text-[#fca5a5] ring-1 ring-[#f87171]/30";
+      return "danger";
     case "needs_attention":
-      return "bg-[#8b5cf6]/20 text-[#c4b5fd] ring-1 ring-[#8b5cf6]/30";
-    case "unknown":
+      return "human";
     default:
-      return "bg-white/10 text-white/60 ring-1 ring-white/10";
+      return "idle";
   }
 }
 
-export function automationStatusTone(status: AutomationStatus | string): string {
+export function automationStatusTone(status: AutomationStatus | string): Tone {
   switch (status) {
     case "active":
-      return "bg-[#4ade80]/20 text-[#8add84] ring-1 ring-[#4ade80]/30";
+      return "ok";
     case "draft":
-      return "bg-[#60a5fa]/20 text-[#9ec5fb] ring-1 ring-[#60a5fa]/30";
-    case "disabled":
+      return "info";
     default:
-      return "bg-white/10 text-white/60 ring-1 ring-white/10";
+      return "idle";
   }
 }
 
-export function environmentHealthTone(health: EnvironmentHealth | string): string {
+export function environmentHealthTone(health: EnvironmentHealth | string): Tone {
   switch (health) {
     case "ready":
-      return "bg-[#4ade80]/20 text-[#8add84] ring-1 ring-[#4ade80]/30";
+      return "ok";
     case "degraded":
-      return "bg-[#f87171]/20 text-[#fca5a5] ring-1 ring-[#f87171]/30";
+      return "danger";
     case "recovering":
-      return "bg-[#8b5cf6]/20 text-[#c4b5fd] ring-1 ring-[#8b5cf6]/30";
-    case "unknown":
+      return "human";
     default:
-      return "bg-white/10 text-white/60 ring-1 ring-white/10";
+      return "idle";
   }
 }
 
-export function takeoverStatusTone(status: TakeoverStatus | string): string {
-  return status === "open"
-    ? "bg-[#8b5cf6]/20 text-[#c4b5fd] ring-1 ring-[#8b5cf6]/30"
-    : "bg-white/10 text-white/60 ring-1 ring-white/10";
+export function takeoverStatusTone(status: TakeoverStatus | string): Tone {
+  return status === "open" ? "human" : "idle";
 }
 
-export function vmStatusTone(status: VmStatus | string): string {
+export function vmStatusTone(status: VmStatus | string): Tone {
   switch (status) {
     case "idle":
-      return "bg-[#4ade80]/20 text-[#8add84] ring-1 ring-[#4ade80]/30";
+      return "ok";
     case "running":
     case "assigned":
     case "starting":
-      return "bg-[#60a5fa]/20 text-[#9ec5fb] ring-1 ring-[#60a5fa]/30";
+      return "info";
     case "needs_human":
     case "resetting":
-      return "bg-[#8b5cf6]/20 text-[#c4b5fd] ring-1 ring-[#8b5cf6]/30";
+      return "human";
     case "unhealthy":
-      return "bg-[#f87171]/20 text-[#fca5a5] ring-1 ring-[#f87171]/30";
-    case "stopped":
+      return "danger";
     default:
-      return "bg-white/10 text-white/60 ring-1 ring-white/10";
+      return "idle";
+  }
+}
+
+/** CSS colour for solid marks (dots, bars) rather than tinted pills. */
+export function toneColor(tone: Tone): string {
+  switch (tone) {
+    case "ok":
+      return "var(--ok-base)";
+    case "danger":
+      return "var(--danger-base)";
+    case "info":
+      return "var(--info-base)";
+    case "human":
+      return "var(--human-base)";
+    case "warn":
+      return "var(--warn-base)";
+    case "accent":
+      return "var(--accent)";
+    default:
+      return "var(--idle)";
   }
 }
 

@@ -33,11 +33,28 @@ export function seedFleetState(): FleetState {
           {
             id: "node_takeover",
             type: "human_takeover",
-            name: "XRDP Takeover",
+            name: "Ask a human",
             position: { x: 540, y: 180 },
             config: {
               timeoutMs: 900000,
               requiredLabels: ["linux-desktop"],
+              // A takeover is a question, not "someone go look at the desktop".
+              // Whatever the run needs back becomes a param the next steps use.
+              ask: {
+                kind: "input",
+                question: "The portal is asking for a verification code — what is it?",
+                detail:
+                  "Sent to the account owner, so the run cannot read it. It is used once and never logged.",
+                fields: [
+                  {
+                    name: "verification_code",
+                    label: "Verification code",
+                    type: "code",
+                    secret: true,
+                    required: true,
+                  },
+                ],
+              },
             },
           },
           {

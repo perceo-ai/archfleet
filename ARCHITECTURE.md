@@ -77,29 +77,141 @@ hosts by expanding `CUF_FLEET_JSON`.
 | `cli_agent_task` | uses claude/codex CLI | controller |
 | `shell_task` | no | controller (gated) |
 | `api_call` | no — HTTP request | controller |
-| `human_takeover` | — pauses + pages operator | — |
-| `condition` / `retry_wait` | no — control flow | — |
+| `human_takeover` | — pauses and **asks a human** (see below) | — |
+| `condition` / `switch` / `wait` / `set_params` / `retry_wait` | no — rules + control flow | controller |
+| `custom` | depends on its definition (http / shell / expression) | controller |
 
 All task nodes resolve `{{secret.x}}` / `{{param.x}}` at runtime, so passwords and
 tokens flow to Agent S (typed), Playwright (`fill`), scripts, and API headers —
 and are redacted from logs.
 
-## Frontend (automation-first)
+## Frontend (graph-first, four surfaces)
 
-Routes (per `docs/2026-08-12-archfleet-ux-backend-strategy.md`):
+Four nav items and one workspace. Static HTML demos of every screen live in
+`.context/design/` (untracked) — open `.context/design/index.html` for the rationale and the design system.
 
 | Route | Surface |
 |---|---|
-| `/` | Automation-first home: needs-human takeovers, running/failed runs, drafts, automations with health, semantic-test rail, compact fleet strip |
-| `/automations` | All automations with lenses (semantic tests, drafts, active, recently failed, needs human, categories) |
-| `/automations/new` | Prompt-to-automation draft composer (review before save; save + run once) |
-| `/automations/[id]` | Spec editor (goal/steps/criteria/secrets/environment/triggers) — the React Flow graph is the **Advanced** tab |
-| `/runs/[id]` | State-dependent run view: running (live desktop, current step), paused (takeover + operator notes), completed (criteria review + evidence), failed (failure point + recovery) |
-| `/environments` | Prepared environments + the profile-ops setup flow (golden build, manual login, capture, clones) |
-| `/fleet` | Operator surface: VM capacity/status, desktop access, profile readiness |
+| `/` | **Inbox** — the work queue: takeovers with inline resume, failures grouped by cause (`lib/fleet/failure-groups.ts`), drafts awaiting activation, a fleet-pulse stat strip |
+| `/automations` | The library: one row per automation with its last five runs, success rate, median duration, saved views |
+| `/automations/[id]`, `/automations/new` | **The workspace** — its own full-viewport page (no app rail): copilot left, the graph in the middle, live state right. Same screen empty for a new automation |
+| `/activity` | Every run, live and historical, with a 24h volume strip — the audit trail |
+| `/runs/[id]` | One layout, state-dependent: paused (takeover), failed (diagnosis + recovery), succeeded (criteria + evidence). The run is also painted back onto the graph |
+| `/environments` | Environments and **capacity** (the old `/fleet`) as tabs. `/fleet` redirects here |
+| `/settings` | Everything you configure: setup checklist, providers, notifications, behaviour defaults, fleet wiring, secrets, node types, people and tokens. `/users` redirects here |
 
-The user-facing object is the **Automation** (intent + workflow + trigger +
-prepared environment + success criteria + run history); the workflow graph and
-the VM fleet exist underneath and stay visible for power users/operators. The UI
-is functional, dark-theme only; mobile and marketing polish remain a separate
-design pass.
+The user-facing object is the **Automation**, and the automation *is* its graph.
+Every node is a button that opens its own modal — a workflow node, the synthetic
+**trigger** node above the flow, or the synthetic **done means** node below it
+(which holds the success criteria and evidence checks). Nothing expands inline,
+so the middle column never grows.
+
+### Configuration and setup
+
+Configuration used to be environment-only, which meant a redeploy to change a
+model and no way to see what was set. `lib/fleet/settings.ts` declares the
+catalogue once — key, group, kind, help, the env var it falls back to — and that
+one declaration drives both the Settings UI and the runtime:
+
+    stored value  →  environment variable  →  built-in default
+
+So an existing deployment behaves exactly as before until someone sets something
+in the app. Values marked `secret` (API keys, the notification webhook) are kept
+in the encrypted secret store, never in `cuf_settings`, and never returned to the
+browser — the UI is told only whether one is set, and where the effective value
+comes from.
+
+What is actually wired, not just displayed: provider settings become the guest
+runner's environment for the planner and grounding models; the notification
+webhook and escalation window are read per run; `behaviour.allow_shell` decides
+whether `shell_task` and shell-backed custom nodes execute at all; and the
+behaviour defaults seed every new automation's retry, takeover and artifact
+policy. A secret that cannot be encrypted (no `CUF_SECRET_KEY`) is reported and
+skipped — the rest of the save still lands.
+
+`lib/fleet/setup-status.ts` computes readiness from real state (auth configured,
+secret store working, a provider connected, desktops and environments that
+exist, a webhook, a first automation). It drives the Setup tab and a banner on
+the Inbox, and every unfinished item links to the page that fixes it.
+
+### Rules, data flow and custom nodes
+
+Every node's result is readable by every later node. The orchestrator keeps a
+`steps` map keyed by node name, so a rule can say what it means:
+
+```
+steps["Fetch invoices"].body.total > 1000 && params.region == "eu"
+```
+
+- **Expressions** (`lib/fleet/expr.ts`) are a hand-written parser + evaluator —
+  no `eval`, no `Function`, and property access cannot reach a prototype. A
+  missing path is `null`, so a rule about data that has not arrived is just
+  false. Malformed rules are rejected at **save** time by `validateWorkflow`.
+- **`condition`** takes `config.expr` — deterministic branching that costs
+  nothing, instead of asking a model to decide. (The model-backed condition is
+  still there for genuinely fuzzy calls.)
+- **`switch`** takes ordered `config.cases`; the first true one wins and its
+  label selects the `case:<label>` edge.
+- **`wait`** pauses (`waitMs`) or polls a probe request until `untilExpr` holds,
+  giving up at `timeoutMs`. A wait with a rule but nothing to poll fails
+  immediately rather than spinning — the answer could never change.
+- **`set_params`** computes params from expressions, so later steps read them as
+  `{{param.x}}`.
+- Templates understand `{{param.x}}`, `{{secret.x}}`, `{{totp.x}}`,
+  `{{field.x}}` and the general `{{= any expression }}`.
+
+**Custom node types** (`lib/fleet/node-types.ts`, `cuf_node_types`) are how the
+palette grows without a deploy. A definition is data: a name, declared inputs,
+and one of three primitives to run — `http` (template is JSON with url/method/
+headers/body), `shell` (a command), or `expression` (a pure value). The
+orchestrator compiles it per run: field values are templated, then the type's
+template is templated with them. A definition can also declare `successExpr` to
+override "2xx means success". Build them under **Settings › Node types** (with
+presets) or over MCP (`upsert_node_type`); `eval_expression` checks a rule
+before it goes into a graph.
+
+### Asking a human for anything
+
+A run that gets stuck does not "request a takeover" — it **asks a question**, and
+the answer comes back into the run. The ask is data (`lib/fleet/human-ask.ts`):
+
+```jsonc
+{ "kind": "input",                       // input | choice | approval | acknowledge
+  "question": "Which PO should this be filed under?",
+  "detail": "The header has no PO and this vendor has three open ones.",
+  "fields": [{ "name": "po", "label": "PO number", "type": "text" },
+             { "name": "pin", "label": "Portal PIN", "type": "code", "secret": true }] }
+```
+
+Where asks come from:
+
+- a `human_takeover` node's `config.ask` — authored in the node modal, no JSON required;
+- `POST /api/runs/:id/ask` — any executor can stop mid-run and ask;
+- the `ask_human` MCP tool — the same thing for a CLI agent driving a run.
+
+What happens to the answer (`lib/fleet/ask-answers.ts`): plain values become run
+params, so later nodes resolve `{{param.po}}`; values the ask marked `secret`
+become run-scoped encrypted secrets (`{{secret.pin}}`) and are redacted from
+every log. A secret that cannot be encrypted (no `CUF_SECRET_KEY`) is **reported,
+not dropped** — the run stays paused rather than resuming without the value it
+asked for. One component (`AskPanel`) renders every kind, so the inbox, the run
+view and the workspace drawer all answer the same way.
+
+Supporting pure modules, all unit-tested without React:
+
+- `lib/fleet/graph-layout.ts` — deterministic layered layout (stored node
+  positions are not trusted) plus the two synthetic nodes.
+- `lib/fleet/run-node-states.ts` — reads per-node state out of a run's own
+  events, so a node the orchestrator never mentioned shows as "not reached"
+  rather than being guessed green.
+- `lib/fleet/failure-groups.ts` — collapses N failed runs with one cause into
+  one inbox item.
+- `lib/fleet/human-ask.ts` — parse/validate/split any ask, however it arrives.
+- `lib/fleet/node-timings.ts`, `lib/fleet/run-trends.ts` — per-node durations and
+  hourly run buckets, both read from data the run already records.
+
+The design system lives in `src/app/globals.css` as tokens plus component
+classes (`.card`, `.pill`, `.gnode`, `.modal`, …). Status has one vocabulary —
+green ok, red failed, blue in flight, violet needs-a-human, amber stale, grey
+idle — carried over from the palette the app already used. Dark by default; the
+token layer has a light override but the app ships dark.

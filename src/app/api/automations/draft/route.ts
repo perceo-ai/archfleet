@@ -3,6 +3,7 @@ import { spawnAgentExec } from "@/lib/fleet/ssh-exec";
 import { getDb } from "@/lib/fleet/db/db";
 import { saveAutomation } from "@/lib/fleet/db/automations-repo";
 import { saveWorkflow } from "@/lib/fleet/db/workflows-repo";
+import { behaviourDefaults } from "@/lib/fleet/db/settings-repo";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,7 +18,7 @@ export async function POST(req: Request) {
     save?: boolean;
   };
   if (!prompt) return Response.json({ error: "prompt is required" }, { status: 400 });
-  const draft = await draftAutomation(prompt, spawnAgentExec);
+  const draft = await draftAutomation(prompt, spawnAgentExec, { defaults: behaviourDefaults(getDb()) });
   if (save && draft.errors.length === 0) {
     const db = getDb();
     saveWorkflow(db, draft.workflow);

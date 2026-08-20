@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Scratch space (design demos, notes) — untracked, not shipped.
+    ".context/**",
   ]),
 ]);
 

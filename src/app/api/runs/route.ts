@@ -32,10 +32,13 @@ export async function POST(req: Request) {
   return Response.json(run, { status: 202 });
 }
 
-// GET /api/runs?branch=&pr= — recent run summaries, newest first.
+// GET /api/runs?branch=&pr=&limit= — recent run summaries, newest first.
+// `limit` is bounded so a page cannot ask for the whole table by accident.
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const branchRef = url.searchParams.get("branch") ?? undefined;
   const prRef = url.searchParams.get("pr") ?? undefined;
-  return Response.json(listRuns(getDb(), 50, { branchRef, prRef }));
+  const asked = Number(url.searchParams.get("limit") ?? 50);
+  const limit = Number.isFinite(asked) ? Math.min(Math.max(Math.trunc(asked), 1), 500) : 50;
+  return Response.json(listRuns(getDb(), limit, { branchRef, prRef }));
 }

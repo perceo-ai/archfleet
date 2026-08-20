@@ -27,6 +27,8 @@ import {
   appendRunArtifact,
 } from "./db/runs-repo";
 import { getWorkflow } from "./db/workflows-repo";
+import { nodeTypeRegistry } from "./db/node-types-repo";
+import { effectiveSettings, settingFlag, settingNumber, settingValue } from "./db/settings-repo";
 import { getAutomation, getAutomationByWorkflowId } from "./db/automations-repo";
 import { evaluateEvidenceChecks } from "./evidence-checks";
 import { touchEnvironment } from "./db/environments-repo";
@@ -39,6 +41,7 @@ import {
   listStaleOpenTakeovers,
 } from "./db/takeovers-repo";
 import { loadSecrets } from "./db/secrets-repo";
+import { parseAsk } from "./human-ask";
 import { recordRunMetric } from "./db/run-metrics-repo";
 import { seedFleetState } from "./seed";
 import { notifyRun, notifyTakeoverEscalation } from "./notify";
@@ -49,8 +52,24 @@ import type { FleetState, TriggerSource, Workflow, WorkflowRun } from "./types";
 let runCounter = 0;
 const newRunId = (now: () => string) => `run_${runCounter++}_${now()}`;
 
-/** Guest-runner env forwarded from the controller process (planner + grounding). */
-function guestEnv(env: Record<string, string | undefined> = process.env): Record<string, string> {
+/** Provider settings map onto the env names the guest runner expects. */
+const PROVIDER_ENV: Record<string, string> = {
+  "provider.openrouter_api_key": "OPENROUTER_API_KEY",
+  "provider.planner_model": "CUF_PLANNER_MODEL",
+  "provider.openrouter_base_url": "CUF_OPENROUTER_BASE_URL",
+  "provider.grounding_model": "CUF_GROUNDING_MODEL",
+  "provider.grounding_base_url": "CUF_GROUNDING_BASE_URL",
+  "provider.grounding_api_key": "CUF_GROUNDING_API_KEY",
+  "provider.agent_backend": "CUF_AGENT_BACKEND",
+};
+
+/** Guest-runner env forwarded from the controller process (planner + grounding).
+ * Settings configured in the app win; anything unset falls back to the process
+ * environment, so an existing deployment behaves exactly as before. */
+function guestEnv(
+  env: Record<string, string | undefined> = process.env,
+  db?: Db,
+): Record<string, string> {
   const keys = [
     "OPENROUTER_API_KEY",
     "CUF_PLANNER_MODEL",
@@ -64,6 +83,13 @@ function guestEnv(env: Record<string, string | undefined> = process.env): Record
   const forwarded = Object.fromEntries(
     keys.filter((k) => env[k] != null).map((k) => [k, env[k] as string]),
   );
+  if (db) {
+    const configured = effectiveSettings(db, env);
+    for (const [key, envName] of Object.entries(PROVIDER_ENV)) {
+      const value = configured[key];
+      if (value != null && value !== "") forwarded[envName] = value;
+    }
+  }
   // pyautogui must talk to the guest's autologin X session (xhost +local: on the
   // guest grants access; XAUTHORITY is a fallback if the session uses a cookie).
   return {
@@ -104,7 +130,7 @@ function resolveSecrets(db: Db, state: FleetState): FleetState["secrets"] {
 }
 
 /** Assemble the real orchestrator dependencies (libvirt daemon + SSH transport). */
-function buildRunDeps(state: FleetState, now: () => string): OrchestratorDeps {
+function buildRunDeps(state: FleetState, now: () => string, db?: Db): OrchestratorDeps {
   const uri = process.env.CUF_LIBVIRT_URI ?? "qemu:///session";
   const client = createVirshClient(execVirshRunner(), uri);
   // Production execution should only see configured/persisted real VMs. The
@@ -116,12 +142,17 @@ function buildRunDeps(state: FleetState, now: () => string): OrchestratorDeps {
     exec: spawnExecRunner,
     agentExec: spawnAgentExec,
     now,
-    env: guestEnv(),
+    env: guestEnv(process.env, db),
     sshIdentityFile: process.env.CUF_SSH_KEY,
     fetchArtifacts: makeFetchArtifacts(now),
     syncGuestRunner: makeSyncGuestRunner(),
-    // shell_task is off unless explicitly enabled (runs arbitrary controller commands).
-    shellExec: process.env.CUF_ALLOW_SHELL === "1" ? spawnShellExec : undefined,
+    // shell_task is off unless explicitly enabled (runs arbitrary controller
+    // commands). Settable in Settings › Behaviour, or by env for a locked-down
+    // deployment that never wants it on.
+    shellExec:
+      (db ? settingFlag(db, "behaviour.allow_shell") : false) || process.env.CUF_ALLOW_SHELL === "1"
+        ? spawnShellExec
+        : undefined,
     httpFetch: fetch,
     emailOtp: fetchEmailOtpImap,
   };
@@ -171,7 +202,7 @@ export async function executeManualRun(
   const db = opts.db ?? getDb();
   const run = await runWorkflow(
     { workflow, secrets: resolveSecrets(db, state), params: state.params, runId: newRunId(now) },
-    buildRunDeps(state, now),
+    buildRunDeps(state, now, db),
   );
   saveRun(db, opts.triggerId ? { ...run, triggerId: opts.triggerId } : run);
   return run;
@@ -231,6 +262,21 @@ export function enqueueManualRun(
   return run;
 }
 
+/** Write one computed param into the run's stored params. */
+function mergeRunParam(
+  db: Db,
+  runId: string,
+  name: string,
+  value: string | number | boolean | null,
+): void {
+  const row = db.prepare("SELECT params_json FROM cuf_runs WHERE id=?").get(runId) as
+    | { params_json: string }
+    | undefined;
+  const params = JSON.parse(row?.params_json || "{}") as Record<string, unknown>;
+  params[name] = value;
+  db.prepare("UPDATE cuf_runs SET params_json=? WHERE id=?").run(JSON.stringify(params), runId);
+}
+
 /** Merge run-level params (from params_json) over the workflow/global seed params. */
 function resolveParams(db: Db, state: FleetState, runId: string): FleetState["params"] {
   const row = db.prepare("SELECT params_json FROM cuf_runs WHERE id=?").get(runId) as
@@ -269,8 +315,14 @@ export async function executeRunById(db: Db, runId: string, now = () => new Date
       startNodeId: typeof resumeFrom === "string" ? resumeFrom : undefined,
     },
     {
-      ...buildRunDeps(state, now),
+      ...buildRunDeps(state, now, db),
+      // Whatever node types are installed right now — a definition saved a
+      // minute ago is usable by the next run, no restart.
+      customNodeTypes: nodeTypeRegistry(db),
       onProgress: (_nodeId, nodeName) => setRunProgress(db, runId, nodeName),
+      // Persist computed params as they are set, so they survive a pause and
+      // show up on the run record.
+      onParam: (name, value) => mergeRunParam(db, runId, name, value),
       // Stream events + artifacts into the db as they happen so the run view is a
       // live "watch it run" surface, not a post-hoc report. Same ids as the final
       // saveRun, so the settle-time write replaces these rows.
@@ -284,8 +336,14 @@ export async function executeRunById(db: Db, runId: string, now = () => new Date
   // later plain retry starts from the beginning instead of silently skipping
   // prerequisite steps. A no-VM requeue keeps it — the resume hasn't happened yet.
   if (resumeFrom !== undefined && settled) {
-    delete storedParams.__resumeFrom;
-    db.prepare("UPDATE cuf_runs SET params_json=? WHERE id=?").run(JSON.stringify(storedParams), runId);
+    // Re-read: the run has been writing computed params since `storedParams`
+    // was snapshotted, and writing the stale copy back would erase them.
+    const latest = db.prepare("SELECT params_json FROM cuf_runs WHERE id=?").get(runId) as
+      | { params_json: string }
+      | undefined;
+    const params = JSON.parse(latest?.params_json || "{}") as Record<string, unknown>;
+    delete params.__resumeFrom;
+    db.prepare("UPDATE cuf_runs SET params_json=? WHERE id=?").run(JSON.stringify(params), runId);
   }
   const lastEvent = run.events[run.events.length - 1];
   const merged: WorkflowRun = {
@@ -326,7 +384,10 @@ export async function executeRunById(db: Db, runId: string, now = () => new Date
   // Page an operator when a human is needed (or on failure), and record on the
   // takeover that the page actually went out (shown in the paused run view).
   const vm = realVmsFromEnv().find((v) => v.id === run.vmId);
-  const notified = await notifyRun(run, { xrdp: vm?.xrdp });
+  const notified = await notifyRun(run, {
+    xrdp: vm?.xrdp,
+    webhookUrl: settingValue(db, "notify.webhook"),
+  });
   if (notified && merged.status === "paused") {
     const takeover = getOpenTakeoverForRun(db, runId);
     if (takeover) markTakeoverNotified(db, takeover.id, now());
@@ -340,14 +401,18 @@ export async function escalateStaleTakeovers(
   db: Db = getDb(),
   now = () => new Date().toISOString(),
 ): Promise<number> {
-  const minutes = Number(process.env.CUF_TAKEOVER_ESCALATE_MIN ?? "30");
+  const minutes = settingNumber(db, "notify.escalate_after_minutes", 30);
   const cutoff = new Date(new Date(now()).getTime() - minutes * 60_000).toISOString();
   let escalated = 0;
   for (const takeover of listStaleOpenTakeovers(db, cutoff)) {
     const waitedMinutes = Math.round(
       (new Date(now()).getTime() - new Date(takeover.openedAt).getTime()) / 60_000,
     );
-    if (await notifyTakeoverEscalation(takeover, waitedMinutes)) {
+    if (
+      await notifyTakeoverEscalation(takeover, waitedMinutes, {
+        webhookUrl: settingValue(db, "notify.webhook"),
+      })
+    ) {
       markTakeoverEscalated(db, takeover.id, now());
       escalated++;
     }
@@ -388,13 +453,22 @@ function recordRunSideEffects(db: Db, run: WorkflowRun, now: () => string): void
     });
   }
   if (run.status === "paused" && !getOpenTakeoverForRun(db, run.id)) {
+    // The paused node decides what to ask for: a code, a choice, an approval,
+    // or just "go finish this". Anything else falls back to acknowledge.
+    const workflow = getWorkflow(db, run.workflowId);
+    const pausedNode = workflow?.nodes.find((n) => n.name === run.currentStep);
+    const fallback = run.pausedReason ?? "Open the desktop, finish the blocked step, then resume.";
+    // Prefer the ask the orchestrator already resolved against this run — the
+    // node's own copy still has {{param.x}} in it.
+    const ask = parseAsk(run.pausedAsk ?? pausedNode?.config.ask ?? run.pausedReason, fallback);
     openTakeover(db, {
       id: `tk_${run.id}_${now()}`,
       runId: run.id,
       environmentId: run.environmentId,
       vmId: run.vmId,
       reason: `Paused at "${run.currentStep ?? "unknown step"}"`,
-      requestedAction: run.pausedReason ?? "Open the desktop and finish the blocked step, then resume.",
+      requestedAction: ask.question,
+      ask,
       status: "open",
       openedAt: now(),
     });

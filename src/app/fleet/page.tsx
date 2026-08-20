@@ -1,5 +1,6 @@
-import { FleetOps } from "@/components/fleet/FleetOps";
+import { redirect } from "next/navigation";
 
+// Fleet folded into Environments — capacity is a tab there, not a sibling concept.
 export default function FleetPage() {
-  return <FleetOps />;
+  redirect("/environments?tab=capacity");
 }

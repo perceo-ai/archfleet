@@ -1,32 +1,12 @@
-import { getDb, type Db } from "@/lib/fleet/db/db";
+import { getDb } from "@/lib/fleet/db/db";
 import { retryRun, cancelRun, getRun } from "@/lib/fleet/db/runs-repo";
 import { getOpenTakeoverForRun, resolveTakeover } from "@/lib/fleet/db/takeovers-repo";
-import { getWorkflow, saveWorkflow } from "@/lib/fleet/db/workflows-repo";
-import { findNodeByName, insertTakeoverBefore, nodeAfter } from "@/lib/fleet/workflow-edit";
-import { seedFleetState } from "@/lib/fleet/seed";
-import type { WorkflowRun } from "@/lib/fleet/types";
+import { saveWorkflow } from "@/lib/fleet/db/workflows-repo";
+import { findNodeByName, insertTakeoverBefore } from "@/lib/fleet/workflow-edit";
+import { resumeRunAfterPause, setResumeFrom, workflowForRun } from "@/lib/fleet/run-resume";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-function workflowForRun(db: Db, run: WorkflowRun) {
-  return (
-    getWorkflow(db, run.workflowId) ??
-    seedFleetState().workflows.find((w) => w.id === run.workflowId)
-  );
-}
-
-/** Merge `__resumeFrom` into (or clear it from) the run's stored params. The
- * worker consumes it as the traversal start node on the next attempt. */
-function setResumeFrom(db: Db, runId: string, nodeId: string | undefined): void {
-  const row = db.prepare("SELECT params_json FROM cuf_runs WHERE id=?").get(runId) as
-    | { params_json: string }
-    | undefined;
-  const params = JSON.parse(row?.params_json || "{}") as Record<string, unknown>;
-  if (nodeId) params.__resumeFrom = nodeId;
-  else delete params.__resumeFrom;
-  db.prepare("UPDATE cuf_runs SET params_json=? WHERE id=?").run(JSON.stringify(params), runId);
-}
 
 // POST /api/runs/:id/action — run recovery + takeover actions.
 // Body: { action, operatorNotes? } with action one of:
@@ -60,15 +40,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     ok = retryRun(db, id);
     if (ok) setResumeFrom(db, id, node.id);
   } else if (action === "resume") {
-    // Resuming a run paused at a human_takeover step must not re-run the pause
-    // node — continue from its success edge. Pauses raised by the guest mid-task
-    // (needs_human) re-run the same step instead, so nothing is skipped.
-    const workflow = workflowForRun(db, run);
-    const pausedNode = workflow ? findNodeByName(workflow, run.currentStep) : undefined;
-    const next =
-      workflow && pausedNode?.type === "human_takeover" ? nodeAfter(workflow, pausedNode.id) : pausedNode;
-    ok = retryRun(db, id);
-    if (ok) setResumeFrom(db, id, next?.id);
+    ok = resumeRunAfterPause(db, id);
   } else if (action === "add_takeover_point") {
     const workflow = run.currentStep ? workflowForRun(db, run) : undefined;
     const node = workflow ? findNodeByName(workflow, run.currentStep) : undefined;
