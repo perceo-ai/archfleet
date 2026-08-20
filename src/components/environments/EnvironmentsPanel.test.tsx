@@ -6,7 +6,7 @@ import { stubFetch } from "@/test/fetch-stub";
 afterEach(() => vi.unstubAllGlobals());
 
 function stub() {
-  stubFetch({
+  return stubFetch({
     "/api/environments": [
       {
         id: "env_portal",
@@ -75,5 +75,91 @@ describe("EnvironmentsPanel", () => {
     render(<EnvironmentsPanel />);
     fireEvent.click(await screen.findByRole("button", { name: /Prepare an environment/i }));
     expect(screen.getByLabelText("Environment name")).toBeInTheDocument();
+  });
+
+  // Creating an environment used to leave you to type a profile slug and then go
+  // run the build somewhere else. Naming it is now the whole ask.
+  it("starts the build on create, deriving the profile from the name", async () => {
+    const fetchMock = stub();
+    render(<EnvironmentsPanel />);
+    fireEvent.click(await screen.findByRole("button", { name: /Prepare an environment/i }));
+
+    fireEvent.change(screen.getByLabelText("Environment name"), {
+      target: { value: "Travel — logged in" },
+    });
+    fireEvent.change(screen.getByLabelText("Desktop count"), { target: { value: "3" } });
+    fireEvent.click(screen.getByRole("button", { name: /Create and start building/i }));
+
+    await screen.findByText("Portal — logged in");
+    const post = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        String(url).startsWith("/api/environments") &&
+        (init as RequestInit | undefined)?.method === "POST",
+    );
+    expect(post).toBeTruthy();
+    const body = JSON.parse((post![1] as RequestInit).body as string);
+    expect(body.name).toBe("Travel — logged in");
+    expect(body.prepare).toEqual({ clones: 3, task: undefined });
+    // The slug is the server's to derive — the UI must not send one.
+    expect(body.profileRef).toBeUndefined();
+  });
+
+  it("asks for the sign-in on the environment's own card when the build is waiting", async () => {
+    stubFetch({
+      "/api/environments": [
+        {
+          id: "env_travel",
+          name: "Travel — logged in",
+          description: "",
+          labels: ["profile:travel"],
+          profileRef: "travel",
+          health: "unknown",
+          setupStage: "building",
+          profileOpId: "profile_op_1",
+          createdAt: "t",
+          updatedAt: "t",
+        },
+      ],
+      "/api/vms": [],
+      "/api/profile-ops": {
+        operations: [{ id: "profile_op_1", profile: "travel", status: "waiting_for_capture", logs: [] }],
+      },
+      "/api/profile-status": { profiles: {}, vmCount: 0 },
+      "/api/health": { queuedRuns: 0 },
+    });
+    render(<EnvironmentsPanel />);
+
+    expect(await screen.findByText(/waiting for you to sign in/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Open desktop to sign in/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /capture it/i })).toBeInTheDocument();
+  });
+
+  it("shows a build in progress without asking anything of the user", async () => {
+    stubFetch({
+      "/api/environments": [
+        {
+          id: "env_travel",
+          name: "Travel — logged in",
+          description: "",
+          labels: [],
+          profileRef: "travel",
+          health: "unknown",
+          setupStage: "building",
+          profileOpId: "profile_op_1",
+          createdAt: "t",
+          updatedAt: "t",
+        },
+      ],
+      "/api/vms": [],
+      "/api/profile-ops": {
+        operations: [{ id: "profile_op_1", profile: "travel", status: "running", logs: [] }],
+      },
+      "/api/profile-status": { profiles: {}, vmCount: 0 },
+      "/api/health": { queuedRuns: 0 },
+    });
+    render(<EnvironmentsPanel />);
+
+    expect(await screen.findByText(/building the desktop/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Open desktop to sign in/i })).not.toBeInTheDocument();
   });
 });

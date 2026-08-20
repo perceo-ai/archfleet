@@ -42,6 +42,73 @@ Production: `docker build -t archfleet . && docker run …` (see README).
  libvirt/QEMU VMs  →  guest runner (cli.py / desktop_runner.py / browser_runner.py) on :0
 ```
 
+## The flow
+
+    1. Create an environment    →  naming it derives the fleet profile and starts the build
+    2. Sign in on it            →  its own card asks you; you log in, then capture
+    3. Build automations on it  →  the environment decides which desktop they run on
+    4. Lend it to agents        →  sessions: general computer use for OpenClaw / Hermes
+
+**An environment owns its profile lifecycle.** `POST /api/environments` with
+`prepare` derives the `profile:<slug>` from the environment's own name, starts
+`prepare-profile.sh`, and records the operation on the row (`profileOpId`,
+`setupStage`). Nobody types a slug in two places and hopes they match.
+
+**The environment is a real constraint, not a label.** A run resolves
+`environmentId → profileRef → profile:<slug>` (`environmentLabels` in
+`server-runtime.ts`) and the orchestrator unions that with the node's own
+`requiredLabels` before acquiring. Union, not replace: the environment narrows
+which desktop is acceptable; a node can still demand a capability the
+environment never mentioned. A run with nowhere to go stays `queued` and says
+which environment wanted what, rather than reporting a bare `no_matching_vm`.
+
+**One desktop, one holder.** `cuf_vm_leases` + `LeaseStore`
+(`vm-daemon/lease-store.ts`) is injected into `createVmDaemon`. A daemon is
+built per run *and* per session call, so a process-local map could never have
+excluded anything — two concurrent runs would each think the fleet was free.
+Claims are one conditional upsert, so they are atomic across workers. Leases
+expire: a controller killed mid-run frees its desktops on the TTL instead of
+removing them from the fleet permanently. The lease is taken **before** the
+snapshot revert — losing the claim race must mean never having touched the
+domain.
+
+### Sessions — general computer use for other agents
+
+`lib/fleet/sessions.ts` (pure) + `session-runtime.ts` (I/O). One object, three
+modes, over REST (`/api/sessions/*`) and MCP (`run_task`, `open_session`,
+`session_act`, `get_session`, `close_session`, `capture_session`).
+
+| Mode | Who drives | Desktop | What it is for |
+|---|---|---|---|
+| `task` | archfleet | a clean clone | "book a room at the Ace" — the default |
+| `lease` | the agent | a clean clone | the agent wants the mouse and keyboard |
+| `persist` | the agent | the profile **source**, state kept | sign into a new site; replace a dead cookie |
+
+**`task` compiles to a workflow** (start → `computer_use_task` → end) and goes
+through `runWorkflow`, so an outside agent's ad-hoc request inherits takeover,
+evidence, secrets and redaction instead of reimplementing them. The session is a
+view over the run — one object to poll, and `waiting_for_human` tells the agent a
+person is the blocker rather than that it is being slow.
+
+**`lease`/`persist` speak the primitives `desktop_runner.py` already accepts**
+(`click`, `type`, `key`, `hotkey`, `scroll`, `screenshot`, …) — the same runner
+`script_task` uses, so the guest needed no changes. A batch is validated whole
+before any of it runs: a half-applied batch would leave the agent's model of the
+screen silently wrong. Screenshots come back through `scpFetch`. Every `act`
+renews the lease; a lost lease is a 409, never a write onto somebody else's
+desktop.
+
+**`persist` is how a profile stays alive.** Every acquire normally reverts the
+warm snapshot, so nothing survives — right for repeatability, useless when a
+cookie dies six weeks in. A persist session runs on the source desktop with the
+revert skipped, and `capture_session` folds it back through the existing
+`update-profile.sh` re-snapshot and re-clone. Ephemeral stays the default;
+persist is explicit, one desktop at a time, and ends in the same human-confirmed
+capture that already existed.
+
+Sessions whose holder walks away are swept by the worker loop and their desktops
+handed back.
+
 ### Frontend ↔ orchestrator segmentation
 
 - **Frontend is already decoupled at the API boundary** — every component talks to

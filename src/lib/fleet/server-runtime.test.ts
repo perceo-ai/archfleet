@@ -32,7 +32,7 @@ describe("executeManualRun (sync, real assembly)", () => {
     let n = 0;
     const run = await executeManualRun(state, wf, { now: () => `t${n++}`, db });
     expect(run.status).toBe("queued");
-    expect(run.events.some((e) => e.message.includes("no_matching_vm"))).toBe(true);
+    expect(run.events.some((e) => e.message.includes("no desktop available"))).toBe(true);
     expect(getRun(db, run.id)?.status).toBe("queued");
     db.close();
   });

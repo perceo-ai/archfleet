@@ -214,6 +214,40 @@ CREATE TABLE IF NOT EXISTS cuf_run_metrics (
 );
 CREATE INDEX IF NOT EXISTS cuf_run_metrics_created ON cuf_run_metrics(created_at);
 
+-- Computer-use sessions handed to outside agents (OpenClaw, Hermes). task mode
+-- points at the run it compiled to; lease/persist hold a desktop directly.
+CREATE TABLE IF NOT EXISTS cuf_sessions (
+  id               TEXT PRIMARY KEY,
+  environment_id   TEXT NOT NULL,
+  environment_name TEXT,
+  mode             TEXT NOT NULL,          -- task | lease | persist
+  status           TEXT NOT NULL,          -- starting | active | waiting_for_human | closing | closed | failed
+  task             TEXT,
+  run_id           TEXT,
+  vm_id            TEXT,
+  domain           TEXT,
+  opened_by        TEXT,
+  expires_at       TEXT NOT NULL,
+  opened_at        TEXT NOT NULL,
+  updated_at       TEXT NOT NULL,
+  closed_at        TEXT,
+  result_summary   TEXT,
+  captured_at      TEXT
+);
+CREATE INDEX IF NOT EXISTS cuf_sessions_status ON cuf_sessions(status, opened_at);
+CREATE INDEX IF NOT EXISTS cuf_sessions_environment ON cuf_sessions(environment_id);
+
+-- Who currently holds a desktop. Durable so exclusion survives a restart and
+-- holds across worker instances; expiring so a killed controller frees its
+-- desktops instead of stranding them.
+CREATE TABLE IF NOT EXISTS cuf_vm_leases (
+  domain      TEXT PRIMARY KEY,
+  holder      TEXT NOT NULL,          -- run id or session id
+  acquired_at TEXT NOT NULL,
+  expires_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS cuf_vm_leases_expiry ON cuf_vm_leases(expires_at);
+
 CREATE TABLE IF NOT EXISTS cuf_users (
   id            TEXT PRIMARY KEY,
   username      TEXT NOT NULL UNIQUE,
@@ -242,6 +276,8 @@ export const CUF_TABLES = [
   "cuf_evidence",
   "cuf_takeovers",
   "cuf_run_metrics",
+  "cuf_vm_leases",
+  "cuf_sessions",
 ] as const;
 
 /** Columns added after a table first shipped. `CREATE TABLE IF NOT EXISTS`
@@ -264,6 +300,8 @@ export const COLUMN_MIGRATIONS: Record<string, Record<string, string>> = {
     state_json: "TEXT NOT NULL DEFAULT '{}'",
     warm_snapshot: "TEXT",
     cloned_from: "TEXT",
+    profile_op_id: "TEXT",
+    setup_stage: "TEXT",
   },
   cuf_takeovers: {
     notified_at: "TEXT",

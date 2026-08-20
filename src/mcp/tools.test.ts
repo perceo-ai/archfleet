@@ -3,6 +3,7 @@ import { FLEET_TOOLS } from "./tools";
 import { openDb } from "../lib/fleet/db/db";
 import { getRun, saveRun } from "../lib/fleet/db/runs-repo";
 import { ensureSeeded } from "../lib/fleet/db/init-db";
+import { saveEnvironment } from "../lib/fleet/db/environments-repo";
 
 function tool(name: string) {
   const t = FLEET_TOOLS.find((x) => x.name === name);
@@ -368,6 +369,114 @@ describe("rules + custom node types", () => {
     expect((await tool("delete_node_type").run(db, { id: "notify" })) as { ok: boolean }).toEqual({
       ok: true,
     });
+    db.close();
+  });
+});
+
+// The session tools are how an outside agent (OpenClaw, Hermes) does general
+// computer use on a signed-in desktop, so their contract matters as much as the
+// automation tools'.
+describe("session MCP tools", () => {
+  function seeded() {
+    const db = openDb(":memory:");
+    ensureSeeded(db);
+    saveEnvironment(db, {
+      id: "env_portal",
+      name: "Portal — logged in",
+      description: "",
+      labels: ["linux-desktop", "browser", "profile:portal"],
+      profileRef: "portal",
+      health: "ready",
+      createdAt: "2026-08-20T10:00:00.000Z",
+      updatedAt: "2026-08-20T10:00:00.000Z",
+    });
+    return db;
+  }
+
+  it("exposes the whole session surface", () => {
+    const names = FLEET_TOOLS.map((t) => t.name);
+    for (const expected of [
+      "run_task",
+      "open_session",
+      "get_session",
+      "list_sessions",
+      "session_act",
+      "close_session",
+      "capture_session",
+    ]) {
+      expect(names).toContain(expected);
+    }
+  });
+
+  it("run_task turns a plain-language request into a run on that environment", async () => {
+    const db = seeded();
+    const res = (await tool("run_task").run(db, {
+      environmentId: "env_portal",
+      task: "Book a room at the Ace for Tuesday",
+    })) as { ok: boolean; session: { id: string; runId: string; mode: string } };
+
+    expect(res.ok).toBe(true);
+    expect(res.session.mode).toBe("task");
+    expect(getRun(db, res.session.runId)?.environmentId).toBe("env_portal");
+
+    const view = (await tool("get_session").run(db, { id: res.session.id })) as {
+      status: string;
+      run?: { status: string };
+    };
+    expect(view.run?.status).toBe("queued");
+    db.close();
+  });
+
+  it("run_task on an unknown environment fails without creating anything", async () => {
+    const db = seeded();
+    const res = (await tool("run_task").run(db, { environmentId: "nope", task: "x" })) as {
+      ok: boolean;
+      error: string;
+    };
+    expect(res.ok).toBe(false);
+    expect((await tool("list_sessions").run(db, {})) as unknown[]).toHaveLength(0);
+    db.close();
+  });
+
+  it("session_act refuses a task session and says what to do instead", async () => {
+    const db = seeded();
+    const opened = (await tool("run_task").run(db, {
+      environmentId: "env_portal",
+      task: "x",
+    })) as { session: { id: string } };
+    const res = (await tool("session_act").run(db, {
+      id: opened.session.id,
+      actions: [{ click: [1, 2] }],
+    })) as { ok: boolean; error: string };
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("lease");
+    db.close();
+  });
+
+  it("capture_session only applies to a persist session", async () => {
+    const db = seeded();
+    const opened = (await tool("run_task").run(db, {
+      environmentId: "env_portal",
+      task: "x",
+    })) as { session: { id: string } };
+    const res = (await tool("capture_session").run(db, { id: opened.session.id })) as {
+      ok: boolean;
+      error: string;
+    };
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("persist");
+    db.close();
+  });
+
+  it("close_session cancels the run behind a task session", async () => {
+    const db = seeded();
+    const opened = (await tool("run_task").run(db, {
+      environmentId: "env_portal",
+      task: "x",
+    })) as { session: { id: string; runId: string } };
+    const res = (await tool("close_session").run(db, { id: opened.session.id })) as { ok: boolean };
+    expect(res.ok).toBe(true);
+    expect(getRun(db, opened.session.runId)?.status).toBe("canceled");
     db.close();
   });
 });

@@ -691,7 +691,9 @@ describe("runWorkflow", () => {
       { daemon, exec: execReturning({ status: "succeeded", reason: "d", steps: 1, artifacts: [] }), now: now() },
     );
     expect(run.status).toBe("queued");
-    expect(run.events.some((e) => e.message.includes("no_matching_vm"))).toBe(true);
+    // Says what was missing, not just that the lookup failed.
+    expect(run.events.some((e) => e.message.includes("no desktop available"))).toBe(true);
+    expect(run.events.some((e) => e.message.includes("browser"))).toBe(true);
   });
 
   it("fails the run when the guest transport errors", async () => {
@@ -777,5 +779,107 @@ describe("run progress + pause metadata", () => {
     );
     expect(run.status).toBe("paused");
     expect(run.pausedReason).toBe("login page shows a captcha");
+  });
+});
+
+// `automation.environmentId` used to be stored, threaded into the run, and then
+// ignored at acquire time — so an automation bound to a signed-in desktop could
+// land on any free one. These lock that link shut.
+describe("environment binding", () => {
+  function labelledFleet(client: VirshClient, labels: string[]) {
+    return createVmDaemon(client, [{ ...testVm(), labels }], { waitForTcp: vi.fn(async () => {}) });
+  }
+
+  function oneVmTask(): Workflow {
+    return {
+      id: "wf_env",
+      name: "Env Bound",
+      description: "",
+      enabled: true,
+      triggerKinds: ["manual"],
+      nodes: [
+        { id: "start", type: "start", name: "Start", position: { x: 0, y: 0 }, config: {} },
+        {
+          id: "cu",
+          type: "computer_use_task",
+          name: "Do it",
+          position: { x: 1, y: 0 },
+          config: { requiredLabels: ["browser"] },
+        },
+        { id: "end", type: "end", name: "End", position: { x: 2, y: 0 }, config: {} },
+      ],
+      edges: [
+        { id: "e1", from: "start", to: "cu", condition: "always" },
+        { id: "e2", from: "cu", to: "end", condition: "success" },
+      ],
+    };
+  }
+
+  const okExec: ExecRunner = async () => ({
+    code: 0,
+    stdout: JSON.stringify({ status: "succeeded", reason: "ok", steps: 1, artifacts: [] }),
+    stderr: "",
+  });
+
+  it("runs on a desktop carrying the environment's profile label", async () => {
+    const client = fakeClient({ "dom-vm1": "running" });
+    const daemon = labelledFleet(client, ["linux-desktop", "browser", "profile:portal"]);
+    const run = await runWorkflow(
+      {
+        workflow: oneVmTask(),
+        secrets: [],
+        params: [],
+        runId: "r",
+        requiredLabels: ["profile:portal"],
+        environmentName: "Portal — logged in",
+      },
+      { daemon, exec: okExec, now: () => "2026-08-20T10:00:00.000Z" },
+    );
+    expect(run.status).toBe("succeeded");
+  });
+
+  it("will not borrow a desktop that lacks the environment's profile", async () => {
+    const client = fakeClient({ "dom-vm1": "running" });
+    // A perfectly good desktop — just not the signed-in one.
+    const daemon = labelledFleet(client, ["linux-desktop", "browser"]);
+    const run = await runWorkflow(
+      {
+        workflow: oneVmTask(),
+        secrets: [],
+        params: [],
+        runId: "r",
+        requiredLabels: ["profile:portal"],
+        environmentName: "Portal — logged in",
+      },
+      { daemon, exec: okExec, now: () => "2026-08-20T10:00:00.000Z" },
+    );
+    expect(run.status).toBe("queued");
+    // Nothing was reverted: we never touched an unrelated desktop.
+    expect(client.reverts).toEqual([]);
+    // And the reason names the environment rather than saying "no_matching_vm".
+    expect(run.events.at(-1)?.message).toContain("Portal — logged in");
+    expect(run.events.at(-1)?.message).toContain("profile:portal");
+  });
+
+  it("unions environment labels with the node's own rather than replacing them", async () => {
+    const client = fakeClient({ "dom-vm1": "running" });
+    // Has the profile but not the capability the node demands.
+    const daemon = labelledFleet(client, ["linux-desktop", "profile:portal"]);
+    const run = await runWorkflow(
+      { workflow: oneVmTask(), secrets: [], params: [], runId: "r", requiredLabels: ["profile:portal"] },
+      { daemon, exec: okExec, now: () => "2026-08-20T10:00:00.000Z" },
+    );
+    expect(run.status).toBe("queued");
+    expect(run.events.at(-1)?.message).toContain("browser");
+  });
+
+  it("an environment with no profile constrains nothing", async () => {
+    const client = fakeClient({ "dom-vm1": "running" });
+    const daemon = labelledFleet(client, ["linux-desktop", "browser"]);
+    const run = await runWorkflow(
+      { workflow: oneVmTask(), secrets: [], params: [], runId: "r", requiredLabels: [] },
+      { daemon, exec: okExec, now: () => "2026-08-20T10:00:00.000Z" },
+    );
+    expect(run.status).toBe("succeeded");
   });
 });

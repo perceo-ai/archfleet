@@ -101,6 +101,13 @@ export type RunWorkflowInput = {
   /** Start traversal at this node instead of the start node — checkpoint retry
    * (re-run from the failed step) and resuming past a completed takeover. */
   startNodeId?: string;
+  /** Labels the run's prepared environment demands of the desktop, e.g.
+   * `profile:portal`. Unioned with the node's own `requiredLabels` — the
+   * environment narrows the choice of desktop, it does not override a node that
+   * needs a capability the environment never mentioned. */
+  requiredLabels?: string[];
+  /** Name of that environment, so "nothing to run on" can say which one. */
+  environmentName?: string;
 };
 
 /** Walk the happy path (success/always edges) from the start node. */
@@ -191,11 +198,23 @@ export async function runWorkflow(
   // run entirely on the controller.
   let acquired: Awaited<ReturnType<typeof deps.daemon.acquire>> | undefined;
   if (needsVm) {
-    const requiredLabels =
+    const nodeLabels =
       workflow.nodes.find((n) => runsOnVm(n.type))?.config.requiredLabels ?? [];
+    // The environment the automation was bound to is a real constraint on which
+    // desktop this runs on — without it, an automation for a signed-in portal
+    // lands on whatever desktop happens to be free.
+    const requiredLabels = [...new Set([...(input.requiredLabels ?? []), ...nodeLabels])];
     acquired = await deps.daemon.acquire({ requiredLabels, runId });
     if (!acquired.ok) {
-      emit("warn", `Queued ${workflow.name}: ${acquired.reason}.`);
+      // "no_matching_vm" alone sends people hunting through the fleet page. Say
+      // which environment wanted what.
+      const wanted = requiredLabels.length ? ` needing ${requiredLabels.join(" + ")}` : "";
+      const where = input.environmentName ? ` for environment "${input.environmentName}"` : "";
+      const detail =
+        acquired.reason === "no_matching_vm"
+          ? `no desktop available${where}${wanted}`
+          : `${acquired.reason}${acquired.detail ? ` — ${acquired.detail}` : ""}`;
+      emit("warn", `Queued ${workflow.name}: ${detail}.`);
       return {
         id: runId,
         workflowId: workflow.id,
