@@ -51,7 +51,7 @@ function registry(): Registry {
   return globalWithRegistry[registryKey];
 }
 
-function profileSlug(profile: string): string {
+export function profileSlug(profile: string): string {
   return profile.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").toLowerCase();
 }
 
@@ -72,28 +72,51 @@ export function buildProfileCommand(input: ProfileOperationInput): string[] {
   return base;
 }
 
-export function sourceVmForOperation(input: ProfileOperationInput, id: string): FleetVm | undefined {
-  if (input.action === "recover") return undefined;
+/** The long-lived desktop a profile is built FROM — the one a human signs in on
+ * and the clones are copied from. Distinct from the pool clones: it is not reset
+ * between uses, which is exactly why `persist` sessions target it.
+ *
+ * `id` varies by caller (an operation id, a session id) because the same source
+ * domain is surfaced under whatever is currently holding it. */
+export function profileSourceVm(
+  profile: string,
+  id: string,
+  overrides: { sourceDomain?: string; sourceRdpPort?: number; sourceSshPort?: number } = {},
+): FleetVm {
+  const slug = profileSlug(profile);
   const host = process.env.CUF_PROFILE_SOURCE_HOST ?? process.env.CUF_GUEST_HOST ?? "127.0.0.1";
-  const port = input.sourceRdpPort ?? Number(process.env.SOURCE_RDP_PORT ?? process.env.CUF_GUEST_RDP_PORT ?? "13389");
+  const port =
+    overrides.sourceRdpPort ??
+    Number(process.env.SOURCE_RDP_PORT ?? process.env.CUF_GUEST_RDP_PORT ?? "13389");
   const username = process.env.AGENT_USER ?? "agent";
   return {
     id: `profile_source_${id}`,
-    name: `${profileSlug(input.profile)} source`,
+    name: `${slug} source`,
     status: "running",
-    labels: ["source", `profile:${profileSlug(input.profile)}`],
+    labels: ["source", `profile:${slug}`],
     cpu: 0,
     memoryGb: 4,
     diskGb: 25,
     xrdp: { host, port, username, credentialSource: "env:AGENT_PASSWORD" },
     ssh: {
       host: process.env.CUF_PROFILE_SOURCE_HOST ?? "127.0.0.1",
-      port: input.sourceSshPort ?? Number(process.env.SOURCE_SSH_PORT ?? process.env.CUF_GUEST_SSH_PORT ?? "10022"),
+      port:
+        overrides.sourceSshPort ??
+        Number(process.env.SOURCE_SSH_PORT ?? process.env.CUF_GUEST_SSH_PORT ?? "10022"),
       username,
     },
     lastHealthAt: new Date().toISOString(),
-    domain: input.sourceDomain ?? process.env.CUF_GOLDEN_DOMAIN ?? "cuf-golden",
+    domain: overrides.sourceDomain ?? process.env.CUF_GOLDEN_DOMAIN ?? "cuf-golden",
   };
+}
+
+export function sourceVmForOperation(input: ProfileOperationInput, id: string): FleetVm | undefined {
+  if (input.action === "recover") return undefined;
+  return profileSourceVm(input.profile, id, {
+    sourceDomain: input.sourceDomain,
+    sourceRdpPort: input.sourceRdpPort,
+    sourceSshPort: input.sourceSshPort,
+  });
 }
 
 export function listProfileOperations(): ProfileOperation[] {

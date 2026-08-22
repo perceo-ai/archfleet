@@ -2,15 +2,20 @@
 // profiles: a reusable, ready-to-run desktop state (logins, device trust, browser).
 
 import type { Db } from "./db";
-import type { EnvironmentHealth, EnvironmentState, PreparedEnvironment } from "../types";
+import type {
+  EnvironmentHealth,
+  EnvironmentSetupStage,
+  EnvironmentState,
+  PreparedEnvironment,
+} from "../types";
 
 export function saveEnvironment(db: Db, env: PreparedEnvironment): void {
   db.prepare(
     `INSERT OR REPLACE INTO cuf_environments
        (id, name, description, labels_json, profile_ref, health, snapshot_state,
         last_used_at, recovery_state, setup_notes, state_json, warm_snapshot, cloned_from,
-        created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        profile_op_id, setup_stage, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   ).run(
     env.id,
     env.name,
@@ -25,6 +30,8 @@ export function saveEnvironment(db: Db, env: PreparedEnvironment): void {
     JSON.stringify(env.state ?? {}),
     env.warmSnapshot ?? null,
     env.clonedFrom ?? null,
+    env.profileOpId ?? null,
+    env.setupStage ?? null,
     env.createdAt,
     env.updatedAt,
   );
@@ -45,6 +52,8 @@ function rowToEnvironment(row: Record<string, unknown>): PreparedEnvironment {
     state: parseState(row.state_json as string),
     warmSnapshot: (row.warm_snapshot as string) ?? undefined,
     clonedFrom: (row.cloned_from as string) ?? undefined,
+    profileOpId: (row.profile_op_id as string) ?? undefined,
+    setupStage: (row.setup_stage as EnvironmentSetupStage) ?? undefined,
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
   };

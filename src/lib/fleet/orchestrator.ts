@@ -67,6 +67,11 @@ export type OrchestratorDeps = {
   onArtifact?: (artifact: RunArtifact) => void;
   /** Pause for `wait` nodes. Injected so tests do not actually sleep. */
   sleep?: (ms: number) => Promise<void>;
+  /** How often to renew the desktop's lease while a single node is working.
+   * A `wait` polling for a day, or a long computer-use task, must not have its
+   * desktop reclaimed mid-node — and the worker loop cannot renew for it,
+   * because that run is what the worker is currently blocked on. */
+  leaseHeartbeatMs?: number;
   /** User-defined node types, by id — how a `custom` node knows what to run. */
   customNodeTypes?: Record<string, CustomNodeType>;
   /** A param a node computed. The caller persists it so the value survives a
@@ -77,6 +82,10 @@ export type OrchestratorDeps = {
 
 /** A node's branch outcome, used to pick the next edge. */
 type Outcome = "success" | "failure" | "paused";
+
+/** Well inside the daemon's lease TTL, so a desktop is never lost to one missed
+ * beat, and rare enough to be free. */
+const DEFAULT_LEASE_HEARTBEAT_MS = 60_000;
 
 /** Read a response once, as JSON when it parses, otherwise as text. Capped so a
  * huge download cannot end up in the run record. */
@@ -101,6 +110,13 @@ export type RunWorkflowInput = {
   /** Start traversal at this node instead of the start node — checkpoint retry
    * (re-run from the failed step) and resuming past a completed takeover. */
   startNodeId?: string;
+  /** Labels the run's prepared environment demands of the desktop, e.g.
+   * `profile:portal`. Unioned with the node's own `requiredLabels` — the
+   * environment narrows the choice of desktop, it does not override a node that
+   * needs a capability the environment never mentioned. */
+  requiredLabels?: string[];
+  /** Name of that environment, so "nothing to run on" can say which one. */
+  environmentName?: string;
 };
 
 /** Walk the happy path (success/always edges) from the start node. */
@@ -191,11 +207,23 @@ export async function runWorkflow(
   // run entirely on the controller.
   let acquired: Awaited<ReturnType<typeof deps.daemon.acquire>> | undefined;
   if (needsVm) {
-    const requiredLabels =
+    const nodeLabels =
       workflow.nodes.find((n) => runsOnVm(n.type))?.config.requiredLabels ?? [];
+    // The environment the automation was bound to is a real constraint on which
+    // desktop this runs on — without it, an automation for a signed-in portal
+    // lands on whatever desktop happens to be free.
+    const requiredLabels = [...new Set([...(input.requiredLabels ?? []), ...nodeLabels])];
     acquired = await deps.daemon.acquire({ requiredLabels, runId });
     if (!acquired.ok) {
-      emit("warn", `Queued ${workflow.name}: ${acquired.reason}.`);
+      // "no_matching_vm" alone sends people hunting through the fleet page. Say
+      // which environment wanted what.
+      const wanted = requiredLabels.length ? ` needing ${requiredLabels.join(" + ")}` : "";
+      const where = input.environmentName ? ` for environment "${input.environmentName}"` : "";
+      const detail =
+        acquired.reason === "no_matching_vm"
+          ? `no desktop available${where}${wanted}`
+          : `${acquired.reason}${acquired.detail ? ` — ${acquired.detail}` : ""}`;
+      emit("warn", `Queued ${workflow.name}: ${detail}.`);
       return {
         id: runId,
         workflowId: workflow.id,
@@ -253,6 +281,37 @@ export async function runWorkflow(
     for (const path of paths) {
       emit("info", `Artifact: ${path}.`);
       addArtifact({ id: `art_${runId}_${artifacts.length}`, runId, nodeId, type: "file", path, createdAt: deps.now() });
+    }
+  };
+
+  // Set once the desktop has been reclaimed by someone else. From that moment we
+  // stop: anything further would be driving a machine we do not own.
+  let leaseLost = false;
+
+  /** Tell the fleet this run is still using its desktop. */
+  const renewLease = (): boolean => {
+    if (!vm) return true;
+    if (!deps.daemon.renew(vm, runId)) {
+      leaseLost = true;
+      return false;
+    }
+    return true;
+  };
+
+  /** Run `fn` while renewing the lease in the background.
+   *
+   * The timer is unref'd so it can never hold the process open, and always
+   * cleared — a heartbeat that outlived its node would keep a desktop reserved
+   * for a run that had already finished with it. */
+  const withLeaseHeartbeat = async <T>(fn: () => Promise<T>): Promise<T> => {
+    if (!vm) return fn();
+    const everyMs = deps.leaseHeartbeatMs ?? DEFAULT_LEASE_HEARTBEAT_MS;
+    const timer = setInterval(renewLease, everyMs);
+    if (typeof timer.unref === "function") timer.unref();
+    try {
+      return await fn();
+    } finally {
+      clearInterval(timer);
     }
   };
 
@@ -762,8 +821,26 @@ export async function runWorkflow(
     while (current && steps++ < maxSteps) {
       const node = current;
       currentStep = node.name;
+      // A long run must keep saying it is alive, or its lease lapses and another
+      // worker reverts the desktop out from under it. Losing the lease means
+      // somebody else owns this desktop now — stop rather than drive theirs.
+      if (vm && !renewLease()) {
+        emit("error", `Lost the desktop ${vm.name} — it was reclaimed while this run was working.`);
+        finalStatus = "failed";
+        break;
+      }
       deps.onProgress?.(node.id, node.name);
-      const outcome = await runNode(node);
+      // Renewing between nodes is not enough on its own: one node can outlive the
+      // lease by itself (a `wait` polling for a day, a long computer-use task),
+      // and the worker loop cannot cover it because this run is what the worker
+      // is blocked on. Keep the heartbeat going for as long as the node runs.
+      const outcome = await withLeaseHeartbeat(() => runNode(node));
+      // The heartbeat may have discovered mid-node that the desktop is gone.
+      if (vm && leaseLost) {
+        emit("error", `Lost the desktop ${vm.name} while "${node.name}" was running.`);
+        finalStatus = "failed";
+        break;
+      }
       if (outcome === "paused") {
         finalStatus = "paused";
         break;

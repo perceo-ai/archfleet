@@ -289,9 +289,24 @@ export type PreparedEnvironment = {
   warmSnapshot?: string;
   /** Environment this one was cloned from, if any. */
   clonedFrom?: string;
+  /** Profile operation currently building or updating this environment's
+   * desktops — the environment owns its own profile lifecycle, so this is how
+   * the UI follows a build without the user tracking a separate object. */
+  profileOpId?: string;
+  /** Where the environment is in getting ready. `ready` once desktops exist. */
+  setupStage?: EnvironmentSetupStage;
   createdAt: string;
   updatedAt: string;
 };
+
+/** Stages of preparing an environment. Only `signing_in` is the user's job. */
+export type EnvironmentSetupStage =
+  | "new"
+  | "building"
+  | "signing_in"
+  | "cloning"
+  | "ready"
+  | "failed";
 
 export type EvidenceItem = {
   id: string;
