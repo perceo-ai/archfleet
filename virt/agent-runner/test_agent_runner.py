@@ -125,3 +125,109 @@ class RunTaskTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# The old model budgeted the whole task on one wall clock, so a single slow
+# model round (cold grounding server + planner + grounder) burned the entire
+# budget and killed honest work after one step. Stalling is now judged per step.
+class TestLongRunningTasks:
+    def _clock(self, steps):
+        """Clock that advances by a scripted amount per predict() call."""
+        t = {"now": 0.0}
+        it = iter(steps)
+
+        def tick():
+            return t["now"]
+
+        def advance():
+            t["now"] += next(it, 0.0)
+
+        return tick, advance
+
+    def test_many_slow_steps_still_finish(self):
+        # 10 steps at 5 minutes each = 50 minutes of real work. Under the old
+        # 600s wall clock this died on step 3.
+        tick, advance = self._clock([300.0] * 12)
+
+        class Slow:
+            def __init__(self): self.n = 0
+            def predict(self, i, o):
+                self.n += 1
+                advance()
+                if self.n >= 10:
+                    return {"done": True}, []
+                return {}, [f"pyautogui.click({self.n}, {self.n})"]
+            def is_done(self, info): return bool(info.get("done"))
+            def reported_stuck(self, info): return bool(info.get("failed"))
+
+        n = {"i": 0}
+        def shot():
+            n["i"] += 1
+            return f"frame-{n['i']}".encode()
+
+        r = run_task(TaskSlice("long task"), Slow(), limits=Limits(),
+                     screenshot=shot, clock=tick, execute=lambda a: None)
+        assert r.status == "succeeded"
+        assert r.steps == 10
+
+    def test_one_wedged_step_is_caught(self):
+        tick, advance = self._clock([4000.0])
+
+        class Wedged:
+            def predict(self, i, o):
+                advance()
+                return {}, ["pyautogui.click(1, 1)"]
+            def is_done(self, info): return False
+            def reported_stuck(self, info): return False
+
+        r = run_task(TaskSlice("wedged"), Wedged(),
+                     limits=Limits(step_timeout_s=1800.0),
+                     screenshot=lambda: b"f", clock=tick, execute=lambda a: None)
+        assert r.status == "timed_out"
+        assert "step_timeout" in r.reason
+
+    def test_a_slow_final_step_that_finishes_still_succeeds(self):
+        # Work that completes is honoured even if that step ran long — the point
+        # is to catch wedging, not to punish slowness.
+        tick, advance = self._clock([4000.0])
+
+        class SlowButDone:
+            def predict(self, i, o):
+                advance()
+                return {"done": True, "reason": "finished slowly"}, []
+            def is_done(self, info): return bool(info.get("done"))
+            def reported_stuck(self, info): return False
+
+        r = run_task(TaskSlice("slow finish"), SlowButDone(),
+                     limits=Limits(step_timeout_s=60.0),
+                     screenshot=lambda: b"f", clock=tick, execute=lambda a: None)
+        assert r.status == "succeeded"
+
+    def test_overall_ceiling_still_applies(self):
+        tick, advance = self._clock([100.0] * 50)
+
+        class Forever:
+            def __init__(self): self.n = 0
+            def predict(self, i, o):
+                self.n += 1
+                advance()
+                return {}, [f"pyautogui.click({self.n}, 0)"]
+            def is_done(self, info): return False
+            def reported_stuck(self, info): return False
+
+        n = {"i": 0}
+        def shot():
+            n["i"] += 1
+            return f"f{n['i']}".encode()
+
+        r = run_task(TaskSlice("runaway"), Forever(),
+                     limits=Limits(timeout_s=500.0, step_timeout_s=1e9),
+                     screenshot=shot, clock=tick, execute=lambda a: None)
+        assert r.status == "timed_out"
+        assert r.reason == "wall_clock_timeout"
+
+    def test_defaults_allow_hours_of_work(self):
+        d = Limits()
+        assert d.timeout_s >= 14400
+        assert d.step_timeout_s >= 900
+        assert d.max_steps >= 200

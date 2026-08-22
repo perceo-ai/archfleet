@@ -544,7 +544,19 @@ export async function runWorkflow(
               instruction: fillPrompt(node.config.prompt ?? node.name),
               pastWork,
               params: paramMap,
-              limits: node.config.timeoutMs ? { timeoutS: node.config.timeoutMs / 1000 } : undefined,
+              // `timeoutMs` is the ceiling for the whole node; `stepTimeoutMs`
+              // is how long a single model round may take. Leaving either unset
+              // uses the guest's own (generous) defaults rather than a short one.
+              limits:
+                node.config.timeoutMs || node.config.stepTimeoutMs || node.config.maxSteps
+                  ? {
+                      timeoutS: node.config.timeoutMs ? node.config.timeoutMs / 1000 : undefined,
+                      stepTimeoutS: node.config.stepTimeoutMs
+                        ? node.config.stepTimeoutMs / 1000
+                        : undefined,
+                      maxSteps: node.config.maxSteps,
+                    }
+                  : undefined,
             },
             deps.exec,
             { ...env, CUF_RUN_ID: runId },

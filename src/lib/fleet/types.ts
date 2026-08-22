@@ -45,11 +45,18 @@ export type WorkflowNode = {
   position: { x: number; y: number };
   config: {
     prompt?: string;
+    /** Ceiling for the whole node. Unset means the guest's generous default. */
     timeoutMs?: number;
+    /** How long a single computer-use step (planner + grounding round) may take
+     * before the run is treated as wedged. This — not `timeoutMs` — is what a
+     * long-running task should be tuned with. */
+    stepTimeoutMs?: number;
     requiredLabels?: string[];
     provider?: AgentProvider;
     /** retry_wait: how many times to re-run the preceding task node. */
     maxAttempts?: number;
+    /** computer_use_task: cap on agent steps. Unset means the guest default. */
+    maxSteps?: number;
     /** human_takeover: what to ask the person, and what to do with the answer.
      * Anything shaped — a code, a choice, an approval, a corrected value. */
     ask?: import("./human-ask").HumanAsk;

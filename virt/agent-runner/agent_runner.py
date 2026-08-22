@@ -36,9 +36,21 @@ class TaskSlice:
 
 @dataclass
 class Limits:
-    max_steps: int = 40
-    timeout_s: float = 600.0
-    max_no_progress: int = 3     # identical screen+action repeats before bailing
+    """Bounds on a task slice.
+
+    The controlling limit is `step_timeout_s`, not `timeout_s`. A computer-use
+    step is one planner call plus one grounding call, and either can legitimately
+    take minutes — a cold grounding server alone can take ~90s. Budgeting the
+    whole task on a wall clock kills honest long work partway through, so the
+    wall clock is only a far-away ceiling and stalling is judged per step.
+    """
+
+    max_steps: int = 200
+    # Ceiling, not the working limit: a real application takes many steps.
+    timeout_s: float = 14400.0     # 4h
+    max_no_progress: int = 3       # identical screen+action repeats before bailing
+    # How long ONE step may take. Exceeding it means something is wedged, not slow.
+    step_timeout_s: float = 1800.0  # 30m
 
 
 def build_instruction(task: TaskSlice) -> str:
@@ -114,8 +126,10 @@ def run_task(
         if clock() - start > limits.timeout_s:
             return RunReport("timed_out", "wall_clock_timeout", step - 1)
 
+        step_started = clock()
         shot = screenshot()
         info, actions = backend.predict(instruction, {"screenshot": shot})
+        step_elapsed = clock() - step_started
 
         if backend.is_done(info):
             return RunReport(
@@ -133,6 +147,17 @@ def run_task(
                 info.get("reason", "agent_reported_stuck"),
                 step,
                 list(info.get("artifacts", [])),
+            )
+
+        # A step that ran long is not a failure by itself — the work above is
+        # honoured first, so a slow-but-successful final step still succeeds.
+        # Only an unfinished slow step means something is wedged.
+        if step_elapsed > limits.step_timeout_s:
+            return RunReport(
+                "timed_out",
+                f"step_timeout: one step took {step_elapsed:.0f}s "
+                f"(limit {limits.step_timeout_s:.0f}s)",
+                step,
             )
 
         # No-progress detection: same screen + same proposed actions repeatedly.
