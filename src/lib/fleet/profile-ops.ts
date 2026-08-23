@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import type { FleetVm } from "./types";
 
-export type ProfileOperationAction = "prepare" | "update" | "recover";
+export type ProfileOperationAction = "prepare" | "update" | "recover" | "destroy";
 export type ProfileOperationStatus = "running" | "waiting_for_capture" | "succeeded" | "failed";
 
 export type ProfileOperationInput = {
@@ -11,6 +11,11 @@ export type ProfileOperationInput = {
   task?: string;
   agentPassword?: string;
   repair?: boolean;
+  /** destroy: required. Destroying a profile removes VMs and their disks, so it
+   * never happens from a mistyped request — the caller must mean it. */
+  confirm?: boolean;
+  /** destroy: leave the qcow2 files behind. */
+  keepDisks?: boolean;
   sourceDomain?: string;
   sourceRdpPort?: number;
   sourceSshPort?: number;
@@ -58,6 +63,14 @@ export function profileSlug(profile: string): string {
 export function buildProfileCommand(input: ProfileOperationInput): string[] {
   const profile = profileSlug(input.profile);
   const clones = Math.max(0, Math.floor(input.clones ?? 2));
+  if (input.action === "destroy") {
+    const cmd = ["virt/destroy-profile.sh", "--profile", profile];
+    // Without --yes the script only lists what it would remove, so an
+    // unconfirmed request is a dry run rather than a destructive accident.
+    if (input.confirm) cmd.push("--yes");
+    if (input.keepDisks) cmd.push("--keep-disks");
+    return cmd;
+  }
   const base =
     input.action === "update"
       ? ["virt/update-profile.sh", "--profile", profile, "--clones", String(clones)]
@@ -111,7 +124,7 @@ export function profileSourceVm(
 }
 
 export function sourceVmForOperation(input: ProfileOperationInput, id: string): FleetVm | undefined {
-  if (input.action === "recover") return undefined;
+  if (input.action === "recover" || input.action === "destroy") return undefined;
   return profileSourceVm(input.profile, id, {
     sourceDomain: input.sourceDomain,
     sourceRdpPort: input.sourceRdpPort,
@@ -142,7 +155,9 @@ export function continueProfileOperation(id: string): ProfileOperation | undefin
 export function startProfileOperation(input: ProfileOperationInput): ProfileOperation {
   const profile = profileSlug(input.profile);
   if (!profile) throw new Error("profile is required");
-  if (!["prepare", "update", "recover"].includes(input.action)) throw new Error("invalid profile action");
+  if (!["prepare", "update", "recover", "destroy"].includes(input.action)) {
+    throw new Error("invalid profile action");
+  }
 
   const reg = registry();
   const id = `profile_op_${Date.now()}_${reg.nextId++}`;

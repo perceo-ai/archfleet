@@ -79,6 +79,13 @@ export function listEnvironments(db: Db): PreparedEnvironment[] {
   return rows.map(rowToEnvironment);
 }
 
+/** Remove an environment. The fleet profile behind it is a separate thing with
+ * its own lifecycle — destroying the desktops is a profile operation, so this
+ * only forgets the user-facing object. */
+export function deleteEnvironment(db: Db, id: string): boolean {
+  return (db.prepare("DELETE FROM cuf_environments WHERE id=?").run(id).changes as number) > 0;
+}
+
 export function touchEnvironment(db: Db, id: string, lastUsedAt: string): void {
   db.prepare("UPDATE cuf_environments SET last_used_at=? WHERE id=?").run(lastUsedAt, id);
 }

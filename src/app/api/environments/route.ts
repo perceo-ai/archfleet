@@ -1,5 +1,6 @@
 import { getDb } from "@/lib/fleet/db/db";
 import {
+  deleteEnvironment,
   getEnvironment,
   listEnvironments,
   saveEnvironment,
@@ -128,4 +129,48 @@ export async function PATCH(req: Request) {
   };
   saveEnvironment(db, updated);
   return Response.json(updated);
+}
+
+// DELETE /api/environments?id=…&destroyProfile=1&keepDisks=1
+//
+// Forgetting the environment and destroying the desktops behind it are two
+// different things, so they are two flags. Deleting the row alone leaves the
+// clones running — which is what you want when the environment was a mistake but
+// the profile is shared. `destroyProfile=1` also tears the clones down.
+export async function DELETE(req: Request) {
+  const params = new URL(req.url).searchParams;
+  const id = params.get("id");
+  if (!id) return Response.json({ error: "id is required" }, { status: 400 });
+
+  const db = getDb();
+  const env = getEnvironment(db, id);
+  if (!env) return Response.json({ error: "environment not found" }, { status: 404 });
+
+  let operationId: string | undefined;
+  let warning: string | undefined;
+  if (params.get("destroyProfile") === "1") {
+    if (!env.profileRef) {
+      warning = "environment has no fleet profile — nothing to destroy";
+    } else {
+      try {
+        // `confirm` is what turns the script from a dry run into a real teardown.
+        operationId = startProfileOperation({
+          action: "destroy",
+          profile: env.profileRef,
+          confirm: true,
+          keepDisks: params.get("keepDisks") === "1",
+        }).id;
+      } catch (e) {
+        // Deleting the row anyway would orphan the desktops with nothing left
+        // pointing at them, so stop and say so.
+        return Response.json(
+          { error: `could not start profile teardown: ${e instanceof Error ? e.message : String(e)}` },
+          { status: 500 },
+        );
+      }
+    }
+  }
+
+  deleteEnvironment(db, id);
+  return Response.json({ ok: true, id, operationId, warning });
 }

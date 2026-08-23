@@ -15,6 +15,8 @@ export async function POST(req: Request) {
     clones?: number;
     agentPassword?: string;
     repair?: boolean;
+    confirm?: boolean;
+    keepDisks?: boolean;
   };
   try {
     if (!body.profile) return Response.json({ error: "profile is required" }, { status: 400 });
@@ -25,6 +27,8 @@ export async function POST(req: Request) {
       clones: body.clones,
       agentPassword: body.agentPassword,
       repair: body.repair,
+      confirm: body.confirm,
+      keepDisks: body.keepDisks,
     });
     return Response.json({ operation });
   } catch (e) {

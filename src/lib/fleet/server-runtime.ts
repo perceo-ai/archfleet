@@ -447,35 +447,70 @@ export async function executeRunById(db: Db, runId: string, now = () => new Date
   }
 }
 
-/** Keep the desktops of runs that are legitimately still holding one.
+/** Reconcile desktop leases against the runs that hold them.
  *
- * A run paused for a human takeover holds its desktop deliberately — that is the
- * whole point, the person lands on the same `:0` the agent was driving. But
- * nothing else renews that hold, so without this the lease lapses and another
- * worker claims and reverts the desktop somebody was about to take over.
- * Executing runs renew per node inside the orchestrator; this covers the paused
- * ones, and any run executing in a different worker process.
+ * Two halves, and both matter:
  *
- * A hold that has already lapsed is NOT resurrected — the desktop may belong to
- * someone else by now. Returns how many were renewed. */
-export function renewHeldRunLeases(
+ * - A run that is `running` or `paused` legitimately holds its desktop — a
+ *   paused run holds it on purpose, so the person lands on the same `:0` the
+ *   agent was driving — and nothing else renews that hold once runWorkflow has
+ *   returned. Without this the lease lapses and another worker reverts the
+ *   desktop somebody was about to take over.
+ *
+ * - A run that has SETTLED must give its desktop back. `runWorkflow` releases in
+ *   its `finally`, but a run that paused has already returned while deliberately
+ *   holding; cancelling or failing it afterwards only changes a row. Nothing
+ *   released the lease, so the desktop was stranded until the TTL — six hours of
+ *   a fleet of one being completely unavailable.
+ *
+ * Reconciling instead of patching each call site means this self-heals whatever
+ * settled the run: the cancel route, a retry, a crash, an operator's SQL.
+ *
+ * A hold that has already lapsed is not resurrected — the desktop may belong to
+ * someone else by now. Returns what it did. */
+export function reconcileRunLeases(
   db: Db,
   now: () => string = () => new Date().toISOString(),
-): number {
-  const rows = db
-    .prepare("SELECT id, vm_id FROM cuf_runs WHERE status IN ('running','paused') AND vm_id IS NOT NULL")
-    .all() as { id: string; vm_id: string }[];
-  if (!rows.length) return 0;
-  const domainOf = new Map(fleetVms().map((vm) => [vm.id, vm.domain]));
+): { renewed: number; released: number } {
   const leases = createDbLeaseStore(db);
   const at = now();
+  const held = leases.heldDomains(at);
+  if (!held.length) return { renewed: 0, released: 0 };
+
+  const domainOf = new Map(fleetVms().map((vm) => [vm.id, vm.domain]));
+  const rows = db
+    .prepare("SELECT id, status, vm_id FROM cuf_runs WHERE status IN ('running','paused')")
+    .all() as { id: string; status: string; vm_id: string | null }[];
+  const activeHolders = new Set(rows.map((r) => r.id));
+
   const expiresAt = new Date(new Date(at).getTime() + DEFAULT_LEASE_TTL_MS).toISOString();
   let renewed = 0;
   for (const row of rows) {
+    if (!row.vm_id) continue;
     const domain = domainOf.get(row.vm_id);
     if (domain && leases.renew(domain, row.id, expiresAt, at)) renewed++;
   }
-  return renewed;
+
+  // Anything still held by a run that is no longer active is stranded. Sessions
+  // hold leases too and are swept on their own expiry, so only release a lease
+  // whose holder is a known run.
+  let released = 0;
+  for (const domain of held) {
+    const holder = leases.get(domain, at)?.holder;
+    if (!holder || activeHolders.has(holder)) continue;
+    const settled = db.prepare("SELECT status FROM cuf_runs WHERE id=?").get(holder) as
+      | { status: string }
+      | undefined;
+    if (!settled) continue; // not a run (e.g. a session) — leave it alone
+    leases.release(domain, holder);
+    released++;
+  }
+  return { renewed, released };
+}
+
+/** Back-compat alias: this used to only renew. */
+export function renewHeldRunLeases(db: Db, now?: () => string): number {
+  return reconcileRunLeases(db, now).renewed;
 }
 
 /** Re-page the operator for takeovers nobody responded to within
@@ -580,10 +615,9 @@ export async function processPendingRuns(db: Db = getDb(), max = 5): Promise<num
       await executeRunById(db, runId);
       processed++;
     }
-    // Keep held desktops held. Runs paused for a human own their desktop until
-    // the takeover is resolved, and nothing else renews that lease.
+    // Keep held desktops held, and take back the ones whose run has settled.
     try {
-      renewHeldRunLeases(db);
+      reconcileRunLeases(db);
     } catch {
       // never fail the queue drain on lease bookkeeping
     }
