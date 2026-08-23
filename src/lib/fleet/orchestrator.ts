@@ -7,6 +7,7 @@
 // is the real execution engine that replaces it once VMs are live.
 
 import { redactSecrets } from "./redaction";
+import { WorkContext } from "./work-context";
 import { runComputerUseTask, type ExecRunner, type GuestReport, type GuestConnection } from "./computer-use";
 import { runCliAgent, type AgentExec, type AgentRunResult } from "./cli-agent-runner";
 import { resolveTemplate } from "./templating";
@@ -265,7 +266,10 @@ export async function runWorkflow(
     stepOutputs[node.name] = output;
   };
   const artifacts: RunArtifact[] = [];
-  let pastWork = "";
+  // Compacting rather than accumulating: this text is fed to the planner on
+  // every node, and an hours-long run would otherwise grow it past the model's
+  // context window (truncating the front, where the goal lives).
+  const work = new WorkContext();
   let finalStatus: RunStatus = "succeeded";
   // Why the run paused (human_takeover prompt / guest needs_human reason) — shown
   // to the operator, so it is secret-redacted like events.
@@ -369,7 +373,7 @@ export async function runWorkflow(
             body: spec.body != null ? JSON.stringify(spec.body) : undefined,
           });
           emit(res.ok ? "info" : "warn", `API ${spec.method ?? "GET"} ${spec.url} -> ${res.status}.`);
-          pastWork += `\n${node.name}: HTTP ${res.status}`;
+          work.add(node.name, `HTTP ${res.status}`);
           setOutput(node, {
             status: res.status,
             ok: res.ok,
@@ -443,7 +447,7 @@ export async function runWorkflow(
           if (error) emit("warn", `Condition "${node.name}": ${error} — treated as false.`);
           emit("info", `Condition "${node.name}" -> ${value ? "success" : "failure"}.`);
           setOutput(node, value);
-          pastWork += `\n${node.name}: ${value}`;
+          work.add(node.name, `${value}`);
           return value ? "success" : "failure";
         }
         if (node.config.provider) {
@@ -457,7 +461,7 @@ export async function runWorkflow(
             "",
             `Decision question: ${fillPrompt(node.config.prompt ?? node.name)}`,
             "",
-            `Prior workflow context:\n${pastWork || "(none)"}`,
+            `Prior workflow context:\n${work.render() || "(none)"}`,
           ].join("\n");
           try {
             const result = await runCliAgent(
@@ -476,7 +480,7 @@ export async function runWorkflow(
             }
             const out = decisionOutcome(result);
             emit("info", `Condition "${node.name}" model decision -> ${out}.`);
-            pastWork += `\n${node.name}: ${out}`;
+            work.add(node.name, `${out}`);
             return out;
           } catch (e) {
             emit("error", `Condition "${node.name}" agent error: ${String(e)}`);
@@ -485,7 +489,7 @@ export async function runWorkflow(
         }
         // MVP: succeed if prior output contains config.prompt (else success when unset).
         const needle = node.config.prompt;
-        const ok = !needle || pastWork.includes(needle);
+        const ok = !needle || work.render().includes(needle);
         emit("info", `Condition "${node.name}" -> ${ok ? "success" : "failure"}.`);
         return ok ? "success" : "failure";
       }
@@ -496,7 +500,7 @@ export async function runWorkflow(
         }
         const res = await deps.shellExec(fillPrompt(node.config.prompt ?? ""), { env });
         emit(res.code === 0 ? "info" : "warn", `Shell "${node.name}" exited ${res.code}.`);
-        pastWork += `\n${node.name}: exit ${res.code}`;
+        work.add(node.name, `exit ${res.code}`);
         setOutput(node, { code: res.code, stdout: res.stdout, stderr: res.stderr });
         return res.code === 0 ? "success" : "failure";
       }
@@ -542,7 +546,7 @@ export async function runWorkflow(
             guestConn,
             {
               instruction: fillPrompt(node.config.prompt ?? node.name),
-              pastWork,
+              pastWork: work.render(),
               params: paramMap,
               // `timeoutMs` is the ceiling for the whole node; `stepTimeoutMs`
               // is how long a single model round may take. Leaving either unset
@@ -581,7 +585,7 @@ export async function runWorkflow(
           collectArtifacts(node.id, report.artifacts);
         }
         if (report.status === "succeeded") {
-          pastWork += `\n${node.name}: ${report.reason}`;
+          work.add(node.name, `${report.reason}`);
           return "success";
         }
         if (reportToStatus(report.status) === "paused") {
@@ -604,7 +608,7 @@ export async function runWorkflow(
           result = await runCliAgent(
             {
               provider: (node.config.provider as AgentProvider) ?? "claude-code",
-              prompt: fillPrompt(pastWork ? `${node.config.prompt ?? node.name}\n\nContext:\n${pastWork}` : node.config.prompt ?? node.name),
+              prompt: fillPrompt(work.length ? `${node.config.prompt ?? node.name}\n\nContext:\n${work.render()}` : node.config.prompt ?? node.name),
               secrets: secretMap,
               allowApiFallback: false,
             },
@@ -618,7 +622,7 @@ export async function runWorkflow(
         emit(result.status === "succeeded" ? "info" : "warn", `Node "${node.name}" ${result.status}.`);
         collectArtifacts(node.id, result.artifacts);
         if (result.status !== "succeeded") return "failure";
-        pastWork += `\n${node.name}: ${typeof result.structuredOutput === "string" ? result.structuredOutput : "done"}`;
+        work.add(node.name, `${typeof result.structuredOutput === "string" ? result.structuredOutput : "done"}`);
         return "success";
       }
       case "switch": {
@@ -629,7 +633,7 @@ export async function runWorkflow(
           if (value) {
             emit("info", `Switch "${node.name}" -> "${branch.label}".`);
             setOutput(node, branch.label);
-            pastWork += `\n${node.name}: ${branch.label}`;
+            work.add(node.name, `${branch.label}`);
             switchChoice = branch.label;
             return "success";
           }
