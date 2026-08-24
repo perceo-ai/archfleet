@@ -6,10 +6,11 @@
 // daemon has nothing to acquire and the run comes back `queued` — the honest state
 // until `build-golden.sh` has produced a warm VM.
 
-import { createVmDaemon } from "./vm-daemon/daemon";
+import { createVmDaemon, DEFAULT_LEASE_TTL_MS } from "./vm-daemon/daemon";
 import { createVirshClient } from "./vm-daemon/virsh";
 import { execVirshRunner } from "./vm-daemon/exec-runner";
 import { realVmsFromEnv } from "./vm-daemon/fleet-config";
+import { createDbLeaseStore } from "./vm-daemon/lease-store";
 import { mkdirSync } from "node:fs";
 import { basename } from "node:path";
 import { spawnExecRunner, spawnAgentExec, scpFetch, scpPushDir, spawnShellExec } from "./ssh-exec";
@@ -31,7 +32,7 @@ import { nodeTypeRegistry } from "./db/node-types-repo";
 import { effectiveSettings, settingFlag, settingNumber, settingValue } from "./db/settings-repo";
 import { getAutomation, getAutomationByWorkflowId } from "./db/automations-repo";
 import { evaluateEvidenceChecks } from "./evidence-checks";
-import { touchEnvironment } from "./db/environments-repo";
+import { getEnvironment, touchEnvironment } from "./db/environments-repo";
 import { addEvidence } from "./db/evidence-repo";
 import {
   getOpenTakeoverForRun,
@@ -47,7 +48,7 @@ import { seedFleetState } from "./seed";
 import { notifyRun, notifyTakeoverEscalation } from "./notify";
 import { fetchEmailOtpImap } from "./email-imap";
 import type { TriggerExecute } from "./triggers/triggers-runtime";
-import type { FleetState, TriggerSource, Workflow, WorkflowRun } from "./types";
+import type { FleetState, FleetVm, TriggerSource, Workflow, WorkflowRun } from "./types";
 
 let runCounter = 0;
 const newRunId = (now: () => string) => `run_${runCounter++}_${now()}`;
@@ -129,14 +130,54 @@ function resolveSecrets(db: Db, state: FleetState): FleetState["secrets"] {
   }
 }
 
-/** Assemble the real orchestrator dependencies (libvirt daemon + SSH transport). */
-function buildRunDeps(state: FleetState, now: () => string, db?: Db): OrchestratorDeps {
+/** What a prepared environment demands of the desktop a run lands on.
+ *
+ * This is the link that makes "this automation runs signed in as me" true: the
+ * environment's fleet profile becomes a `profile:<slug>` label the daemon must
+ * match. Environments without a profile (mock/demo rows) constrain nothing. */
+export function environmentLabels(
+  db: Db,
+  environmentId: string | undefined,
+): { labels: string[]; name?: string } {
+  if (!environmentId) return { labels: [] };
+  const env = getEnvironment(db, environmentId);
+  if (!env) return { labels: [] };
+  return {
+    labels: env.profileRef ? [`profile:${env.profileRef}`] : [],
+    name: env.name,
+  };
+}
+
+/** The libvirt-backed daemon over the configured fleet.
+ *
+ * A daemon instance is built per run (and per session call), so holds must live
+ * outside it in the db — otherwise every caller would think the whole fleet was
+ * free. Sessions use this too, which is what makes a leased desktop and a
+ * running automation compete for the same capacity correctly. */
+export function fleetDaemon(
+  vms: FleetVm[],
+  now: () => string = () => new Date().toISOString(),
+  db?: Db,
+) {
   const uri = process.env.CUF_LIBVIRT_URI ?? "qemu:///session";
   const client = createVirshClient(execVirshRunner(), uri);
-  // Production execution should only see configured/persisted real VMs. The
-  // demo seed VMs have no libvirt domain and must not show up as capacity.
-  const configuredVms = realVmsFromEnv();
-  const daemon = createVmDaemon(client, configuredVms.length ? configuredVms : state.vms);
+  return createVmDaemon(client, vms, {
+    leases: db ? createDbLeaseStore(db) : undefined,
+    now,
+  });
+}
+
+/** Production execution should only see configured/persisted real VMs. The demo
+ * seed VMs have no libvirt domain and must not show up as capacity. */
+export function fleetVms(state?: FleetState): FleetVm[] {
+  const configured = realVmsFromEnv();
+  if (configured.length) return configured;
+  return (state ?? seedFleetState()).vms;
+}
+
+/** Assemble the real orchestrator dependencies (libvirt daemon + SSH transport). */
+function buildRunDeps(state: FleetState, now: () => string, db?: Db): OrchestratorDeps {
+  const daemon = fleetDaemon(fleetVms(state), now, db);
   return {
     daemon,
     exec: spawnExecRunner,
@@ -200,8 +241,16 @@ export async function executeManualRun(
 ): Promise<WorkflowRun> {
   const now = opts.now ?? (() => new Date().toISOString());
   const db = opts.db ?? getDb();
+  const env = environmentLabels(db, opts.environmentId);
   const run = await runWorkflow(
-    { workflow, secrets: resolveSecrets(db, state), params: state.params, runId: newRunId(now) },
+    {
+      workflow,
+      secrets: resolveSecrets(db, state),
+      params: state.params,
+      runId: newRunId(now),
+      requiredLabels: env.labels,
+      environmentName: env.name,
+    },
     buildRunDeps(state, now, db),
   );
   saveRun(db, opts.triggerId ? { ...run, triggerId: opts.triggerId } : run);
@@ -306,6 +355,8 @@ export async function executeRunById(db: Db, runId: string, now = () => new Date
     | undefined;
   const storedParams = JSON.parse(paramRow?.params_json || "{}") as Record<string, unknown>;
   const resumeFrom = storedParams.__resumeFrom;
+  // The run's environment decides which desktop it may land on.
+  const env = environmentLabels(db, existing.environmentId);
   const run = await runWorkflow(
     {
       workflow,
@@ -313,6 +364,8 @@ export async function executeRunById(db: Db, runId: string, now = () => new Date
       params: resolveParams(db, state, runId),
       runId,
       startNodeId: typeof resumeFrom === "string" ? resumeFrom : undefined,
+      requiredLabels: env.labels,
+      environmentName: env.name,
     },
     {
       ...buildRunDeps(state, now, db),
@@ -392,6 +445,72 @@ export async function executeRunById(db: Db, runId: string, now = () => new Date
     const takeover = getOpenTakeoverForRun(db, runId);
     if (takeover) markTakeoverNotified(db, takeover.id, now());
   }
+}
+
+/** Reconcile desktop leases against the runs that hold them.
+ *
+ * Two halves, and both matter:
+ *
+ * - A run that is `running` or `paused` legitimately holds its desktop — a
+ *   paused run holds it on purpose, so the person lands on the same `:0` the
+ *   agent was driving — and nothing else renews that hold once runWorkflow has
+ *   returned. Without this the lease lapses and another worker reverts the
+ *   desktop somebody was about to take over.
+ *
+ * - A run that has SETTLED must give its desktop back. `runWorkflow` releases in
+ *   its `finally`, but a run that paused has already returned while deliberately
+ *   holding; cancelling or failing it afterwards only changes a row. Nothing
+ *   released the lease, so the desktop was stranded until the TTL — six hours of
+ *   a fleet of one being completely unavailable.
+ *
+ * Reconciling instead of patching each call site means this self-heals whatever
+ * settled the run: the cancel route, a retry, a crash, an operator's SQL.
+ *
+ * A hold that has already lapsed is not resurrected — the desktop may belong to
+ * someone else by now. Returns what it did. */
+export function reconcileRunLeases(
+  db: Db,
+  now: () => string = () => new Date().toISOString(),
+): { renewed: number; released: number } {
+  const leases = createDbLeaseStore(db);
+  const at = now();
+  const held = leases.heldDomains(at);
+  if (!held.length) return { renewed: 0, released: 0 };
+
+  const domainOf = new Map(fleetVms().map((vm) => [vm.id, vm.domain]));
+  const rows = db
+    .prepare("SELECT id, status, vm_id FROM cuf_runs WHERE status IN ('running','paused')")
+    .all() as { id: string; status: string; vm_id: string | null }[];
+  const activeHolders = new Set(rows.map((r) => r.id));
+
+  const expiresAt = new Date(new Date(at).getTime() + DEFAULT_LEASE_TTL_MS).toISOString();
+  let renewed = 0;
+  for (const row of rows) {
+    if (!row.vm_id) continue;
+    const domain = domainOf.get(row.vm_id);
+    if (domain && leases.renew(domain, row.id, expiresAt, at)) renewed++;
+  }
+
+  // Anything still held by a run that is no longer active is stranded. Sessions
+  // hold leases too and are swept on their own expiry, so only release a lease
+  // whose holder is a known run.
+  let released = 0;
+  for (const domain of held) {
+    const holder = leases.get(domain, at)?.holder;
+    if (!holder || activeHolders.has(holder)) continue;
+    const settled = db.prepare("SELECT status FROM cuf_runs WHERE id=?").get(holder) as
+      | { status: string }
+      | undefined;
+    if (!settled) continue; // not a run (e.g. a session) — leave it alone
+    leases.release(domain, holder);
+    released++;
+  }
+  return { renewed, released };
+}
+
+/** Back-compat alias: this used to only renew. */
+export function renewHeldRunLeases(db: Db, now?: () => string): number {
+  return reconcileRunLeases(db, now).renewed;
 }
 
 /** Re-page the operator for takeovers nobody responded to within
@@ -496,9 +615,20 @@ export async function processPendingRuns(db: Db = getDb(), max = 5): Promise<num
       await executeRunById(db, runId);
       processed++;
     }
+    // Keep held desktops held, and take back the ones whose run has settled.
+    try {
+      reconcileRunLeases(db);
+    } catch {
+      // never fail the queue drain on lease bookkeeping
+    }
     // Piggyback on the worker cadence: remind the operator about takeovers nobody
     // has picked up. Best-effort — never fails the queue drain.
     await escalateStaleTakeovers(db).catch(() => undefined);
+    // Hand back desktops from agents that opened a session and walked away.
+    // Imported lazily: session-runtime depends on this module.
+    await import("./session-runtime")
+      .then((m) => m.sweepExpiredSessions(db))
+      .catch(() => undefined);
     return processed;
   } finally {
     processingRuns = false;

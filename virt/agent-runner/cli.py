@@ -29,10 +29,12 @@ def _parse_task(raw: dict) -> tuple[TaskSlice, Limits]:
         params=raw.get("params", {}),
     )
     lim = raw.get("limits", {})
+    d = Limits()
     limits = Limits(
-        max_steps=lim.get("max_steps", 40),
-        timeout_s=lim.get("timeout_s", 600.0),
-        max_no_progress=lim.get("max_no_progress", 3),
+        max_steps=lim.get("max_steps", d.max_steps),
+        timeout_s=lim.get("timeout_s", d.timeout_s),
+        max_no_progress=lim.get("max_no_progress", d.max_no_progress),
+        step_timeout_s=lim.get("step_timeout_s", d.step_timeout_s),
     )
     return task, limits
 

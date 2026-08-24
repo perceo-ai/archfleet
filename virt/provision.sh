@@ -30,16 +30,42 @@ log() { echo "[provision] $*"; }
 # ---------------------------------------------------------------------------
 log "apt update + install desktop/remote/automation stack"
 apt-get update -y
-# NOTE: no browser here — on Ubuntu 24.04 `firefox`/`chromium` are snaps whose
-# first-boot install hangs indefinitely and blocks provisioning. Install a browser
-# into the running VM later (snap works once seeded, or use a Mozilla .deb repo).
+# NOTE: no browser in this list. On Ubuntu 24.04 `firefox`/`chromium` are snap
+# transitional packages whose first-boot install hangs indefinitely and blocks
+# provisioning. Firefox is installed from Mozilla's own APT repo just below —
+# a real .deb, which installs offline-safely and never touches snapd.
 apt-get install -y --no-install-recommends \
   xfce4 xfce4-goodies dbus-x11 x11-xserver-utils \
   xrdp \
   openssh-server \
   python3 python3-venv python3-pip python3-dev python3-tk build-essential \
   xvfb scrot gnome-screenshot xdotool wmctrl x11-utils \
-  fonts-liberation ca-certificates curl wget git unzip
+  fonts-liberation ca-certificates curl wget git unzip \
+  xdg-utils thunar mousepad
+
+# ---------------------------------------------------------------------------
+# 1b. Firefox from Mozilla's APT repo.
+#
+# A profile exists to hold logins, and a desktop with no browser cannot hold any
+# — so the browser belongs in the image, not in a manual step afterwards. Ubuntu's
+# `firefox` package is a shim that pulls the snap, which hangs during provisioning;
+# Mozilla ship a real .deb. The pin is what stops apt preferring Ubuntu's shim.
+# ---------------------------------------------------------------------------
+log "install firefox (Mozilla .deb repo, not the snap)"
+install -d -m 0755 /etc/apt/keyrings
+if wget -qO /etc/apt/keyrings/packages.mozilla.org.asc https://packages.mozilla.org/apt/repo-signing-key.gpg; then
+  echo "deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main" \
+    > /etc/apt/sources.list.d/mozilla.list
+  printf 'Package: *\nPin: origin packages.mozilla.org\nPin-Priority: 1000\n' \
+    > /etc/apt/preferences.d/mozilla
+  apt-get update -y
+  # Not fatal: a profile without a browser is still usable for desktop-only work,
+  # and failing the whole build over it would waste the rest of the provision.
+  apt-get install -y --no-install-recommends firefox \
+    || log "WARNING: firefox install failed — install it manually before capturing a profile"
+else
+  log "WARNING: could not fetch Mozilla signing key — skipping browser install"
+fi
 
 # ---------------------------------------------------------------------------
 # 2. Agent user with a desktop + remote login.

@@ -45,11 +45,18 @@ export type WorkflowNode = {
   position: { x: number; y: number };
   config: {
     prompt?: string;
+    /** Ceiling for the whole node. Unset means the guest's generous default. */
     timeoutMs?: number;
+    /** How long a single computer-use step (planner + grounding round) may take
+     * before the run is treated as wedged. This — not `timeoutMs` — is what a
+     * long-running task should be tuned with. */
+    stepTimeoutMs?: number;
     requiredLabels?: string[];
     provider?: AgentProvider;
     /** retry_wait: how many times to re-run the preceding task node. */
     maxAttempts?: number;
+    /** computer_use_task: cap on agent steps. Unset means the guest default. */
+    maxSteps?: number;
     /** human_takeover: what to ask the person, and what to do with the answer.
      * Anything shaped — a code, a choice, an approval, a corrected value. */
     ask?: import("./human-ask").HumanAsk;
@@ -289,9 +296,24 @@ export type PreparedEnvironment = {
   warmSnapshot?: string;
   /** Environment this one was cloned from, if any. */
   clonedFrom?: string;
+  /** Profile operation currently building or updating this environment's
+   * desktops — the environment owns its own profile lifecycle, so this is how
+   * the UI follows a build without the user tracking a separate object. */
+  profileOpId?: string;
+  /** Where the environment is in getting ready. `ready` once desktops exist. */
+  setupStage?: EnvironmentSetupStage;
   createdAt: string;
   updatedAt: string;
 };
+
+/** Stages of preparing an environment. Only `signing_in` is the user's job. */
+export type EnvironmentSetupStage =
+  | "new"
+  | "building"
+  | "signing_in"
+  | "cloning"
+  | "ready"
+  | "failed";
 
 export type EvidenceItem = {
   id: string;

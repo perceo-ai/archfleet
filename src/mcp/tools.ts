@@ -548,4 +548,129 @@ export const FLEET_TOOLS: FleetTool[] = [
       return [...real, ...listVms(db).filter((v) => !realIds.has(v.id))];
     },
   },
+
+  // ------------------------------------------------------------------------ //
+  // Computer-use sessions — general computer use on a signed-in desktop, for an
+  // outside agent. `list_environments` above is how you discover what you can be
+  // signed in as; everything here operates on one of those.
+  // ------------------------------------------------------------------------ //
+  {
+    name: "run_task",
+    description:
+      "Do something on a prepared (already signed-in) desktop, described in plain language — book a room, apply to a job, download a statement. " +
+      "archfleet drives the desktop for you, so the task gets human takeover, evidence and secret handling automatically. " +
+      "Returns a session; poll it with get_session. This is the tool to reach for first — use open_session(mode:'lease') only when you need to control the mouse and keyboard yourself.",
+    shape: {
+      environmentId: z.string(),
+      task: z.string(),
+      ttlMs: z.number().optional(),
+      openedBy: z.string().optional(),
+    },
+    run: async (db, a) => {
+      const { openSession, isSessionError } = await import("../lib/fleet/session-runtime");
+      const session = await openSession(
+        {
+          environmentId: a.environmentId as string,
+          mode: "task",
+          task: a.task as string,
+          ttlMs: a.ttlMs as number | undefined,
+          openedBy: (a.openedBy as string) ?? "mcp",
+        },
+        { db },
+      );
+      return isSessionError(session) ? { ok: false, error: session.error } : { ok: true, session };
+    },
+  },
+  {
+    name: "open_session",
+    description:
+      "Open a computer-use session on a prepared environment. " +
+      "mode 'task' = archfleet drives (prefer run_task). " +
+      "mode 'lease' = you drive a clean copy of the desktop with session_act. " +
+      "mode 'persist' = you drive the profile's SOURCE desktop and your changes SURVIVE — use this to sign into a new site or replace an expired session, then capture_session to make it permanent.",
+    shape: {
+      environmentId: z.string(),
+      mode: z.enum(["task", "lease", "persist"]).optional(),
+      task: z.string().optional(),
+      ttlMs: z.number().optional(),
+      openedBy: z.string().optional(),
+    },
+    run: async (db, a) => {
+      const { openSession, isSessionError } = await import("../lib/fleet/session-runtime");
+      const session = await openSession(
+        {
+          environmentId: a.environmentId as string,
+          mode: (a.mode as "task" | "lease" | "persist") ?? "task",
+          task: a.task as string | undefined,
+          ttlMs: a.ttlMs as number | undefined,
+          openedBy: (a.openedBy as string) ?? "mcp",
+        },
+        { db },
+      );
+      return isSessionError(session) ? { ok: false, error: session.error } : { ok: true, session };
+    },
+  },
+  {
+    name: "get_session",
+    description:
+      "Read a session. For a task session this includes the run underneath — status, events, artifacts, and any question waiting on a human " +
+      "(status 'waiting_for_human' means a person must answer before it can continue; answer it with resolve_takeover).",
+    shape: { id: z.string() },
+    run: async (db, a) => {
+      const { getSessionView } = await import("../lib/fleet/session-runtime");
+      return getSessionView(db, a.id as string) ?? { error: "not found" };
+    },
+  },
+  {
+    name: "list_sessions",
+    description: "List computer-use sessions. Pass open=true for the ones still holding a desktop.",
+    shape: { open: z.boolean().optional(), environmentId: z.string().optional() },
+    run: async (db, a) => {
+      const { listSessionViews } = await import("../lib/fleet/session-runtime");
+      return listSessionViews(db, {
+        open: a.open as boolean | undefined,
+        environmentId: a.environmentId as string | undefined,
+      });
+    },
+  },
+  {
+    name: "session_act",
+    description:
+      "Drive a leased desktop: run a batch of primitives and get the guest's report plus any screenshots back. " +
+      'Actions are a JSON array, e.g. [{"click":[420,300]},{"type":"hello"},{"key":"enter"},{"screenshot":true}]. ' +
+      "Supported: click, doubleclick, rightclick, move, type, text, key, press, hotkey, scroll, wait, screenshot. " +
+      "The batch is rejected whole if any action is unknown, and every call renews the lease.",
+    shape: {
+      id: z.string(),
+      actions: z.array(z.record(z.string(), z.unknown())),
+    },
+    run: async (db, a) => {
+      const { actOnSession, isSessionError } = await import("../lib/fleet/session-runtime");
+      const result = await actOnSession(db, a.id as string, a.actions);
+      return isSessionError(result) ? { ok: false, error: result.error } : { ok: true, ...result };
+    },
+  },
+  {
+    name: "close_session",
+    description:
+      "Close a session and hand its desktop back. A lease is wiped clean; a persist session's changes are left in place (capture_session first if you want to keep them).",
+    shape: { id: z.string(), summary: z.string().optional() },
+    run: async (db, a) => {
+      const { closeSession, isSessionError } = await import("../lib/fleet/session-runtime");
+      const closed = await closeSession(db, a.id as string, { summary: a.summary as string | undefined });
+      return isSessionError(closed) ? { ok: false, error: closed.error } : { ok: true, session: closed };
+    },
+  },
+  {
+    name: "capture_session",
+    description:
+      "Fold a persist session's desktop back into its profile: re-snapshot the source and re-clone the pool, so every later run starts from the new sign-in. " +
+      "This is how a login you just did becomes permanent. Long-running — it streams logs and stops for a human to confirm the capture.",
+    shape: { id: z.string(), clones: z.number().optional() },
+    run: async (db, a) => {
+      const { captureSession, isSessionError } = await import("../lib/fleet/session-runtime");
+      const result = captureSession(db, a.id as string, { clones: a.clones as number | undefined });
+      return isSessionError(result) ? { ok: false, error: result.error } : { ok: true, ...result };
+    },
+  },
 ];

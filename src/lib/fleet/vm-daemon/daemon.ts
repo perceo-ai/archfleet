@@ -5,11 +5,18 @@
 
 import type { FleetVm, VmStatus, XrdpConnection } from "../types";
 import type { DomainState, VirshClient } from "./virsh";
+import { createMemoryLeaseStore, type LeaseStore } from "./lease-store";
 import net from "node:net";
 
 export type AcquireInput = {
   requiredLabels: string[];
   runId: string;
+  /** Skip the warm-snapshot revert, keeping whatever is on the desktop. Only for
+   * `persist` sessions on a profile's source desktop — every other caller wants
+   * the clean, repeatable state. */
+  keepState?: boolean;
+  /** Override the lease length for this hold (long-lived sessions). */
+  ttlMs?: number;
 };
 
 export type AcquireResult =
@@ -19,11 +26,20 @@ export type AcquireResult =
 const DEFAULT_WARM_SNAPSHOT = "golden-warm";
 const DEFAULT_READY_TIMEOUT_MS = 30_000;
 const DEFAULT_READY_INTERVAL_MS = 500;
+/** Long enough that no honest computer-use run outlives its lease, short enough
+ * that a killed controller's desktops come back the same working day. Holders
+ * that legitimately outlive it (a run paused for a human) renew instead. */
+export const DEFAULT_LEASE_TTL_MS = 6 * 60 * 60 * 1000;
 
 export type VmDaemonOptions = {
   readyTimeoutMs?: number;
   readyIntervalMs?: number;
   waitForTcp?: (host: string, port: number, timeoutMs: number, intervalMs: number) => Promise<void>;
+  /** Where holds are recorded. Defaults to process-local; pass the db-backed store
+   * to make exclusion hold across workers and survive a restart. */
+  leases?: LeaseStore;
+  leaseTtlMs?: number;
+  now?: () => string;
 };
 
 /** Map a libvirt domain state to our fleet-facing VM status. */
@@ -50,8 +66,12 @@ export function mapDomainState(state: DomainState, assigned: boolean): VmStatus 
 export function createVmDaemon(client: VirshClient, vms: FleetVm[], opts: VmDaemonOptions = {}) {
   // Only VMs bound to a real libvirt domain are managed here.
   const managed = vms.filter((vm): vm is FleetVm & { domain: string } => Boolean(vm.domain));
-  // domain -> runId currently holding the VM.
-  const assignments = new Map<string, string>();
+  // Who holds each domain. Process-local by default; db-backed in the server.
+  const leases = opts.leases ?? createMemoryLeaseStore();
+  const now = opts.now ?? (() => new Date().toISOString());
+  const ttlMs = opts.leaseTtlMs ?? DEFAULT_LEASE_TTL_MS;
+  const expiryFrom = (nowIso: string, ms: number) =>
+    new Date(new Date(nowIso).getTime() + ms).toISOString();
 
   function warmSnapshotOf(vm: FleetVm): string {
     return vm.warmSnapshot ?? DEFAULT_WARM_SNAPSHOT;
@@ -64,30 +84,47 @@ export function createVmDaemon(client: VirshClient, vms: FleetVm[], opts: VmDaem
     },
 
     isAssigned(vm: FleetVm): boolean {
-      return vm.domain ? assignments.has(vm.domain) : false;
+      return vm.domain ? Boolean(leases.get(vm.domain, now())) : false;
+    },
+
+    /** Push a held desktop's lease out, so a long session is not swept mid-work.
+     * False means the lease was lost — the caller must stop driving that desktop. */
+    renew(vm: FleetVm, holder: string, forMs = ttlMs): boolean {
+      if (!vm.domain) return false;
+      const at = now();
+      return leases.renew(vm.domain, holder, expiryFrom(at, forMs), at);
     },
 
     /**
-     * Find an unassigned, present VM whose labels satisfy `requiredLabels`,
-     * reset it via warm snapshot, and mark it assigned to the run.
+     * Find an unheld, present VM whose labels satisfy `requiredLabels`, reset it
+     * via warm snapshot, and lease it to the run.
+     *
+     * The lease is taken BEFORE the revert: reverting a desktop another holder is
+     * driving would destroy its work, so losing the claim race has to mean we
+     * never touched the domain.
      */
     async acquire(input: AcquireInput): Promise<AcquireResult> {
+      const at = now();
+      const held = new Set(leases.heldDomains(at));
       const candidates = managed.filter(
         (vm) =>
-          !assignments.has(vm.domain) &&
+          !held.has(vm.domain) &&
           input.requiredLabels.every((label) => vm.labels.includes(label)),
       );
       if (candidates.length === 0) {
         return { ok: false, reason: "no_matching_vm" };
       }
 
+      const expiresAt = expiryFrom(at, input.ttlMs ?? ttlMs);
       for (const vm of candidates) {
         const state = await client.domainState(vm.domain);
         if (state === "absent" || state === "unknown" || state === "crashed") {
           continue; // unhealthy — try the next candidate
         }
+        // Another worker may have taken this domain since we listed holds.
+        if (!leases.claim(vm.domain, input.runId, expiresAt, at)) continue;
         try {
-          await client.revertSnapshot(vm.domain, warmSnapshotOf(vm));
+          if (!input.keepState) await client.revertSnapshot(vm.domain, warmSnapshotOf(vm));
           if (vm.ssh) {
             await (opts.waitForTcp ?? waitForTcp)(
               vm.ssh.host,
@@ -97,27 +134,40 @@ export function createVmDaemon(client: VirshClient, vms: FleetVm[], opts: VmDaem
             );
           }
         } catch (e) {
+          // Hand the desktop back — holding a lease on a VM we failed to reset
+          // would leak it out of the fleet until the TTL lapsed.
+          leases.release(vm.domain, input.runId);
           return { ok: false, reason: "reset_failed", detail: String(e) };
         }
-        assignments.set(vm.domain, input.runId);
         return { ok: true, vm: { ...vm, status: "assigned", assignedRunId: input.runId }, xrdp: vm.xrdp };
       }
 
       return { ok: false, reason: "no_matching_vm" };
     },
 
-    /** Release a VM back to the pool, reverting to the clean warm snapshot. */
-    async release(vm: FleetVm): Promise<void> {
+    /** Release a VM back to the pool, reverting to the clean warm snapshot.
+     * `holder` scopes the release, so a late call cannot free a desktop somebody
+     * else has since taken. `keepState` leaves a persist session's work in place. */
+    async release(vm: FleetVm, opt: { holder?: string; keepState?: boolean } = {}): Promise<void> {
       if (!vm.domain) return;
-      assignments.delete(vm.domain);
-      await client.revertSnapshot(vm.domain, warmSnapshotOf(vm));
+      const holder = opt.holder ?? vm.assignedRunId;
+      const current = leases.get(vm.domain, now());
+      // Somebody else owns it now: leave both the lease and the disk alone.
+      if (holder && current && current.holder !== holder) return;
+      leases.release(vm.domain, holder);
+      if (!opt.keepState) await client.revertSnapshot(vm.domain, warmSnapshotOf(vm));
+    },
+
+    /** Free desktops whose holder died. Returns how many came back. */
+    sweepExpiredLeases(): number {
+      return leases.sweepExpired(now());
     },
 
     /** Current fleet status of a managed VM from its live domain state. */
     async health(vm: FleetVm): Promise<VmStatus> {
       if (!vm.domain) return vm.status;
       const state = await client.domainState(vm.domain);
-      return mapDomainState(state, assignments.has(vm.domain));
+      return mapDomainState(state, Boolean(leases.get(vm.domain, now())));
     },
 
     /** XRDP connection block for human takeover. */

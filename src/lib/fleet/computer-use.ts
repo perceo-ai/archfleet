@@ -25,7 +25,16 @@ export type ComputerUseTask = {
   instruction: string;
   pastWork?: string;
   params?: Record<string, string | number | boolean | null>;
-  limits?: { maxSteps?: number; timeoutS?: number; maxNoProgress?: number };
+  limits?: {
+    maxSteps?: number;
+    /** Far-away ceiling on the whole slice. */
+    timeoutS?: number;
+    maxNoProgress?: number;
+    /** How long ONE step may take. This is the limit that actually governs a
+     * long task — a step is a planner call plus a grounding call, and either can
+     * legitimately take minutes. */
+    stepTimeoutS?: number;
+  };
 };
 
 export type GuestConnection = {
@@ -49,6 +58,7 @@ export function serializeTask(task: ComputerUseTask): string {
     ? {
         max_steps: task.limits.maxSteps,
         timeout_s: task.limits.timeoutS,
+        step_timeout_s: task.limits.stepTimeoutS,
         max_no_progress: task.limits.maxNoProgress,
       }
     : undefined;

@@ -35,3 +35,39 @@ describe("profile operations", () => {
     });
   });
 });
+
+// Destroying a profile removes VMs and their disks, so the guards around it
+// matter as much as the command itself.
+describe("destroy", () => {
+  it("is a dry run unless the caller confirms", () => {
+    // A mistyped request must list what it would remove, never remove it.
+    expect(buildProfileCommand({ action: "destroy", profile: "bank" })).toEqual([
+      "virt/destroy-profile.sh",
+      "--profile",
+      "bank",
+    ]);
+  });
+
+  it("confirming adds --yes", () => {
+    expect(buildProfileCommand({ action: "destroy", profile: "bank", confirm: true })).toEqual([
+      "virt/destroy-profile.sh",
+      "--profile",
+      "bank",
+      "--yes",
+    ]);
+  });
+
+  it("can keep the disks", () => {
+    expect(
+      buildProfileCommand({ action: "destroy", profile: "bank", confirm: true, keepDisks: true }),
+    ).toContain("--keep-disks");
+  });
+
+  it("normalises the profile slug like every other action", () => {
+    expect(buildProfileCommand({ action: "destroy", profile: "My Bank!" })).toContain("my-bank");
+  });
+
+  it("never surfaces a source desktop — there is nothing to sign in on", () => {
+    expect(sourceVmForOperation({ action: "destroy", profile: "bank" }, "op1")).toBeUndefined();
+  });
+});

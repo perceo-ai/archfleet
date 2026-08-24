@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { seedFleetState } from "./seed";
-import { executeManualRun, enqueueManualRun, processPendingRuns } from "./server-runtime";
+import {
+  executeManualRun,
+  enqueueManualRun,
+  processPendingRuns,
+  reconcileRunLeases,
+} from "./server-runtime";
+import { createDbLeaseStore } from "./vm-daemon/lease-store";
 import { openDb } from "./db/db";
-import { getRun, listRuns } from "./db/runs-repo";
+import { getRun, listRuns, saveRun } from "./db/runs-repo";
 import { ensureSeeded } from "./db/init-db";
 
 describe("executeManualRun (sync, real assembly)", () => {
@@ -32,7 +38,7 @@ describe("executeManualRun (sync, real assembly)", () => {
     let n = 0;
     const run = await executeManualRun(state, wf, { now: () => `t${n++}`, db });
     expect(run.status).toBe("queued");
-    expect(run.events.some((e) => e.message.includes("no_matching_vm"))).toBe(true);
+    expect(run.events.some((e) => e.message.includes("no desktop available"))).toBe(true);
     expect(getRun(db, run.id)?.status).toBe("queued");
     db.close();
   });
@@ -358,5 +364,133 @@ describe("automation workflow guard", () => {
     const run = enqueueManualRun("wf_does_not_exist", { db });
     expect(run.workflowId).toBe("wf_portal_login");
     db.close();
+  });
+});
+
+// A run paused for a human holds its desktop deliberately — the person lands on
+// the same :0 the agent was driving. Nothing inside the orchestrator renews that
+// hold once runWorkflow has returned, so the worker loop has to.
+describe("reconcileRunLeases", () => {
+  const T0 = "2026-08-20T10:00:00.000Z";
+  const LATER = "2026-08-20T12:00:00.000Z";
+
+  function withFleet<T>(body: () => T): T {
+    const prior = process.env.CUF_FLEET_JSON;
+    process.env.CUF_FLEET_JSON = JSON.stringify([{ domain: "dom-a", profile: "portal" }]);
+    try {
+      return body();
+    } finally {
+      if (prior === undefined) delete process.env.CUF_FLEET_JSON;
+      else process.env.CUF_FLEET_JSON = prior;
+    }
+  }
+
+  function runRow(db: ReturnType<typeof openDb>, id: string, status: string, vmId?: string) {
+    saveRun(db, {
+      id,
+      workflowId: "wf",
+      workflowName: "wf",
+      status: status as never,
+      vmId,
+      startedAt: T0,
+      events: [],
+    });
+  }
+
+  it("keeps a paused run's desktop held past the original lease", () => {
+    withFleet(() => {
+      const db = openDb(":memory:");
+      const leases = createDbLeaseStore(db);
+      leases.claim("dom-a", "run_paused", "2026-08-20T10:30:00.000Z", T0);
+      runRow(db, "run_paused", "paused", "vm_dom-a");
+
+      expect(reconcileRunLeases(db, () => "2026-08-20T10:20:00.000Z").renewed).toBe(1);
+      // Without the renewal this lease would have lapsed at 10:30 and another
+      // worker could revert the desktop the human is about to take over.
+      expect(leases.get("dom-a", LATER)?.holder).toBe("run_paused");
+      db.close();
+    });
+  });
+
+  it("does not resurrect a hold that already lapsed", () => {
+    withFleet(() => {
+      const db = openDb(":memory:");
+      const leases = createDbLeaseStore(db);
+      leases.claim("dom-a", "run_dead", "2026-08-20T10:30:00.000Z", T0);
+      runRow(db, "run_dead", "paused", "vm_dom-a");
+
+      // By now the desktop may belong to somebody else — taking it back would be
+      // exactly the bug leases exist to prevent.
+      expect(reconcileRunLeases(db, () => LATER).renewed).toBe(0);
+      expect(leases.get("dom-a", LATER)).toBeUndefined();
+      db.close();
+    });
+  });
+
+  it("ignores runs that are not holding a desktop", () => {
+    withFleet(() => {
+      const db = openDb(":memory:");
+      runRow(db, "run_done", "succeeded", "vm_dom-a");
+      runRow(db, "run_queued", "queued", undefined);
+      expect(reconcileRunLeases(db, () => "2026-08-20T10:20:00.000Z").renewed).toBe(0);
+      db.close();
+    });
+  });
+
+  // The bug this exists to prevent: a run that paused holds its desktop on
+  // purpose, so runWorkflow has already returned. Cancelling it afterwards only
+  // changed a row — nothing released the lease, and the desktop was stranded for
+  // the full six-hour TTL. On a fleet of one that is total unavailability.
+  it("takes the desktop back when a paused run is cancelled", () => {
+    withFleet(() => {
+      const db = openDb(":memory:");
+      const leases = createDbLeaseStore(db);
+      leases.claim("dom-a", "run_cancelled", "2026-08-20T16:00:00.000Z", T0);
+      runRow(db, "run_cancelled", "canceled", "vm_dom-a");
+
+      const res = reconcileRunLeases(db, () => "2026-08-20T10:20:00.000Z");
+      expect(res.released).toBe(1);
+      expect(leases.get("dom-a", "2026-08-20T10:20:00.000Z")).toBeUndefined();
+      db.close();
+    });
+  });
+
+  it("takes it back from a failed run too", () => {
+    withFleet(() => {
+      const db = openDb(":memory:");
+      const leases = createDbLeaseStore(db);
+      leases.claim("dom-a", "run_failed", "2026-08-20T16:00:00.000Z", T0);
+      runRow(db, "run_failed", "failed", "vm_dom-a");
+      expect(reconcileRunLeases(db, () => "2026-08-20T10:20:00.000Z").released).toBe(1);
+      db.close();
+    });
+  });
+
+  it("leaves a session's lease alone", () => {
+    withFleet(() => {
+      const db = openDb(":memory:");
+      const leases = createDbLeaseStore(db);
+      // Sessions hold desktops too and expire on their own schedule. Releasing
+      // one here would yank the desktop out from under a live agent.
+      leases.claim("dom-a", "sess_hermes_1", "2026-08-20T16:00:00.000Z", T0);
+
+      const res = reconcileRunLeases(db, () => "2026-08-20T10:20:00.000Z");
+      expect(res.released).toBe(0);
+      expect(leases.get("dom-a", "2026-08-20T10:20:00.000Z")?.holder).toBe("sess_hermes_1");
+      db.close();
+    });
+  });
+
+  it("keeps holding for a run that is still paused", () => {
+    withFleet(() => {
+      const db = openDb(":memory:");
+      const leases = createDbLeaseStore(db);
+      leases.claim("dom-a", "run_paused", "2026-08-20T10:30:00.000Z", T0);
+      runRow(db, "run_paused", "paused", "vm_dom-a");
+
+      const res = reconcileRunLeases(db, () => "2026-08-20T10:20:00.000Z");
+      expect(res).toEqual({ renewed: 1, released: 0 });
+      db.close();
+    });
   });
 });

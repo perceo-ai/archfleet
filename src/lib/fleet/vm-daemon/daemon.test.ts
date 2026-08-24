@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { FleetVm } from "../types";
 import type { DomainState, VirshClient } from "./virsh";
 import { createVmDaemon, mapDomainState } from "./daemon";
+import { createMemoryLeaseStore } from "./lease-store";
 
 function vm(id: string, opts: Partial<FleetVm> = {}): FleetVm {
   return {
@@ -143,5 +144,108 @@ describe("vm daemon release + health", () => {
     expect(await daemon.health(vm("a"))).toBe("idle");
     await daemon.acquire({ requiredLabels: [], runId: "run_1" });
     expect(await daemon.health(vm("a"))).toBe("assigned");
+  });
+});
+
+// Exclusion used to be a per-instance Map, but `buildRunDeps` builds a fresh
+// daemon per run — so two concurrent runs could revert and drive the same
+// desktop. A shared store is what makes the hold mean something.
+describe("vm daemon leases", () => {
+  it("two daemons sharing a store cannot hold the same desktop", async () => {
+    const leases = createMemoryLeaseStore();
+    const client = fakeClient({ "dom-a": "running" });
+    const first = createVmDaemon(client, [vm("a")], { leases });
+    const second = createVmDaemon(client, [vm("a")], { leases });
+
+    expect((await first.acquire({ requiredLabels: [], runId: "run_1" })).ok).toBe(true);
+    expect(await second.acquire({ requiredLabels: [], runId: "run_2" })).toEqual({
+      ok: false,
+      reason: "no_matching_vm",
+    });
+    // The loser must not have touched the domain — one revert, from run_1.
+    expect(client.reverts).toEqual([["dom-a", "golden-warm"]]);
+  });
+
+  it("a lease that outlives its holder frees the desktop", async () => {
+    const leases = createMemoryLeaseStore();
+    const client = fakeClient({ "dom-a": "running" });
+    let clock = "2026-08-20T10:00:00.000Z";
+    const daemon = createVmDaemon(client, [vm("a")], {
+      leases,
+      leaseTtlMs: 60_000,
+      now: () => clock,
+    });
+
+    expect((await daemon.acquire({ requiredLabels: [], runId: "run_1" })).ok).toBe(true);
+    // run_1's controller is killed and never releases.
+    clock = "2026-08-20T10:02:00.000Z";
+    expect((await daemon.acquire({ requiredLabels: [], runId: "run_2" })).ok).toBe(true);
+  });
+
+  it("release from a stale holder leaves the new holder's desktop alone", async () => {
+    const leases = createMemoryLeaseStore();
+    const client = fakeClient({ "dom-a": "running" });
+    let clock = "2026-08-20T10:00:00.000Z";
+    const daemon = createVmDaemon(client, [vm("a")], { leases, leaseTtlMs: 60_000, now: () => clock });
+
+    const stale = await daemon.acquire({ requiredLabels: [], runId: "run_1" });
+    if (!stale.ok) throw new Error("acquire failed");
+    clock = "2026-08-20T10:02:00.000Z";
+    const fresh = await daemon.acquire({ requiredLabels: [], runId: "run_2" });
+    if (!fresh.ok) throw new Error("re-acquire failed");
+
+    const revertsBefore = client.reverts.length;
+    await daemon.release(stale.vm); // late release from the dead run
+    expect(daemon.isAssigned(fresh.vm)).toBe(true);
+    // No revert: reverting here would have destroyed run_2's work.
+    expect(client.reverts).toHaveLength(revertsBefore);
+  });
+
+  it("a failed reset hands the desktop back instead of leaking it", async () => {
+    const leases = createMemoryLeaseStore();
+    const client = fakeClient({ "dom-a": "running" });
+    client.revertSnapshot = vi.fn(async () => {
+      throw new Error("snapshot missing");
+    });
+    const daemon = createVmDaemon(client, [vm("a")], { leases });
+
+    const res = await daemon.acquire({ requiredLabels: [], runId: "run_1" });
+    expect(res.ok).toBe(false);
+    expect(leases.heldDomains()).toEqual([]);
+  });
+
+  it("keepState skips the revert for a persist session", async () => {
+    const client = fakeClient({ "dom-a": "running" });
+    const daemon = createVmDaemon(client, [vm("a")]);
+    const res = await daemon.acquire({ requiredLabels: [], runId: "sess_1", keepState: true });
+    if (!res.ok) throw new Error("acquire failed");
+    await daemon.release(res.vm, { holder: "sess_1", keepState: true });
+    // Nothing reverted: the whole point is that the sign-in survives.
+    expect(client.reverts).toEqual([]);
+  });
+
+  it("renew extends a live hold and reports a lost one", async () => {
+    const leases = createMemoryLeaseStore();
+    const client = fakeClient({ "dom-a": "running" });
+    let clock = "2026-08-20T10:00:00.000Z";
+    const daemon = createVmDaemon(client, [vm("a")], { leases, leaseTtlMs: 60_000, now: () => clock });
+
+    const res = await daemon.acquire({ requiredLabels: [], runId: "sess_1" });
+    if (!res.ok) throw new Error("acquire failed");
+    clock = "2026-08-20T10:00:30.000Z";
+    expect(daemon.renew(res.vm, "sess_1")).toBe(true);
+    clock = "2026-08-20T10:05:00.000Z";
+    expect(daemon.renew(res.vm, "sess_1")).toBe(false);
+  });
+
+  it("sweepExpiredLeases reports what it freed", async () => {
+    const leases = createMemoryLeaseStore();
+    const client = fakeClient({ "dom-a": "running" });
+    let clock = "2026-08-20T10:00:00.000Z";
+    const daemon = createVmDaemon(client, [vm("a")], { leases, leaseTtlMs: 60_000, now: () => clock });
+    await daemon.acquire({ requiredLabels: [], runId: "run_1" });
+    expect(daemon.sweepExpiredLeases()).toBe(0);
+    clock = "2026-08-20T10:02:00.000Z";
+    expect(daemon.sweepExpiredLeases()).toBe(1);
   });
 });

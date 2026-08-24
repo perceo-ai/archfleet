@@ -59,6 +59,34 @@ function parseAccounts(raw: string): { site: string; username?: string }[] {
   });
 }
 
+/** Mirrors `profileSlug` on the server — shown so the derived profile name is
+ * never a surprise, but the server's value is the one that counts. */
+const slugify = (raw: string) =>
+  raw.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").toLowerCase();
+
+type ProfileOperation = {
+  id: string;
+  profile: string;
+  status: "running" | "waiting_for_capture" | "succeeded" | "failed";
+  logs: string[];
+};
+
+/** What the user is being asked to do right now, if anything. Only the sign-in
+ * step is theirs; the rest is us working. */
+function setupLine(
+  env: PreparedEnvironment,
+  op: ProfileOperation | undefined,
+): { label: string; tone?: "warn" | "danger" | "accent"; needsYou: boolean } | undefined {
+  if (!env.setupStage || env.setupStage === "ready") return undefined;
+  if (env.setupStage === "failed") return { label: "setup failed", tone: "danger", needsYou: false };
+  if (op?.status === "waiting_for_capture") {
+    return { label: "waiting for you to sign in", tone: "accent", needsYou: true };
+  }
+  if (op?.status === "failed") return { label: "build failed", tone: "danger", needsYou: false };
+  if (op?.status === "succeeded") return { label: "cloning desktops", tone: "warn", needsYou: false };
+  return { label: "building the desktop", tone: "warn", needsYou: false };
+}
+
 const asMinSec = (ms: number | undefined) =>
   ms == null ? "—" : ms < 60_000 ? `${Math.round(ms / 1000)}s` : `${Math.round(ms / 60_000)}m`;
 
@@ -67,6 +95,9 @@ export function EnvironmentsPanel({ initialTab = "environments" }: { initialTab?
   const vms = usePolling<FleetVm[]>("/api/vms", 8000);
   const profiles = usePolling<ProfileStatus>("/api/profile-status", 30000);
   const health = usePolling<Health>("/api/health", 30000);
+  // Builds are minutes long and have a step that waits on the user, so the
+  // environment card has to follow them rather than sending people elsewhere.
+  const operations = usePolling<{ operations: ProfileOperation[] }>("/api/profile-ops", 4000);
 
   const [tab, setTab] = useState<Tab>(initialTab);
   const [prepOpen, setPrepOpen] = useState(false);
@@ -77,7 +108,9 @@ export function EnvironmentsPanel({ initialTab = "environments" }: { initialTab?
   const [accounts, setAccounts] = useState("");
   const [deviceTrust, setDeviceTrust] = useState("");
   const [mfaExpectations, setMfaExpectations] = useState("");
-  const [profileRef, setProfileRef] = useState("");
+  const [clones, setClones] = useState(2);
+  const [signInTask, setSignInTask] = useState("");
+  const [creating, setCreating] = useState(false);
 
 
   const list = environments.data ?? [];
@@ -96,36 +129,47 @@ export function EnvironmentsPanel({ initialTab = "environments" }: { initialTab?
     };
   };
 
+  /** Naming an environment starts building its desktops. The fleet profile slug
+   * is derived from the name on the server — nobody types it twice and hopes the
+   * two halves match. */
   async function createEnvironment() {
     setMessage(null);
+    setCreating(true);
     const state = {
       accounts: parseAccounts(accounts),
       deviceTrust: splitList(deviceTrust),
       mfaExpectations: splitList(mfaExpectations),
     };
     try {
-      await sendJson("/api/environments", "POST", {
-        name,
-        description,
-        profileRef: profileRef || undefined,
-        labels: profileRef
-          ? ["linux-desktop", "browser", `profile:${profileRef}`]
-          : ["linux-desktop", "browser"],
-        state:
-          state.accounts.length || state.deviceTrust.length || state.mfaExpectations.length
-            ? state
-            : undefined,
-      });
+      const created = await sendJson<PreparedEnvironment & { warning?: string }>(
+        "/api/environments",
+        "POST",
+        {
+          name,
+          description,
+          labels: ["linux-desktop", "browser"],
+          state:
+            state.accounts.length || state.deviceTrust.length || state.mfaExpectations.length
+              ? state
+              : undefined,
+          prepare: { clones, task: signInTask || undefined },
+        },
+      );
       setName("");
       setDescription("");
       setAccounts("");
       setDeviceTrust("");
       setMfaExpectations("");
-      setProfileRef("");
+      setSignInTask("");
       setPrepOpen(false);
+      // The row is saved either way; say so rather than looking like nothing
+      // happened when the VM host is not wired up yet.
+      if (created.warning) setMessage(`Environment saved, but the build did not start: ${created.warning}`);
       await environments.refresh();
     } catch (e) {
       setMessage(String(e));
+    } finally {
+      setCreating(false);
     }
   }
 
@@ -138,6 +182,33 @@ export function EnvironmentsPanel({ initialTab = "environments" }: { initialTab?
       );
       if (res.mode === "guacamole" && res.launchUrl) window.open(res.launchUrl, "_blank");
       else if (res.downloadUrl) window.open(res.downloadUrl, "_blank");
+    } catch (e) {
+      setMessage(String(e));
+    }
+  }
+
+  /** Open the desktop being built, so the user can do the one part that is
+   * theirs: log in, pass MFA, trust the device. */
+  async function openSetupDesktop(opId: string) {
+    setMessage(null);
+    try {
+      const res = await sendJson<{ mode: string; launchUrl?: string; downloadUrl?: string }>(
+        `/api/profile-ops/${encodeURIComponent(opId)}/takeover`,
+        "POST",
+      );
+      const url = res.mode === "guacamole" ? res.launchUrl : res.downloadUrl;
+      if (url) window.open(url, "_blank", "noopener,noreferrer");
+    } catch (e) {
+      setMessage(String(e));
+    }
+  }
+
+  /** "I'm signed in" — snapshot this desktop and clone it into the pool. */
+  async function captureSetup(opId: string) {
+    setMessage(null);
+    try {
+      await sendJson(`/api/profile-ops/${encodeURIComponent(opId)}/continue`, "POST");
+      await operations.refresh();
     } catch (e) {
       setMessage(String(e));
     }
@@ -197,16 +268,47 @@ export function EnvironmentsPanel({ initialTab = "environments" }: { initialTab?
             <div className="grid-2">
               {list.map((env) => {
                 const desktops = desktopsFor(env.profileRef);
+                const op = (operations.data?.operations ?? []).find(
+                  (o) => o.id === env.profileOpId || o.profile === env.profileRef,
+                );
+                const setup = setupLine(env, op);
                 return (
                 <Card key={env.id}>
                   <CardHead
                     title={env.name}
                     subtitle={env.description}
                     right={
-                      <Pill tone={environmentHealthTone(env.health)}>{statusLabel(env.health)}</Pill>
+                      setup ? (
+                        <Pill tone={setup.tone}>{setup.label}</Pill>
+                      ) : (
+                        <Pill tone={environmentHealthTone(env.health)}>{statusLabel(env.health)}</Pill>
+                      )
                     }
                   />
                   <div className="card-body stack-s">
+                    {setup?.needsYou && op ? (
+                      <Banner tone="warn" title="Your turn — sign in on this desktop">
+                        Open it, log in, pass MFA and tick “trust this device”. Then capture, and
+                        we&apos;ll clone it into desktops your automations and agents can use.
+                        <div className="hstack-w" style={{ marginTop: 10 }}>
+                          <button
+                            type="button"
+                            className="btn btn-primary btn-sm"
+                            onClick={() => void openSetupDesktop(op.id)}
+                          >
+                            <Monitor className="ico" aria-hidden="true" />
+                            Open desktop to sign in
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-sm"
+                            onClick={() => void captureSetup(op.id)}
+                          >
+                            I&apos;m signed in — capture it
+                          </button>
+                        </div>
+                      </Banner>
+                    ) : null}
                     <div className="hstack-w">
                       {(env.state?.accounts ?? []).map((a) => (
                         <Chip key={`${a.site}-${a.username ?? ""}`}>
@@ -460,8 +562,10 @@ export function EnvironmentsPanel({ initialTab = "environments" }: { initialTab?
           <div className={`tl-item ${name.trim() ? "active" : ""}`}>
             <div className="tl-title">2 · Sign in on the desktop we hold for you</div>
             <div className="tl-meta">
-              We open a clean desktop; you log in, pass MFA, tick “trust this device”, then capture.
-              Nothing you type is recorded — only the resulting session state is kept.
+              Creating this starts the build. When the desktop is up, this environment&apos;s card
+              says <em>waiting for you to sign in</em> — open it, log in, pass MFA, tick “trust this
+              device”, then capture. Nothing you type is recorded; only the resulting session state
+              is kept.
             </div>
             <div style={{ marginTop: 10 }}>
               <Viewport
@@ -469,20 +573,23 @@ export function EnvironmentsPanel({ initialTab = "environments" }: { initialTab?
                 tag={<Pill tone="accent">your session</Pill>}
                 bar={
                   <span className="grow t-sm">
-                    {name.trim() ? "Ready when you are." : "Name the environment first."}
+                    {name.trim()
+                      ? `We'll call the profile "${slugify(name)}".`
+                      : "Name the environment first."}
                   </span>
                 }
               />
             </div>
             <Field
-              label="Profile slug"
-              hint="Ties this environment to a fleet profile — use the same slug in the capture flow below."
+              label="What should this desktop be able to do?"
+              hint="Optional. An agent opens the apps and pages first, so you only do the signing-in part."
             >
               <input
                 className="input"
-                aria-label="Profile slug"
-                value={profileRef}
-                onChange={(e) => setProfileRef(e.target.value)}
+                aria-label="Sign-in task"
+                placeholder="Log into portal.acme.com and reach the statements page"
+                value={signInTask}
+                onChange={(e) => setSignInTask(e.target.value)}
               />
             </Field>
           </div>
@@ -490,9 +597,20 @@ export function EnvironmentsPanel({ initialTab = "environments" }: { initialTab?
           <div className="tl-item">
             <div className="tl-title">3 · We clone it into ready desktops</div>
             <div className="tl-meta">
-              Usually a few minutes. After that any automation can pick this environment. Run the
-              capture and clone stages from the preparation panel on this page.
+              Usually a few minutes. After that any automation — and any agent — can pick this
+              environment by name.
             </div>
+            <Field label="How many desktops" hint="How many automations can run on this at once.">
+              <input
+                className="input"
+                type="number"
+                min={0}
+                max={20}
+                aria-label="Desktop count"
+                value={clones}
+                onChange={(e) => setClones(Number(e.target.value))}
+              />
+            </Field>
           </div>
         </div>
 
@@ -504,10 +622,10 @@ export function EnvironmentsPanel({ initialTab = "environments" }: { initialTab?
           <button
             type="button"
             className="btn btn-primary btn-sm"
-            disabled={!name.trim()}
+            disabled={!name.trim() || creating}
             onClick={() => void createEnvironment()}
           >
-            Create environment
+            {creating ? "Starting…" : "Create and start building"}
           </button>
         </div>
       </Drawer>
