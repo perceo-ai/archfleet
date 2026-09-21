@@ -8,6 +8,7 @@ import {
   saveRun,
   setRunOutcome,
   setRunProgress,
+  setRunVm,
 } from "./runs-repo";
 import type { WorkflowRun } from "../types";
 
@@ -135,6 +136,21 @@ describe("runs repo", () => {
     const summary = listRuns(db)[0];
     expect(summary.automationId).toBe("auto_1");
     expect(summary.currentStep).toBe("Manual login");
+    db.close();
+  });
+
+  it("setRunVm attaches the desktop to a run that is still executing", () => {
+    const db = openDb(":memory:");
+    // A queued run has no desktop yet — that is the state the run view was
+    // stuck showing for the whole life of a long run.
+    saveRun(db, run("r_live", { status: "running", vmId: undefined, events: [], artifacts: [] }));
+    expect(getRun(db, "r_live")?.vmId).toBeUndefined();
+
+    setRunVm(db, "r_live", "vm_cuf-golden");
+
+    expect(getRun(db, "r_live")?.vmId).toBe("vm_cuf-golden");
+    // Attaching a desktop must not disturb the run's own lifecycle.
+    expect(getRun(db, "r_live")?.status).toBe("running");
     db.close();
   });
 

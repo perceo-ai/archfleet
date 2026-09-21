@@ -62,6 +62,11 @@ export type OrchestratorDeps = {
   emailOtp?: (config: import("./otp-email").EmailOtpConfig) => Promise<string | null>;
   /** Called before each node executes — lets the caller persist live progress. */
   onProgress?: (nodeId: string, nodeName: string) => void;
+  /** Called the moment a desktop is leased, so the run record carries its VM
+   * while the run is still going. Without this the vmId only lands when the run
+   * settles, and the run view cannot offer "watch live" or "take over" during
+   * the one window where either is actually useful. */
+  onVmAssigned?: (vmId: string) => void;
   /** Called as each event is emitted — lets the caller stream events to the run view. */
   onEvent?: (event: RunEvent, seq: number) => void;
   /** Called as each artifact lands — lets the run view show screenshots while running. */
@@ -238,6 +243,9 @@ export async function runWorkflow(
       "info",
       `Assigned ${workflow.name} to ${acquired.vm.name} (XRDP ${acquired.xrdp.host}:${acquired.xrdp.port}).`,
     );
+    // Publish the desktop before the first node runs: a long computer-use node
+    // is exactly when someone wants to watch it or take the keyboard.
+    deps.onVmAssigned?.(acquired.vm.id);
   }
   const vm = acquired?.ok ? acquired.vm : undefined;
 
@@ -734,8 +742,23 @@ export async function runWorkflow(
       }
       case "custom":
         return runCustomNode(node);
-      default:
-        return "success";
+      // Offered by the graph editor (it has an icon and a label) but nothing
+      // implements it. It used to fall through to `default: return "success"`,
+      // which made it a silent no-op inside a green run — the graph looked like
+      // it had done the work. Fail instead, and say exactly why.
+      case "agent_planner":
+        emit(
+          "error",
+          `Node "${node.name}": the engine has no implementation for "agent_planner" yet, so it cannot be run.`,
+        );
+        return "failure";
+      default: {
+        // Exhaustiveness guard: adding a NodeKind without handling it here is a
+        // compile error rather than a node that quietly reports success.
+        const unreachable: never = node.type;
+        emit("error", `Node "${node.name}": unknown node type "${String(unreachable)}".`);
+        return "failure";
+      }
     }
   };
 

@@ -265,6 +265,14 @@ export function setRunProgress(db: Db, id: string, currentStep: string): void {
   db.prepare("UPDATE cuf_runs SET current_step=? WHERE id=?").run(currentStep, id);
 }
 
+/** Attach the leased desktop to a run that is still executing, so the run view
+ * can offer "watch live" and "take over" during the run rather than only after
+ * it settles. Touches vm_id alone — the run's own lifecycle is not this
+ * function's business. */
+export function setRunVm(db: Db, id: string, vmId: string): void {
+  db.prepare("UPDATE cuf_runs SET vm_id=? WHERE id=?").run(vmId, id);
+}
+
 /** Write outcome fields after a run settles. Pass null to clear a field. */
 export function setRunOutcome(
   db: Db,

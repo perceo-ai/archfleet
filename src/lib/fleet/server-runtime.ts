@@ -33,6 +33,7 @@ import {
   setRunProgress,
   appendRunEvent,
   appendRunArtifact,
+  setRunVm,
 } from "./db/runs-repo";
 import { getWorkflow } from "./db/workflows-repo";
 import { nodeTypeRegistry } from "./db/node-types-repo";
@@ -384,6 +385,9 @@ export async function executeRunById(db: Db, runId: string, now = () => new Date
       // minute ago is usable by the next run, no restart.
       customNodeTypes: nodeTypeRegistry(db),
       onProgress: (_nodeId, nodeName) => setRunProgress(db, runId, nodeName),
+      // Attach the desktop the moment it is leased, so "watch live" and "take
+      // over" work during the run instead of only once it has settled.
+      onVmAssigned: (vmId) => setRunVm(db, runId, vmId),
       // Persist computed params as they are set, so they survive a pause and
       // show up on the run record.
       onParam: (name, value) => mergeRunParam(db, runId, name, value),
