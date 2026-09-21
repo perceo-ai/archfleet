@@ -143,6 +143,20 @@ describe("buildClockSyncCommand", () => {
     expect(remote).toContain("hwclock");
   });
 
+  it("gates only on the system clock, not on an RTC the image may not have", () => {
+    // The system clock is what every TLS handshake in the guest reads, so a
+    // failure there has to fail the acquire. Persisting to the RTC is a nicety
+    // and `hwclock` is simply absent from some desktop images — making that
+    // fatal took the whole fleet out of service.
+    const remote = buildClockSyncCommand(conn, Date.UTC(2026, 8, 21, 6, 36, 34)).args.at(-1)!;
+
+    expect(remote).toContain("date -u -s @1789972594");
+    // The RTC half is probed first and swallowed, so it can never be the reason
+    // a desktop is refused.
+    expect(remote).toMatch(/command -v hwclock/);
+    expect(remote).toMatch(/\|\| true/);
+  });
+
   it("passes the identity file so the controller's key is used", () => {
     const cmd = buildClockSyncCommand(conn, 0);
     expect(cmd.args).toContain("-i");

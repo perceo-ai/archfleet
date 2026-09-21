@@ -126,7 +126,14 @@ export function buildClockSyncCommand(
   const epochSeconds = Math.floor(nowMs / 1000);
   // `sudo -n` never waits on a prompt: on a guest without the sudo rule this
   // fails immediately instead of hanging the acquire path.
-  const remote = `sudo -n date -u -s @${epochSeconds} && sudo -n hwclock --systohc`;
+  //
+  // Only the system clock gates the result — that is what every TLS handshake
+  // in the guest reads. Writing it back to the RTC keeps a later resume honest,
+  // but `hwclock` is not present on every desktop image, so it is probed and
+  // swallowed: a missing RTC tool must never be the reason a desktop is refused.
+  const remote =
+    `sudo -n date -u -s @${epochSeconds} && ` +
+    `{ command -v hwclock >/dev/null 2>&1 && sudo -n hwclock --systohc >/dev/null 2>&1 || true; }`;
 
   const args = [
     "-p",
