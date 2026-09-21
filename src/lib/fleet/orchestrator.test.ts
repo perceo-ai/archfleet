@@ -1099,6 +1099,36 @@ describe("live run visibility", () => {
   });
 });
 
+describe("live run visibility", () => {
+  it("does not strand the desktop when publishing the assignment throws", async () => {
+    const client = fakeClient({ "dom-vm1": "running" });
+    const leases = createMemoryLeaseStore();
+    const daemon = createVmDaemon(client, [testVm()], {
+      waitForTcp: vi.fn(async () => {}),
+      leases,
+    });
+
+    const run = await runWorkflow(
+      { workflow: workflow(), secrets, params, runId: "r_throw" },
+      {
+        daemon,
+        exec: execReturning({ status: "succeeded", reason: "done", steps: 1, artifacts: [] }),
+        now: now(),
+        // The real implementation writes to sqlite here.
+        onVmAssigned: () => {
+          throw new Error("database is locked");
+        },
+      },
+    );
+
+    // The lease is taken before this callback runs but released in a `finally`
+    // much further down, so a throw here used to exit runWorkflow with the
+    // desktop still held until its 6h TTL lapsed.
+    expect(leases.heldDomains(new Date().toISOString())).toEqual([]);
+    expect(run.status).not.toBe("running");
+  });
+});
+
 describe("unimplemented node kinds", () => {
   // `agent_planner` is a declared NodeKind with an icon and a label in the
   // graph editor, but the engine has no case for it, so it fell through to the

@@ -140,15 +140,15 @@ export function createVmDaemon(client: VirshClient, vms: FleetVm[], opts: VmDaem
               opts.readyIntervalMs ?? DEFAULT_READY_INTERVAL_MS,
             );
             // Only the revert can strand the clock in the past, and only once
-            // SSH answers can we fix it. A desktop we could not step is still
-            // better than no desktop, so this never fails the acquire.
+            // SSH answers can we fix it. This is part of the reset, not a
+            // nicety: nothing syncs the clock again later, so a guest left in
+            // the past fails every TLS handshake it makes — planner and
+            // grounding included — and the run dies as an unexplained step
+            // timeout minutes later, having consumed a desktop to get there.
+            // Failing the acquire here is the honest, diagnosable outcome; the
+            // catch below releases the lease so the desktop is not stranded.
             if (!input.keepState && opts.syncGuestClock) {
-              try {
-                await opts.syncGuestClock(vm.ssh);
-              } catch {
-                // Best-effort: the run may still work, and the alternative is
-                // pulling a healthy desktop out of the fleet over a clock skew.
-              }
+              await opts.syncGuestClock(vm.ssh);
             }
           }
         } catch (e) {

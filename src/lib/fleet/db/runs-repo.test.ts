@@ -7,6 +7,7 @@ import {
   listRuns,
   saveRun,
   setRunOutcome,
+  retryRun,
   setRunProgress,
   setRunVm,
 } from "./runs-repo";
@@ -136,6 +137,22 @@ describe("runs repo", () => {
     const summary = listRuns(db)[0];
     expect(summary.automationId).toBe("auto_1");
     expect(summary.currentStep).toBe("Manual login");
+    db.close();
+  });
+
+  it("retryRun drops the desktop the previous attempt was holding", () => {
+    const db = openDb(":memory:");
+    saveRun(db, run("r1", { status: "failed", vmId: "vm_cuf-golden", events: [], artifacts: [] }));
+
+    expect(retryRun(db, "r1")).toBe(true);
+
+    // The run view treats a queued run as live and auto-opens the persisted
+    // desktop's takeover endpoint. That desktop was released (and reverted) the
+    // moment the last attempt ended, so pointing an operator at it sends them
+    // to someone else's session or a wiped one.
+    const got = getRun(db, "r1");
+    expect(got?.status).toBe("queued");
+    expect(got?.vmId).toBeUndefined();
     db.close();
   });
 

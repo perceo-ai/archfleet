@@ -110,23 +110,28 @@ describe("vm daemon acquire", () => {
     expect(order).toEqual(["revert", "wait", "clock"]);
   });
 
-  it("still hands over the desktop when the clock sync fails", async () => {
+  it("refuses the desktop when the clock could not be stepped", async () => {
     const client = fakeClient({ "dom-a": "running" });
     const syncGuestClock = vi.fn(async () => {
       throw new Error("ssh: connection refused");
     });
+    const leases = createMemoryLeaseStore();
     const daemon = createVmDaemon(
       client,
       [vm("a", { ssh: { host: "127.0.0.1", port: 10022, username: "agent" } })],
-      { waitForTcp: vi.fn(async () => {}), syncGuestClock },
+      { waitForTcp: vi.fn(async () => {}), syncGuestClock, leases },
     );
 
     const res = await daemon.acquire({ requiredLabels: [], runId: "run_1" });
 
-    // A desktop whose clock could not be stepped is still usable; taking it out
-    // of the fleet over a best-effort fix would be worse than the skew.
-    expect(res.ok).toBe(true);
-    expect(syncGuestClock).toHaveBeenCalledTimes(1);
+    // Handing out a desktop we know is stranded in the past only converts a
+    // clean reset failure into an unexplained step timeout ten minutes later:
+    // every TLS call inside that guest is going to fail, and nothing syncs the
+    // clock again afterwards.
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.reason).toBe("reset_failed");
+    // And it must go back to the pool rather than being leaked to a dead run.
+    expect(leases.heldDomains(new Date().toISOString())).toEqual([]);
   });
 
   it("does not touch the clock on a keepState hand-over", async () => {

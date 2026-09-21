@@ -212,7 +212,14 @@ export function deferRun(db: Db, id: string, nextAttemptIso: string): void {
 export function retryRun(db: Db, id: string): boolean {
   const res = db
     .prepare(
-      "UPDATE cuf_runs SET status='queued', finished_at=NULL, next_attempt_at=NULL, paused_reason=NULL WHERE id=? AND status IN ('failed','paused','canceled')",
+      // vm_id is cleared too: the previous attempt's desktop was released (and
+      // reverted) when that attempt ended, but the run view treats a queued run
+      // as live and auto-opens the persisted desktop's takeover endpoint — so a
+      // stale id sends an operator to a wiped or reassigned session.
+      `UPDATE cuf_runs
+          SET status='queued', finished_at=NULL, next_attempt_at=NULL,
+              paused_reason=NULL, vm_id=NULL
+        WHERE id=? AND status IN ('failed','paused','canceled')`,
     )
     .run(id);
   if (res.changes !== 1) return false;

@@ -14,6 +14,7 @@ import { resolveTemplate } from "./templating";
 import { evalExpr, evalRule, type ExprContext, type ExprValue } from "./expr";
 import {
   evaluateSuccessExpr,
+  fieldContext,
   missingRequiredFields,
   resolveFields,
   type CustomNodeType,
@@ -245,7 +246,17 @@ export async function runWorkflow(
     );
     // Publish the desktop before the first node runs: a long computer-use node
     // is exactly when someone wants to watch it or take the keyboard.
-    deps.onVmAssigned?.(acquired.vm.id);
+    //
+    // The lease is already claimed here, but it is only released in a `finally`
+    // much further down — so this callback (a database write in production)
+    // must not be allowed to throw past it, or the run exits still marked
+    // running with the desktop held until its TTL lapses. Losing the live
+    // "watch it" affordance is a far smaller failure than losing the desktop.
+    try {
+      deps.onVmAssigned?.(acquired.vm.id);
+    } catch (e) {
+      emit("warn", `Could not record the assigned desktop: ${String(e)}`);
+    }
   }
   const vm = acquired?.ok ? acquired.vm : undefined;
 
@@ -787,7 +798,11 @@ export async function runWorkflow(
     const rendered = fillPrompt(type.template, fields);
 
     const settle = (outcome: Outcome): Outcome => {
-      const override = evaluateSuccessExpr(type, runContext());
+      // A definition's rule is written against the fields that node was given
+      // ("number(field.amount) > 1000"), so it needs them in scope. Evaluating
+      // it with the bare run context left `field` null and turned a good call
+      // into a failure.
+      const override = evaluateSuccessExpr(type, fieldContext(runContext(), fields));
       if (override === undefined || outcome === "paused") return outcome;
       return override ? "success" : "failure";
     };
