@@ -80,6 +80,71 @@ describe("vm daemon acquire", () => {
     expect(waitForTcp).toHaveBeenCalledWith("127.0.0.1", 10022, 1234, 25);
   });
 
+  // The warm snapshot is a RAM snapshot: reverting restores the clock as it was
+  // when the snapshot was taken. A guest that wakes up weeks in the past fails
+  // every TLS handshake with "certificate is not yet valid", which surfaces much
+  // later as an unexplained step timeout in the agent runner.
+  it("syncs the guest clock after reverting, so restored desktops are not left in the past", async () => {
+    const client = fakeClient({ "dom-a": "running" });
+    const order: string[] = [];
+    client.revertSnapshot = vi.fn(async () => {
+      order.push("revert");
+    });
+    const waitForTcp = vi.fn(async () => {
+      order.push("wait");
+    });
+    const syncGuestClock = vi.fn(async () => {
+      order.push("clock");
+    });
+    const daemon = createVmDaemon(
+      client,
+      [vm("a", { ssh: { host: "127.0.0.1", port: 10022, username: "agent" } })],
+      { waitForTcp, syncGuestClock },
+    );
+
+    const res = await daemon.acquire({ requiredLabels: [], runId: "run_1" });
+
+    expect(res.ok).toBe(true);
+    expect(syncGuestClock).toHaveBeenCalledWith({ host: "127.0.0.1", port: 10022, username: "agent" });
+    // Syncing before the revert would be pointless, and before SSH is up it cannot work.
+    expect(order).toEqual(["revert", "wait", "clock"]);
+  });
+
+  it("still hands over the desktop when the clock sync fails", async () => {
+    const client = fakeClient({ "dom-a": "running" });
+    const syncGuestClock = vi.fn(async () => {
+      throw new Error("ssh: connection refused");
+    });
+    const daemon = createVmDaemon(
+      client,
+      [vm("a", { ssh: { host: "127.0.0.1", port: 10022, username: "agent" } })],
+      { waitForTcp: vi.fn(async () => {}), syncGuestClock },
+    );
+
+    const res = await daemon.acquire({ requiredLabels: [], runId: "run_1" });
+
+    // A desktop whose clock could not be stepped is still usable; taking it out
+    // of the fleet over a best-effort fix would be worse than the skew.
+    expect(res.ok).toBe(true);
+    expect(syncGuestClock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not touch the clock on a keepState hand-over", async () => {
+    const client = fakeClient({ "dom-a": "running" });
+    const syncGuestClock = vi.fn(async () => {});
+    const daemon = createVmDaemon(
+      client,
+      [vm("a", { ssh: { host: "127.0.0.1", port: 10022, username: "agent" } })],
+      { waitForTcp: vi.fn(async () => {}), syncGuestClock },
+    );
+
+    const res = await daemon.acquire({ requiredLabels: [], runId: "run_1", keepState: true });
+
+    expect(res.ok).toBe(true);
+    // Nothing was reverted, so the live desktop's own clock is the truth here.
+    expect(syncGuestClock).not.toHaveBeenCalled();
+  });
+
   it("returns reset_failed when SSH readiness times out", async () => {
     const client = fakeClient({ "dom-a": "running" });
     const daemon = createVmDaemon(

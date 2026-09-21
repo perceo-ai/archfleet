@@ -13,7 +13,14 @@ import { realVmsFromEnv } from "./vm-daemon/fleet-config";
 import { createDbLeaseStore } from "./vm-daemon/lease-store";
 import { mkdirSync } from "node:fs";
 import { basename } from "node:path";
-import { spawnExecRunner, spawnAgentExec, scpFetch, scpPushDir, spawnShellExec } from "./ssh-exec";
+import {
+  spawnExecRunner,
+  spawnAgentExec,
+  scpFetch,
+  scpPushDir,
+  spawnShellExec,
+  spawnClockSync,
+} from "./ssh-exec";
 import { runWorkflow, type OrchestratorDeps } from "./orchestrator";
 import type { GuestConnection } from "./computer-use";
 import type { RunArtifact } from "./types";
@@ -164,6 +171,10 @@ export function fleetDaemon(
   return createVmDaemon(client, vms, {
     leases: db ? createDbLeaseStore(db) : undefined,
     now,
+    // Reverting the warm snapshot restores the clock from when it was taken, so
+    // a desktop that has sat idle comes back days in the past and every TLS
+    // call inside the guest fails as "certificate is not yet valid".
+    syncGuestClock: (conn) => spawnClockSync({ ...conn, identityFile: process.env.CUF_SSH_KEY }),
   });
 }
 

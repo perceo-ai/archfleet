@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import type { ExecResult, ExecRunner, GuestConnection } from "./computer-use";
+import { buildClockSyncCommand, type ExecResult, type ExecRunner, type GuestConnection } from "./computer-use";
 import type { AgentExec } from "./cli-agent-runner";
 
 function sshTarget(conn: GuestConnection): string {
@@ -87,6 +87,18 @@ export async function scpPushDir(
     `${sshTarget(conn)}:${remoteDir}`,
   ]);
   return { code: pushed.code, stderr: pushed.stderr };
+}
+
+/** Step a guest's clock to the controller's time after a warm-snapshot revert.
+ * I/O layer: the command itself is built (and unit tested) by
+ * `buildClockSyncCommand`. Throws on a non-zero exit so the caller can decide
+ * how loudly to fail — the daemon treats it as best-effort. */
+export async function spawnClockSync(conn: GuestConnection): Promise<void> {
+  const cmd = buildClockSyncCommand(conn, Date.now());
+  const res = await runProcess(cmd.executable, cmd.args);
+  if (res.code !== 0) {
+    throw new Error(`guest clock sync failed (exit ${res.code}): ${res.stderr.trim() || "no stderr"}`);
+  }
 }
 
 /** Real shell executor for shell_task nodes (controller-side bash -c). */
