@@ -5,7 +5,7 @@
 // feedback is inline rather than at save time.
 
 import { useMemo, useState } from "react";
-import { EXPR_FUNCTIONS, checkExpr } from "@/lib/fleet/expr";
+import { DEFAULT_EXPR_ROOTS, EXPR_FUNCTIONS, checkExpr } from "@/lib/fleet/expr";
 import type { Workflow } from "@/lib/fleet/types";
 
 export function ExprField({
@@ -16,6 +16,7 @@ export function ExprField({
   workflow,
   placeholder,
   rows = 2,
+  roots,
 }: {
   label: string;
   hint?: string;
@@ -25,9 +26,15 @@ export function ExprField({
   workflow?: Workflow | null;
   placeholder?: string;
   rows?: number;
+  /** Names this particular rule may read. Defaults to what a run exposes; a
+   * node-type definition also gets `field`. */
+  roots?: string[];
 }) {
   const [showHelp, setShowHelp] = useState(false);
-  const problem = useMemo(() => (value.trim() ? checkExpr(value) : undefined), [value]);
+  const problem = useMemo(
+    () => (value.trim() ? checkExpr(value, { roots: roots ?? DEFAULT_EXPR_ROOTS }) : undefined),
+    [value, roots],
+  );
 
   const stepNames = (workflow?.nodes ?? [])
     .filter((n) => n.type !== "start" && n.type !== "end")

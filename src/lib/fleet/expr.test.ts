@@ -114,3 +114,36 @@ describe("checkExpr", () => {
     expect(checkExpr('contains(lower(params.region), "e")')).toBeUndefined();
   });
 });
+
+describe("checkExpr identifier roots", () => {
+  // A rule is only ever as good as the names it reads. `params` is plural in an
+  // expression but `{{param.x}}` is singular in a template, and that one-letter
+  // difference used to sail through save-time validation and then quietly
+  // evaluate to false — a switch that takes no branch, at 3am, with no error.
+  it("accepts the roots a run actually exposes", () => {
+    expect(checkExpr("params.mode == 'fast'")).toBeUndefined();
+    expect(checkExpr('steps.Ping.status == 200')).toBeUndefined();
+    expect(checkExpr('steps["Fetch invoices"].body.total > 0')).toBeUndefined();
+    expect(checkExpr("run.id != ''")).toBeUndefined();
+  });
+
+  it("rejects a root nothing will ever provide, and names it", () => {
+    const problem = checkExpr("param.mode == 'fast'");
+    expect(problem).toMatch(/param/);
+    expect(problem).toMatch(/params/); // points at the real one
+  });
+
+  it("does not mistake literals or functions for unknown roots", () => {
+    expect(checkExpr("true && false")).toBeUndefined();
+    expect(checkExpr("null == null")).toBeUndefined();
+    expect(checkExpr('contains(lower(params.region), "e")')).toBeUndefined();
+    expect(checkExpr("default(params.attempts, 0) + 1")).toBeUndefined();
+  });
+
+  it("allows a caller to widen the roots, for a custom node type's own fields", () => {
+    // `field` only exists inside a node-type definition, so it must be opt-in
+    // rather than globally legal.
+    expect(checkExpr("field.amount > 1000")).toMatch(/field/);
+    expect(checkExpr("field.amount > 1000", { roots: ["params", "steps", "run", "field"] })).toBeUndefined();
+  });
+});
