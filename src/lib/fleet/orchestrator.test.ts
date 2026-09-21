@@ -1052,3 +1052,122 @@ describe("lease renewal during a run", () => {
     expect(exec).not.toHaveBeenCalled();
   });
 });
+
+describe("live run visibility", () => {
+  // The run record only carried vmId in the object returned when the run
+  // settles, so while a run was actually executing the row had no desktop on
+  // it. The run page keys its "take over / watch live" affordance off that
+  // field, so during the one window where you most want to look at the desktop
+  // it reported "No desktop attached to this run".
+  it("publishes the assigned desktop while the run is still executing", async () => {
+    const client = fakeClient({ "dom-vm1": "running" });
+    const seen: string[] = [];
+    const run = await runWorkflow(
+      { workflow: workflow(), secrets, params, runId: "r_live" },
+      {
+        daemon: testDaemon(client),
+        exec: execReturning({ status: "succeeded", reason: "done", steps: 1, artifacts: [] }),
+        now: now(),
+        onVmAssigned: (vmId: string) => seen.push(`assigned:${vmId}`),
+        onProgress: (_id: string, name: string) => seen.push(`step:${name}`),
+      },
+    );
+
+    expect(run.status).toBe("succeeded");
+    expect(seen).toContain("assigned:vm1");
+    // Announced before the first node ran, not as a footnote once it was over.
+    expect(seen[0]).toBe("assigned:vm1");
+    expect(seen).toContain("step:Log into portal");
+  });
+
+  it("does not announce a desktop for a workflow that never needs one", async () => {
+    const client = fakeClient({ "dom-vm1": "running" });
+    const onVmAssigned = vi.fn();
+    const run = await runWorkflow(
+      { workflow: cliWorkflow(), secrets, params, runId: "r_cli_live" },
+      {
+        daemon: testDaemon(client),
+        exec: async () => ({ code: 0, stdout: "", stderr: "" }),
+        agentExec: async () => ({ code: 0, stdout: '{"type":"result","result":"ok"}', stderr: "" }),
+        now: now(),
+        onVmAssigned,
+      },
+    );
+
+    expect(run.status).toBe("succeeded");
+    expect(onVmAssigned).not.toHaveBeenCalled();
+  });
+});
+
+describe("live run visibility", () => {
+  it("does not strand the desktop when publishing the assignment throws", async () => {
+    const client = fakeClient({ "dom-vm1": "running" });
+    const leases = createMemoryLeaseStore();
+    const daemon = createVmDaemon(client, [testVm()], {
+      waitForTcp: vi.fn(async () => {}),
+      leases,
+    });
+
+    const run = await runWorkflow(
+      { workflow: workflow(), secrets, params, runId: "r_throw" },
+      {
+        daemon,
+        exec: execReturning({ status: "succeeded", reason: "done", steps: 1, artifacts: [] }),
+        now: now(),
+        // The real implementation writes to sqlite here.
+        onVmAssigned: () => {
+          throw new Error("database is locked");
+        },
+      },
+    );
+
+    // The lease is taken before this callback runs but released in a `finally`
+    // much further down, so a throw here used to exit runWorkflow with the
+    // desktop still held until its 6h TTL lapsed.
+    expect(leases.heldDomains(new Date().toISOString())).toEqual([]);
+    expect(run.status).not.toBe("running");
+  });
+});
+
+describe("unimplemented node kinds", () => {
+  // `agent_planner` is a declared NodeKind with an icon and a label in the
+  // graph editor, but the engine has no case for it, so it fell through to the
+  // switch's `default: return "success"`. The node did nothing at all and the
+  // run went green — the worst possible outcome, because the graph looks like
+  // it ran. Anything the engine cannot actually execute has to say so.
+  it("fails loudly instead of silently passing a node it cannot execute", async () => {
+    const client = fakeClient({ "dom-vm1": "running" });
+    const wf: Workflow = {
+      id: "wf_planner",
+      name: "Planner only",
+      description: "",
+      enabled: true,
+      triggerKinds: ["manual"],
+      nodes: [
+        { id: "start", type: "start", name: "Start", position: { x: 0, y: 0 }, config: {} },
+        {
+          id: "p1",
+          type: "agent_planner",
+          name: "Plan the work",
+          position: { x: 1, y: 0 },
+          config: { prompt: "break this down" },
+        },
+        { id: "end", type: "end", name: "End", position: { x: 2, y: 0 }, config: {} },
+      ],
+      edges: [
+        { id: "e1", from: "start", to: "p1", condition: "always" },
+        { id: "e2", from: "p1", to: "end", condition: "success" },
+      ],
+    };
+
+    const run = await runWorkflow(
+      { workflow: wf, secrets, params, runId: "r_planner" },
+      { daemon: testDaemon(client), exec: async () => ({ code: 0, stdout: "", stderr: "" }), now: now() },
+    );
+
+    expect(run.status).toBe("failed");
+    const said = run.events.map((e) => e.message).join(" | ");
+    expect(said).toContain("Plan the work");
+    expect(said).toMatch(/agent_planner/);
+  });
+});

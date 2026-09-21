@@ -14,6 +14,9 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Scratch space (design demos, notes) — untracked, not shipped.
     ".context/**",
+    // The launch-video composition is a standalone HyperFrames project, not app
+    // source: its own toolchain validates it (`npx hyperframes check`).
+    "brag-output/**",
   ]),
 ]);
 

@@ -11,12 +11,15 @@ export type AuthSession = {
 
 /** Branding assets the login page and the outside world need before anyone has
  * signed in: the mark on the sign-in card, the tab icon, the home-screen icon,
- * and the image a link preview fetches. They are a logo, not data. */
+ * the image a link preview fetches, and the launch video plus its poster. They
+ * are marketing, not data — nothing here is derived from a run. */
 const PUBLIC_ASSETS = new Set([
   "/perceo-logo.png",
   "/icon.png",
   "/apple-icon.png",
   "/favicon.ico",
+  "/brag.mp4",
+  "/brag.jpg",
 ]);
 
 /** Paths reachable without auth (login flow + static and branding assets). */

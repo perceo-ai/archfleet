@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildClockSyncCommand,
   buildGuestRunCommand,
   parseGuestReport,
   runComputerUseTask,
@@ -118,5 +119,60 @@ describe("runComputerUseTask", () => {
         okExec({ code: 255, stdout: "", stderr: "ssh: connect refused" }),
       ),
     ).rejects.toThrow(/transport failed/);
+  });
+});
+
+describe("buildClockSyncCommand", () => {
+  const conn = { host: "10.0.0.5", port: 10022, username: "agent", identityFile: "/keys/cuf_id" };
+
+  it("steps the guest clock to the controller's time over non-interactive ssh", () => {
+    const nowMs = Date.UTC(2026, 8, 21, 6, 36, 34);
+    const cmd = buildClockSyncCommand(conn, nowMs);
+
+    expect(cmd.executable).toBe("ssh");
+    expect(cmd.args).toContain("agent@10.0.0.5");
+    expect(cmd.args).toContain("-p");
+    expect(cmd.args).toContain("10022");
+
+    const remote = cmd.args[cmd.args.length - 1];
+    // Seconds since the epoch, so the guest needs no date parsing or timezone.
+    expect(remote).toContain(`date -u -s @${Math.floor(nowMs / 1000)}`);
+    // -n so a missing sudo rule fails fast instead of hanging on a prompt.
+    expect(remote).toContain("sudo -n");
+    // Persist to the RTC, or the skew returns on the next resume.
+    expect(remote).toContain("hwclock");
+  });
+
+  it("gates only on the system clock, not on an RTC the image may not have", () => {
+    // The system clock is what every TLS handshake in the guest reads, so a
+    // failure there has to fail the acquire. Persisting to the RTC is a nicety
+    // and `hwclock` is simply absent from some desktop images — making that
+    // fatal took the whole fleet out of service.
+    const remote = buildClockSyncCommand(conn, Date.UTC(2026, 8, 21, 6, 36, 34)).args.at(-1)!;
+
+    expect(remote).toContain("date -u -s @1789972594");
+    // The RTC half is probed first and swallowed, so it can never be the reason
+    // a desktop is refused.
+    expect(remote).toMatch(/command -v hwclock/);
+    expect(remote).toMatch(/\|\| true/);
+  });
+
+  it("passes the identity file so the controller's key is used", () => {
+    const cmd = buildClockSyncCommand(conn, 0);
+    expect(cmd.args).toContain("-i");
+    expect(cmd.args).toContain("/keys/cuf_id");
+  });
+
+  it("bounds the connect attempt so a wedged guest cannot stall the acquire path", () => {
+    // This runs while a run is waiting for its desktop; an unbounded ssh here
+    // would hold the lease open with nothing to show for it.
+    const cmd = buildClockSyncCommand(conn, 0);
+    expect(cmd.args).toContain("ConnectTimeout=10");
+  });
+
+  it("never blocks on a host-key prompt for a freshly reverted desktop", () => {
+    const cmd = buildClockSyncCommand(conn, 0);
+    expect(cmd.args).toContain("BatchMode=yes");
+    expect(cmd.args).toContain("StrictHostKeyChecking=no");
   });
 });

@@ -1,0 +1,5 @@
+Computer-use agents fail in exactly one place: logins, MFA, captchas.
+
+Archfleet is a local-first fleet manager that runs them on real desktop VMs — and when a run hits a step only a human can do, it pauses, holds the VM, pages you, and hands you the keyboard on that same live desktop. Then it resumes from where it stopped.
+
+Nothing leaves your machine.

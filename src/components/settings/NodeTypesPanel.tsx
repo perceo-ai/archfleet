@@ -10,6 +10,7 @@ import { sendJson, usePolling } from "@/lib/ui/api";
 import { Card, CardHead, Chip, Empty, Field, StaleNotice } from "@/components/ui/primitives";
 import { Drawer } from "@/components/ui/Overlay";
 import { ExprField } from "@/components/automations/workspace/ExprField";
+import { DEFAULT_EXPR_ROOTS } from "@/lib/fleet/expr";
 import {
   NODE_TYPE_PRESETS,
   validateNodeType,
@@ -359,6 +360,8 @@ export function NodeTypesPanel() {
               label="Counts as success when (optional)"
               hint="Leave blank to use the natural outcome — a 2xx response, or exit code 0."
               rows={1}
+              // A definition's own rule can also read the fields it declares.
+              roots={[...DEFAULT_EXPR_ROOTS, "field"]}
               value={draft.successExpr ?? ""}
               placeholder='steps["This step"].body.state == "done"'
               onChange={(successExpr) => setDraft({ ...draft, successExpr: successExpr || undefined })}

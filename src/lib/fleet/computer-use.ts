@@ -107,6 +107,56 @@ export function buildGuestRunCommand(
 }
 
 /**
+ * Build the SSH command that steps a guest's clock to the controller's time.
+ *
+ * The warm snapshot is a RAM snapshot, so reverting restores the clock as it was
+ * when the snapshot was taken. A desktop that has sat unused for a few weeks
+ * wakes up that far in the past, and every TLS handshake inside the guest then
+ * fails with "certificate is not yet valid" — the planner and grounding calls
+ * included. The agent runner retries until its budget is gone, so the operator
+ * sees an unexplained step timeout rather than a clock problem.
+ *
+ * Seconds-since-epoch avoids any date parsing or timezone handling in the guest,
+ * and `hwclock` persists the correction so a later resume does not undo it.
+ */
+export function buildClockSyncCommand(
+  conn: GuestConnection,
+  nowMs: number,
+): { executable: string; args: string[] } {
+  const epochSeconds = Math.floor(nowMs / 1000);
+  // `sudo -n` never waits on a prompt: on a guest without the sudo rule this
+  // fails immediately instead of hanging the acquire path.
+  //
+  // Only the system clock gates the result — that is what every TLS handshake
+  // in the guest reads. Writing it back to the RTC keeps a later resume honest,
+  // but `hwclock` is not present on every desktop image, so it is probed and
+  // swallowed: a missing RTC tool must never be the reason a desktop is refused.
+  const remote =
+    `sudo -n date -u -s @${epochSeconds} && ` +
+    `{ command -v hwclock >/dev/null 2>&1 && sudo -n hwclock --systohc >/dev/null 2>&1 || true; }`;
+
+  const args = [
+    "-p",
+    String(conn.port),
+    "-o",
+    "StrictHostKeyChecking=no",
+    "-o",
+    "UserKnownHostsFile=/dev/null",
+    "-o",
+    "BatchMode=yes",
+    // Bounded: this runs inside acquire, with a run already waiting on the lease.
+    "-o",
+    "ConnectTimeout=10",
+    ...(conn.identityFile ? ["-i", conn.identityFile, "-o", "IdentitiesOnly=yes"] : []),
+    `${conn.username}@${conn.host}`,
+    "--",
+    remote,
+  ];
+
+  return { executable: "ssh", args };
+}
+
+/**
  * Extract the runner's report. The runner prints exactly one report JSON line to
  * stdout, but Agent S internals may also chatter to stdout — so scan for the last
  * line that parses to an object carrying a `status`.

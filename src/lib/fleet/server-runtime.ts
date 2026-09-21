@@ -13,7 +13,14 @@ import { realVmsFromEnv } from "./vm-daemon/fleet-config";
 import { createDbLeaseStore } from "./vm-daemon/lease-store";
 import { mkdirSync } from "node:fs";
 import { basename } from "node:path";
-import { spawnExecRunner, spawnAgentExec, scpFetch, scpPushDir, spawnShellExec } from "./ssh-exec";
+import {
+  spawnExecRunner,
+  spawnAgentExec,
+  scpFetch,
+  scpPushDir,
+  spawnShellExec,
+  spawnClockSync,
+} from "./ssh-exec";
 import { runWorkflow, type OrchestratorDeps } from "./orchestrator";
 import type { GuestConnection } from "./computer-use";
 import type { RunArtifact } from "./types";
@@ -26,6 +33,7 @@ import {
   setRunProgress,
   appendRunEvent,
   appendRunArtifact,
+  setRunVm,
 } from "./db/runs-repo";
 import { getWorkflow } from "./db/workflows-repo";
 import { nodeTypeRegistry } from "./db/node-types-repo";
@@ -164,6 +172,10 @@ export function fleetDaemon(
   return createVmDaemon(client, vms, {
     leases: db ? createDbLeaseStore(db) : undefined,
     now,
+    // Reverting the warm snapshot restores the clock from when it was taken, so
+    // a desktop that has sat idle comes back days in the past and every TLS
+    // call inside the guest fails as "certificate is not yet valid".
+    syncGuestClock: (conn) => spawnClockSync({ ...conn, identityFile: process.env.CUF_SSH_KEY }),
   });
 }
 
@@ -373,6 +385,9 @@ export async function executeRunById(db: Db, runId: string, now = () => new Date
       // minute ago is usable by the next run, no restart.
       customNodeTypes: nodeTypeRegistry(db),
       onProgress: (_nodeId, nodeName) => setRunProgress(db, runId, nodeName),
+      // Attach the desktop the moment it is leased, so "watch live" and "take
+      // over" work during the run instead of only once it has settled.
+      onVmAssigned: (vmId) => setRunVm(db, runId, vmId),
       // Persist computed params as they are set, so they survive a pause and
       // show up on the run record.
       onParam: (name, value) => mergeRunParam(db, runId, name, value),

@@ -466,13 +466,61 @@ function calledFunctions(node: Node, out: string[] = []): string[] {
 
 /** Syntax check for the editor — no context needed. Catches unknown functions
  * too, so what saves is what runs. */
-export function checkExpr(source: string): string | undefined {
+/** What a run puts in front of every rule. `field` is deliberately absent: it
+ * only exists inside a custom node type's own definition, so that caller opts
+ * in rather than making it legal everywhere. */
+export const DEFAULT_EXPR_ROOTS = ["params", "run", "steps"];
+
+/** Every identifier a rule reads at its root — `params.a.b` contributes
+ * `params`, and `steps[params.k]` contributes both. Literals (`true`, `null`)
+ * and function names are not refs, so they never appear here. */
+function referencedRoots(node: Node, out: string[] = []): string[] {
+  switch (node.k) {
+    case "ref":
+      out.push(node.name);
+      break;
+    case "call":
+      node.args.forEach((a) => referencedRoots(a, out));
+      break;
+    case "member":
+      referencedRoots(node.on, out);
+      referencedRoots(node.name, out);
+      break;
+    case "unary":
+      referencedRoots(node.on, out);
+      break;
+    case "binary":
+      referencedRoots(node.left, out);
+      referencedRoots(node.right, out);
+      break;
+    case "cond":
+      referencedRoots(node.test, out);
+      referencedRoots(node.yes, out);
+      referencedRoots(node.no, out);
+      break;
+    default:
+      break;
+  }
+  return out;
+}
+
+export function checkExpr(
+  source: string,
+  opts: { roots?: string[] } = {},
+): string | undefined {
+  const roots = opts.roots ?? DEFAULT_EXPR_ROOTS;
   try {
     const ast = parse(lex(source));
     const unknown = calledFunctions(ast).find(
       (name) => !Object.prototype.hasOwnProperty.call(FUNCTIONS, name),
     );
     if (unknown) return `unknown function "${unknown}"`;
+    // A misspelt root is the silent failure this whole check exists to stop: it
+    // parses, it evaluates, and it is simply always false.
+    const badRoot = referencedRoots(ast).find((name) => !roots.includes(name));
+    if (badRoot) {
+      return `unknown name "${badRoot}" — a rule can read ${[...roots].sort().join(", ")}`;
+    }
     return undefined;
   } catch (e) {
     return e instanceof Error ? e.message : String(e);

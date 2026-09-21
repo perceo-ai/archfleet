@@ -40,6 +40,13 @@ export type VmDaemonOptions = {
   leases?: LeaseStore;
   leaseTtlMs?: number;
   now?: () => string;
+  /** Step the guest's clock after a warm-snapshot revert. The snapshot restores
+   * the clock from when it was taken, so a desktop that has sat unused wakes up
+   * days in the past and every TLS handshake in the guest fails with
+   * "certificate is not yet valid" — which the agent runner only surfaces much
+   * later as an unexplained step timeout. Best-effort: injected so the daemon
+   * stays pure, and a failure here never takes the desktop out of the fleet. */
+  syncGuestClock?: (conn: { host: string; port: number; username: string }) => Promise<void>;
 };
 
 /** Map a libvirt domain state to our fleet-facing VM status. */
@@ -132,6 +139,17 @@ export function createVmDaemon(client: VirshClient, vms: FleetVm[], opts: VmDaem
               opts.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS,
               opts.readyIntervalMs ?? DEFAULT_READY_INTERVAL_MS,
             );
+            // Only the revert can strand the clock in the past, and only once
+            // SSH answers can we fix it. This is part of the reset, not a
+            // nicety: nothing syncs the clock again later, so a guest left in
+            // the past fails every TLS handshake it makes — planner and
+            // grounding included — and the run dies as an unexplained step
+            // timeout minutes later, having consumed a desktop to get there.
+            // Failing the acquire here is the honest, diagnosable outcome; the
+            // catch below releases the lease so the desktop is not stranded.
+            if (!input.keepState && opts.syncGuestClock) {
+              await opts.syncGuestClock(vm.ssh);
+            }
           }
         } catch (e) {
           // Hand the desktop back — holding a lease on a VM we failed to reset

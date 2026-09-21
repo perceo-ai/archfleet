@@ -328,6 +328,43 @@ describe("custom node types", () => {
     expect(result.events.some((e) => e.message.includes('Set "Escalate"'))).toBe(true);
   });
 
+  it("lets a definition's success rule read the fields that node was given", async () => {
+    // `fieldContext` exists to put `field` in front of a definition's own rule,
+    // and the editor accepts `field.*` there — but execution evaluated the rule
+    // with the plain run context, so `field` came back null and a perfectly
+    // good call was marked failed.
+    const threshold: CustomNodeType = {
+      id: "threshold",
+      name: "Threshold call",
+      description: "",
+      base: "http",
+      fields: [{ name: "amount", label: "Amount", type: "text", required: true }],
+      template: '{"url": "https://x", "method": "GET"}',
+      successExpr: "number(field.amount) > 1000",
+      createdAt: "t",
+      updatedAt: "t",
+    };
+    const httpFetch = vi.fn(async () => jsonResponse({ ok: true }));
+    const over = await run(
+      wf(
+        [node("Call", "custom", { customTypeId: "threshold", fields: { amount: "2500" } })],
+        [edge("start", "Call"), edge("Call", "end")],
+      ),
+      { httpFetch: httpFetch as unknown as typeof fetch, customNodeTypes: { threshold } },
+    );
+    expect(over.status).toBe("succeeded");
+
+    const under = await run(
+      wf(
+        [node("Call", "custom", { customTypeId: "threshold", fields: { amount: "10" } })],
+        [edge("start", "Call"), edge("Call", "end")],
+      ),
+      { httpFetch: httpFetch as unknown as typeof fetch, customNodeTypes: { threshold } },
+    );
+    // The rule is genuinely consulted, not just always-true.
+    expect(under.status).toBe("failed");
+  });
+
   it("honours a definition's own success rule", async () => {
     const strict: CustomNodeType = {
       id: "strict",

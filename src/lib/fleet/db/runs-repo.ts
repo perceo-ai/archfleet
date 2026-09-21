@@ -212,7 +212,14 @@ export function deferRun(db: Db, id: string, nextAttemptIso: string): void {
 export function retryRun(db: Db, id: string): boolean {
   const res = db
     .prepare(
-      "UPDATE cuf_runs SET status='queued', finished_at=NULL, next_attempt_at=NULL, paused_reason=NULL WHERE id=? AND status IN ('failed','paused','canceled')",
+      // vm_id is cleared too: the previous attempt's desktop was released (and
+      // reverted) when that attempt ended, but the run view treats a queued run
+      // as live and auto-opens the persisted desktop's takeover endpoint — so a
+      // stale id sends an operator to a wiped or reassigned session.
+      `UPDATE cuf_runs
+          SET status='queued', finished_at=NULL, next_attempt_at=NULL,
+              paused_reason=NULL, vm_id=NULL
+        WHERE id=? AND status IN ('failed','paused','canceled')`,
     )
     .run(id);
   if (res.changes !== 1) return false;
@@ -263,6 +270,14 @@ export function pauseRunIfActive(db: Db, id: string, reason: string): boolean {
 /** Record which node is currently executing (live progress for the run view). */
 export function setRunProgress(db: Db, id: string, currentStep: string): void {
   db.prepare("UPDATE cuf_runs SET current_step=? WHERE id=?").run(currentStep, id);
+}
+
+/** Attach the leased desktop to a run that is still executing, so the run view
+ * can offer "watch live" and "take over" during the run rather than only after
+ * it settles. Touches vm_id alone — the run's own lifecycle is not this
+ * function's business. */
+export function setRunVm(db: Db, id: string, vmId: string): void {
+  db.prepare("UPDATE cuf_runs SET vm_id=? WHERE id=?").run(vmId, id);
 }
 
 /** Write outcome fields after a run settles. Pass null to clear a field. */

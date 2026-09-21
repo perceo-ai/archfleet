@@ -14,6 +14,7 @@ import { resolveTemplate } from "./templating";
 import { evalExpr, evalRule, type ExprContext, type ExprValue } from "./expr";
 import {
   evaluateSuccessExpr,
+  fieldContext,
   missingRequiredFields,
   resolveFields,
   type CustomNodeType,
@@ -62,6 +63,11 @@ export type OrchestratorDeps = {
   emailOtp?: (config: import("./otp-email").EmailOtpConfig) => Promise<string | null>;
   /** Called before each node executes — lets the caller persist live progress. */
   onProgress?: (nodeId: string, nodeName: string) => void;
+  /** Called the moment a desktop is leased, so the run record carries its VM
+   * while the run is still going. Without this the vmId only lands when the run
+   * settles, and the run view cannot offer "watch live" or "take over" during
+   * the one window where either is actually useful. */
+  onVmAssigned?: (vmId: string) => void;
   /** Called as each event is emitted — lets the caller stream events to the run view. */
   onEvent?: (event: RunEvent, seq: number) => void;
   /** Called as each artifact lands — lets the run view show screenshots while running. */
@@ -238,6 +244,19 @@ export async function runWorkflow(
       "info",
       `Assigned ${workflow.name} to ${acquired.vm.name} (XRDP ${acquired.xrdp.host}:${acquired.xrdp.port}).`,
     );
+    // Publish the desktop before the first node runs: a long computer-use node
+    // is exactly when someone wants to watch it or take the keyboard.
+    //
+    // The lease is already claimed here, but it is only released in a `finally`
+    // much further down — so this callback (a database write in production)
+    // must not be allowed to throw past it, or the run exits still marked
+    // running with the desktop held until its TTL lapses. Losing the live
+    // "watch it" affordance is a far smaller failure than losing the desktop.
+    try {
+      deps.onVmAssigned?.(acquired.vm.id);
+    } catch (e) {
+      emit("warn", `Could not record the assigned desktop: ${String(e)}`);
+    }
   }
   const vm = acquired?.ok ? acquired.vm : undefined;
 
@@ -734,8 +753,23 @@ export async function runWorkflow(
       }
       case "custom":
         return runCustomNode(node);
-      default:
-        return "success";
+      // Offered by the graph editor (it has an icon and a label) but nothing
+      // implements it. It used to fall through to `default: return "success"`,
+      // which made it a silent no-op inside a green run — the graph looked like
+      // it had done the work. Fail instead, and say exactly why.
+      case "agent_planner":
+        emit(
+          "error",
+          `Node "${node.name}": the engine has no implementation for "agent_planner" yet, so it cannot be run.`,
+        );
+        return "failure";
+      default: {
+        // Exhaustiveness guard: adding a NodeKind without handling it here is a
+        // compile error rather than a node that quietly reports success.
+        const unreachable: never = node.type;
+        emit("error", `Node "${node.name}": unknown node type "${String(unreachable)}".`);
+        return "failure";
+      }
     }
   };
 
@@ -764,7 +798,11 @@ export async function runWorkflow(
     const rendered = fillPrompt(type.template, fields);
 
     const settle = (outcome: Outcome): Outcome => {
-      const override = evaluateSuccessExpr(type, runContext());
+      // A definition's rule is written against the fields that node was given
+      // ("number(field.amount) > 1000"), so it needs them in scope. Evaluating
+      // it with the bare run context left `field` null and turned a good call
+      // into a failure.
+      const override = evaluateSuccessExpr(type, fieldContext(runContext(), fields));
       if (override === undefined || outcome === "paused") return outcome;
       return override ? "success" : "failure";
     };
