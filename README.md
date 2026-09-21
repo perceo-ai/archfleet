@@ -2,6 +2,14 @@
 
 Local-first fleet manager for computer-use agents. Draw a task on a canvas or describe it in plain language, run it on an isolated desktop VM driven by an autonomous agent, watch every step, and take the keyboard yourself over XRDP when it gets stuck.
 
+## Demo
+
+Twenty seconds of a run: the agent works down the graph, the portal asks for a two-factor code, the run stops on its `human_takeover` node and holds the desktop, you take the keyboard on that same live session, and the run resumes from the step it stopped on.
+
+[![archfleet — the run stops, the desktop is held](public/brag.jpg)](public/brag.mp4)
+
+The video ships with the app (it is served unauthenticated alongside the branding assets), so any deployed instance also serves it at `/brag.mp4` — for example <https://archfleet.madebypranav.dev/brag.mp4>. The storyboard, composition source, and launch caption are in [`brag-output/`](brag-output/).
+
 ## About
 
 Computer-use agents are unreliable exactly where it matters — logins, MFA, captchas, "does this look right?" archfleet wraps them in a durable, inspectable pipeline: real libvirt/QEMU VMs with warm-snapshot reset, encrypted secrets and runtime 2FA that flow to the agent without leaking into logs, and a `human_takeover` node that pauses the run, holds the VM, and pages you to finish the step on the same live desktop. Nothing leaves your machine unless you point it at a remote model.

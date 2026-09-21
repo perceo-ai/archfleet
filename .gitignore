@@ -48,3 +48,7 @@ data/
 *.db-wal
 *.db-shm
 virt/.state/
+
+# brag video render artifacts (the composition source itself is committed)
+brag-output/composition/snapshots/
+brag-output/composition/.thumbnails/
